@@ -32,3 +32,14 @@ final class ClaudeCheckTests: XCTestCase {
         XCTAssertEqual(ClaudeCheck.output("/bin/echo", ["hi"], [:]), "hi\n")
     }
 }
+
+final class ClaudeCheckHangTests: XCTestCase {
+    private func assertGivesUp(_ script: String) {
+        let start = Date()
+        XCTAssertNil(ClaudeCheck.output("/bin/sh", ["-c", script], [:], timeout: 0.3), script)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 3, script)
+    }
+
+    func testIgnoringSIGTERM() { assertGivesUp("trap '' TERM; sleep 5") }
+    func testGrandchildHoldingTheOutput() { assertGivesUp("sleep 5 & echo hi") }
+}

@@ -24,21 +24,8 @@ public enum LoginShell {
     /// The last non-empty output line of `command` in an interactive login zsh (`-ilc`: ~/.zshrc is where PATH usually
     /// grows), or nil after 5 s. launchd starts the engine with a bare environment; this is the user's.
     public static func run(_ command: String) -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-ilc", command]
-        p.standardInput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        guard (try? p.run()) != nil else { return nil }
-        let timeout = DispatchWorkItem { if p.isRunning { p.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: timeout)
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        timeout.cancel()
-        return String(decoding: data, as: UTF8.self).split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty }
+        ClaudeCheck.output("/bin/zsh", ["-ilc", command], ProcessInfo.processInfo.environment, timeout: 5)?
+            .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty }
     }
 }
 
@@ -55,7 +42,7 @@ enum ClaudeCheck {
     }
 
     /// Standard output of `executable args`, whatever its exit code (`auth status` exits 1 when signed out); nil if it cannot
-    /// start or is still running after `timeout` seconds (it is then terminated).
+    /// start or does not finish within `timeout` seconds (it is then killed), even if a grandchild keeps its output open.
     static func output(_ executable: String, _ args: [String], _ environment: [String: String],
                        timeout: TimeInterval = 10) -> String? {
         let p = Process()
@@ -67,11 +54,14 @@ enum ClaudeCheck {
         let pipe = Pipe()
         p.standardOutput = pipe
         guard (try? p.run()) != nil else { return nil }
-        let timer = DispatchWorkItem { if p.isRunning { p.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer)
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        var data = Data()
+        let read = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async { data = pipe.fileHandleForReading.readDataToEndOfFile(); read.signal() }
+        guard read.wait(timeout: .now() + timeout) == .success else {
+            if p.isRunning { kill(p.processIdentifier, SIGKILL) }
+            return nil   // ponytail: a grandchild holding stdout keeps this one reader thread parked until it exits
+        }
         p.waitUntilExit()
-        timer.cancel()
         return p.terminationReason == .exit ? String(decoding: data, as: UTF8.self) : nil
     }
 }
