@@ -151,7 +151,7 @@ private struct ChatContent: View {
                             .padding(.top, gap(items.last, .user(id: "", text: "", origin: .chat, at: .now)))
                     }
                     if needsClaudeHelp {
-                        ClaudeHelpCard(client: client, botId: summary.bot.id).padding(.top, 14)
+                        ClaudeHelpCard(client: client).padding(.top, 14)
                     }
                     if let a = working {
                         LiveStatus(summary: summary, activity: a).padding(.top, 14)

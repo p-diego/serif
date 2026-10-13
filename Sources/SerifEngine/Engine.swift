@@ -210,6 +210,11 @@ public final class Engine {
                 let waiters = claudeWaiters
                 claudeWaiters = []
                 waiters.forEach { $0(status) }
+                // Fixed: the bots stopped for Claude Code start by themselves (the app's Retry only asks for a check).
+                guard status.problem == nil else { return }
+                for rt in bots.values {
+                    if case let .crashed(reason, nil) = rt.tracker.state, ClaudeProblem(rawValue: reason) != nil { launch(rt) }
+                }
             }
         }
     }

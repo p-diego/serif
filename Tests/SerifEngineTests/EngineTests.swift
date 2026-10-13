@@ -288,6 +288,23 @@ final class EngineTests: XCTestCase {
         waitFor(client, "ready after Retry") { $0.summaries(bot.id).contains { $0.state == .ready } }
     }
 
+    func testBotsStoppedForClaudeCodeStartOnceACheckFindsItFine() throws {
+        let flag = root.path + "/logged-out"
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_LOGGED_OUT": flag])
+        FileManager.default.createFile(atPath: flag, contents: nil)
+        try engine.start()
+        let client = try connect()
+        let first = try createBot(client)
+        let second = try createBot(client, in: first.projectId)
+        let stopped = BotState.crashed(reason: ClaudeProblem.notSignedIn.rawValue, retryAt: nil)
+        waitFor(client, "both stopped: not signed in") { m in [first, second].allSatisfy { m.summaries($0.id).contains { $0.state == stopped } } }
+
+        try FileManager.default.removeItem(atPath: flag)                // the user signs in, then Retry asks for a check
+        guard case .claudeStatus = request(client, .claudeStatus) else { return XCTFail("no status") }
+        XCTAssertEqual(try launches(2).count, 2)
+        waitFor(client, "both ready") { m in [first, second].allSatisfy { m.summaries($0.id).contains { $0.state == .ready } } }
+    }
+
     func testCrashChecksClaudeCodeAgain() throws {
         let flag = root.path + "/logged-out"
         try makeEngine("crash", env: ["SERIF_FAKE_LOGGED_OUT": flag]).start()
@@ -318,8 +335,7 @@ final class EngineTests: XCTestCase {
         FileManager.default.createFile(atPath: installed, contents: nil) // the user installs Claude Code, then presses Retry
         guard case let .claudeStatus(found) = request(client, .claudeStatus) else { return XCTFail("no status") }
         XCTAssertEqual(found, ClaudeStatus(path: fake, version: "2.1.296", loggedIn: true, email: "bot@example.com"))
-        XCTAssertEqual(request(client, .restartBot(id: bot.id)), .ok)
-        waitFor(client, "ready after Retry") { $0.summaries(bot.id).contains { $0.state == .ready } }
+        waitFor(client, "ready after Retry") { $0.summaries(bot.id).contains { $0.state == .ready } }    // no restart needed
     }
 
     func testChatEventsStateAndUnread() throws {

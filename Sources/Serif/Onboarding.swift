@@ -84,11 +84,10 @@ struct OnboardingView: View {
 }
 
 /// Claude Code installed and signed in, as the engine sees it (spec §4 step 2). Retry checks again; the first launch adds
-/// Continue (on once nothing keeps bots from starting: an unknown sign-in does not), a stopped bot's card also restarts it.
+/// Continue (on once nothing keeps bots from starting: an unknown sign-in does not). A check that finds Claude Code fine
+/// also starts the bots it had stopped (the engine does it).
 struct ClaudeCheckView: View {
     let client: EngineClient
-    /// After Retry's check; the spinner stays until it returns.
-    var onRetry: (() async -> Void)?
     var onContinue: (() -> Void)?
     @State private var status: ClaudeStatus?
     @State private var checking = true
@@ -107,7 +106,7 @@ struct ClaudeCheckView: View {
             HStack(spacing: 10) {
                 Spacer()
                 if checking { ProgressView().controlSize(.small) }
-                CardButton(title: String(localized: "Retry"), enabled: !checking) { Task { await check(then: onRetry) } }
+                CardButton(title: String(localized: "Retry"), enabled: !checking) { Task { await check() } }
                 if let onContinue {
                     CardButton(title: String(localized: "Continue"), style: .primary,
                                enabled: !checking && status != nil && status?.problem == nil, action: onContinue)
@@ -116,14 +115,13 @@ struct ClaudeCheckView: View {
             }
         }
         .font(.system(size: Theme.Size.body))
-        .task { await check(then: nil) }
+        .task { await check() }
     }
 
     /// The engine's check can take up to ~20 s (`claude auth status` has 10 s): the spinner shows it is not stuck.
-    private func check(then: (() async -> Void)?) async {
+    private func check() async {
         checking = true
         status = try? await client.claudeStatus()
-        await then?()
         checking = false
     }
 
@@ -173,21 +171,15 @@ struct ClaudeCheckView: View {
     }
 }
 
-/// In the chat of a bot stopped because Claude Code is missing or signed out (spec §4): the first launch's check; Retry
-/// also restarts the bot.
+/// In the chat of a bot stopped because Claude Code is missing or signed out (spec §4): the first launch's check. Once a
+/// check finds it fine the engine starts the bot and this card goes away.
 struct ClaudeHelpCard: View {
     let client: EngineClient
-    let botId: UUID
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(String(localized: "This bot cannot start")).font(.system(size: Theme.Size.body, weight: .medium))
-            ClaudeCheckView(client: client, onRetry: {
-                try? await client.restart(bot: botId)
-                // Fixed: the bot starts and this card goes away. Still broken: the engine checks again before it stops the
-                // bot with the same reason (no visible change), so the spinner stays a little while.
-                try? await Task.sleep(for: .seconds(3))
-            })
+            ClaudeCheckView(client: client)
         }
         .padding(12).frame(maxWidth: 420, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Theme.botBubble))
