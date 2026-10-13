@@ -28,7 +28,7 @@ struct CatalogPicker: View {
                 }
             }
             if kind == .skills {
-                if !items.isEmpty { Divider() }
+                if !offered.isEmpty { Divider() }
                 Button(String(localized: "From a folder…"), action: chooseFolder)
             }
         }
