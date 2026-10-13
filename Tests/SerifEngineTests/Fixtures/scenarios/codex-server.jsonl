@@ -1,0 +1,2 @@
+{"after": "turn/start", "send": [{"method": "turn/started", "params": {"threadId": "$THREAD", "turn": {"id": "$TURN", "status": "inProgress"}}}, {"id": 0, "method": "item/commandExecution/requestApproval", "params": {"threadId": "$THREAD", "turnId": "$TURN", "itemId": "exec-1", "command": "touch a.txt", "availableDecisions": ["accept", "cancel"]}}]}
+{"after": "answer", "send": [{"method": "serverRequest/resolved", "params": {"threadId": "$THREAD", "requestId": 0}}], "exit": 3}
