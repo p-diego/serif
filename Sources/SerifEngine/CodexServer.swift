@@ -28,7 +28,7 @@ final class CodexServer {
     private(set) var port = 0
 
     private let session = URLSession(configuration: .ephemeral)
-    private var launch: Launch?
+    private(set) var launch: Launch?
     private var process: Process?
     private var webSocket: URLSessionWebSocketTask?
     private var starting: ((Failure?) -> Void)?

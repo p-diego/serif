@@ -3,8 +3,8 @@ import Network
 import CryptoKit
 import SerifCore
 
-// Stands in for `codex` in the tests (never the real one): its checks, and its app-server (WebSocket JSON-RPC, answering
-// like Codex 0.160 and playing a scenario).
+// Stands in for `codex` in the tests (never the real one): its checks, its app-server (WebSocket JSON-RPC, answering
+// like Codex 0.160 and playing a scenario) and its terminal (`codex resume`).
 let env = ProcessInfo.processInfo.environment
 let args = Array(CommandLine.arguments.dropFirst())
 
@@ -36,6 +36,15 @@ case "login":
         FileHandle.standardError.write(Data("Not logged in\n".utf8)); exit(1)
     }
     FileHandle.standardError.write(Data("Logged in using ChatGPT\n".utf8))
+    exit(0)
+case "resume":
+    // The terminal: says which thread it shows and whether it got the secret, then echoes what is typed. With
+    // SERIF_FAKE_CODEX_TUI_STUBBORN it ignores SIGTERM, so only the SIGKILL 3 s later ends it.
+    logLaunch()
+    if env["SERIF_FAKE_CODEX_TUI_STUBBORN"] != nil { signal(SIGTERM, SIG_IGN) }
+    print("CODEX-TUI \(args.last ?? "") \(env["SERIF_CODEX_TOKEN"].map { _ in "token" } ?? "no-token")\r")
+    var buffer = [UInt8](repeating: 0, count: 1024)
+    while case let n = read(0, &buffer, buffer.count), n > 0 { FileHandle.standardOutput.write(Data(buffer[0..<n])) }
     exit(0)
 case "app-server":
     break

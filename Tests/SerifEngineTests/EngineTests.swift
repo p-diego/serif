@@ -1174,4 +1174,123 @@ final class EngineTests: XCTestCase {
         waitUntil("relaunched") { [unowned self] in (try? codexServers(bot).count) ?? 0 >= 2 }
         XCTAssertTrue(try XCTUnwrap(codexServers(bot).last).args.contains("plugins.browser@openai-bundled.enabled=true"))
     }
+
+    func testCodexTerminalOpensAfterTheFirstTurn() throws {
+        // Review Focus 5: before its first turn a thread cannot be shown; the terminal opens as soon as one started.
+        let engine = try makeEngine("basic", codex: "codex-no-first-turn")
+        try engine.start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "introduction refused") { $0.chatEvents(bot.id).contains(.turnFailed(reason: "Codex: busy")) }
+        XCTAssertEqual(request(client, .attachTerminal(botId: bot.id)), .error(CodexText.terminalNotYet))
+        XCTAssertFalse(try launches(1).contains { $0.args.first == "resume" })
+        XCTAssertEqual(request(client, .send(botId: bot.id, text: "ciao")), .ok)
+        waitFor(client, "thread kept") { $0.summaries(bot.id).contains { $0.bot.threadId == "thr-1" } }
+        guard case .terminal = request(client, .attachTerminal(botId: bot.id)) else { return XCTFail("terminal refused") }
+        waitFor(client, "terminal") { $0.terminalText.contains("CODEX-TUI thr-1 token") }
+        let tui = try XCTUnwrap(launches(1).first { $0.args.first == "resume" })
+        let server = try XCTUnwrap(codexServers(bot).last)
+        XCTAssertEqual(tui.args, ["resume", "--remote", "ws://127.0.0.1:\(server.args[2].split(separator: ":").last!)",
+                                  "--remote-auth-token-env", "SERIF_CODEX_TOKEN", "--no-alt-screen", "thr-1"])
+        // The terminal holds the server's own secret.
+        XCTAssertEqual(codexTokenHash(try XCTUnwrap(tui.env["SERIF_CODEX_TOKEN"])), server.args[server.args.firstIndex(of: "--ws-token-sha256")! + 1])
+    }
+
+    func testCodexTerminalRunsOnlyWhileShown() throws {
+        let engine = try makeEngine("basic")
+        try engine.start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        let running = { engine.queue.sync { engine.bots[bot.id]?.host.isRunning ?? false } }
+        XCTAssertFalse(running())                        // no terminal until an app shows it (spec §4)
+        guard case .terminal = request(client, .attachTerminal(botId: bot.id)) else { return XCTFail("terminal refused") }
+        waitFor(client, "terminal") { $0.terminalText.contains("CODEX-TUI thr-1") }
+        request(client, .terminalInput(botId: bot.id, data: Data("ping".utf8)))
+        waitFor(client, "echo") { $0.terminalText.contains("ping") }
+        XCTAssertEqual(request(client, .detachTerminal(botId: bot.id)), .ok)
+        let stopped = expectation(description: "terminal stopped")
+        let poll = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { t in if !running() { t.invalidate(); stopped.fulfill() } }
+        wait(for: [stopped], timeout: timeout)
+        poll.invalidate()
+        XCTAssertEqual(client.all.summaries(bot.id).last?.state, .ready)      // the bot goes on without it
+        // An app that goes away takes its terminal with it.
+        let other = try connect()
+        guard case .terminal = request(other, .attachTerminal(botId: bot.id)) else { return XCTFail("terminal refused") }
+        XCTAssertTrue(running())
+        other.close()
+        let gone = expectation(description: "terminal stopped with the app")
+        let poll2 = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { t in if !running() { t.invalidate(); gone.fulfill() } }
+        wait(for: [gone], timeout: timeout)
+        poll2.invalidate()
+    }
+
+    func testCodexTerminalShownAgainWhileClosingStartsAgain() throws {
+        // An app that leaves the terminal and comes back at once (a view switched back, a reconnection) gets a running one
+        // once the closing one has gone; the engine's shutdown leaves none behind.
+        let engine = try makeEngine("basic")
+        try engine.start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        guard case .terminal = request(client, .attachTerminal(botId: bot.id)) else { return XCTFail("terminal refused") }
+        waitFor(client, "terminal") { $0.terminalText.contains("CODEX-TUI thr-1") }
+        let ((left, _), (back, _)) = (client.send(.detachTerminal(botId: bot.id)), client.send(.attachTerminal(botId: bot.id)))
+        wait(for: [left, back], timeout: timeout)
+        // The catalog's server, the bot's, then two terminals.
+        XCTAssertEqual(try launches(4).filter { $0.args.first == "resume" }.count, 2)
+        waitUntil("running again") { engine.queue.sync { engine.bots[bot.id]?.host.isRunning ?? false } }
+        shutdown(engine)
+        XCTAssertFalse(engine.queue.sync { engine.bots[bot.id]?.host.isRunning ?? false })
+    }
+
+    func testCodexTerminalGoesWithItsServerAndItsBot() throws {
+        // A server that dies takes its terminal along, the relaunched one brings it back for the app still showing it, and
+        // an archived bot leaves none behind; even a terminal slow to go (killed 3 s after SIGTERM, past the relaunch).
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_CODEX_TUI_STUBBORN": "1"])
+        try engine.start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        let running = { engine.queue.sync { engine.bots[bot.id]?.host.isRunning ?? false } }
+        guard case .terminal = request(client, .attachTerminal(botId: bot.id)) else { return XCTFail("terminal refused") }
+        waitFor(client, "terminal") { $0.terminalText.contains("CODEX-TUI thr-1 token") }
+        let pidFile = paths.bot(bot.id).dir.appendingPathComponent("codex.pid").path
+        kill(try XCTUnwrap(pid_t(try String(contentsOfFile: pidFile, encoding: .utf8).split(separator: " ")[0])), SIGKILL)
+        // A host runs one process at a time: the second terminal means the first has gone.
+        waitFor(client, "terminal back") { $0.terminalText.components(separatedBy: "CODEX-TUI thr-1 token").count == 3 }
+        XCTAssertEqual(request(client, .archiveBot(id: bot.id)), .ok)
+        waitFor(client, "archived") { $0.summaries(bot.id).last?.state == .stopped }
+        XCTAssertFalse(running())
+    }
+
+    func testCodexTerminalShownDuringARestartOpensOnTheNewServer() throws {
+        // Shown while its bot restarts, the terminal waits for the new server: never one on the server going away.
+        let engine = try makeEngine("basic")
+        try engine.start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        let ((restarted, _), (shown, _)) = (client.send(.restartBot(id: bot.id)), client.send(.attachTerminal(botId: bot.id)))
+        wait(for: [restarted, shown], timeout: timeout)
+        XCTAssertFalse(engine.queue.sync { engine.bots[bot.id]?.host.isRunning ?? false }, "a terminal on the server going away")
+        waitFor(client, "terminal") { $0.terminalText.contains("CODEX-TUI thr-1 token") }
+        let server = try XCTUnwrap(codexServers(bot).last)
+        XCTAssertEqual(try launches(1).filter { $0.args.first == "resume" }.map { $0.args[2] }, [server.args[2]])
+    }
+
+    func testCodexLeavesTheOtherThreadsOfItsServerAlone() throws {
+        // The terminal can open another thread on the bot's server (/new, /resume): its events are not the bot's chat, its
+        // turn is never steered, its requests are left to the terminal.
+        try makeEngine("basic", codex: "codex-other-thread").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        XCTAssertEqual(client.all.chatEvents(bot.id).map(label), ["system(botCreated)", "userMessage", "assistantText", "turnEnded"])
+        XCTAssertTrue(client.all.openedRequests.isEmpty)
+        XCTAssertEqual(request(client, .send(botId: bot.id, text: "Ancora")), .ok)
+        waitUntil("a turn of its own") { [unowned self] in codexRequests("turn/start").count == 2 }
+        XCTAssertTrue(codexRequests("turn/steer").isEmpty)
+        XCTAssertFalse(codexMessages().contains { $0["id"] == 9 && $0["method"] == nil })     // neither answered nor refused
+    }
 }

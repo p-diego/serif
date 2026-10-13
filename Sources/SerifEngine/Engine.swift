@@ -285,7 +285,7 @@ public final class Engine {
     }
 
     /// Stops the bot's process (a Codex bot's server, and its terminal with it); `then` runs once it has exited (at once if
-    /// it was not running).
+    /// it was not running): for a Codex bot, once both have, so neither outlives a shutdown.
     func stop(_ rt: BotRuntime, then: @escaping () -> Void) {
         rt.restart?.cancel()
         rt.restart = nil
@@ -296,8 +296,11 @@ public final class Engine {
             then()
         }
         guard let server = rt.codex else { return rt.host.stop(then: done) }
-        rt.host.stop {}
-        server.stop(then: done)
+        let both = DispatchGroup()
+        both.enter(); both.enter()
+        rt.host.stop { both.leave() }
+        server.stop { both.leave() }
+        both.notify(queue: queue, execute: done)
     }
 
     func restart(_ rt: BotRuntime) {
@@ -417,7 +420,7 @@ extension Engine: BotHostDelegate {
     }
 
     public func botHost(_ host: BotHost, screen signals: Set<ScreenSignal>) {
-        guard let rt = bots[host.botId] else { return }
+        guard let rt = bots[host.botId], rt.bot.agent == .claude else { return }      // Codex's terminal is only a view
         if !signals.isDisjoint(with: [.trustPrompt, .trustConfirm]) { answerTrust(rt) }
         // Only during a turn: a resumed conversation shows its last "Interrupted" again on screen (seen live).
         if signals.contains(.interrupted), rt.tracker.state.inTurn { interrupted(rt) }
@@ -443,7 +446,8 @@ extension Engine: BotHostDelegate {
     public func botHostStarted(_ host: BotHost) {}
 
     public func botHost(_ host: BotHost, exited code: Int32?, ranFor: TimeInterval) {
-        guard let rt = bots[host.botId] else { return }
+        // A Codex terminal that closes is not the bot: its server goes on (spec §4).
+        guard let rt = bots[host.botId], rt.bot.agent == .claude else { return }
         exited(rt, ranFor: ranFor, code: code)
     }
 }

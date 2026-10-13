@@ -188,6 +188,7 @@ extension Engine {
         push(.botChanged(rt.summary))
         if resumed { record(.system(.resumed), rt) }
         deliverCodex(rt)
+        terminalViewersChanged(rt)      // an app that kept the terminal open across a restart
     }
 
     // MARK: - Ending
@@ -197,7 +198,7 @@ extension Engine {
     func codexEnded(_ rt: BotRuntime) {
         rt.startup?.cancel()
         (rt.codex, rt.codexReady, rt.thread, rt.turnId, rt.turnStarting, rt.startup) = (nil, false, nil, nil, false, nil)
-        rt.host.stop {}
+        stopTerminal(rt)
         closeRequests(of: rt, .cancelled)
         if rt.tracker.state.inTurn { record(.turnInterrupted, rt) }
     }
@@ -269,6 +270,13 @@ extension Engine {
 
     /// One message of the bot's server, in order: the running turn and the thread kept, then the chat and the cards.
     func codexMessage(_ message: CodexMessage, _ rt: BotRuntime) {
+        // Another thread on this server (the terminal's /new or /resume) is not the bot's: its events, turns and requests
+        // are left to the terminal.
+        switch message {
+        case let .notification(_, p), let .request(_, _, p):
+            if let thread = p["threadId"]?.string, thread != rt.thread { return }
+        case .response, .failure: break
+        }
         var finished = false
         if case let .notification(method, p) = message {
             switch method {
@@ -299,7 +307,30 @@ extension Engine {
         rt.bot.threadId = thread
         do { try store.save(bot: rt.bot) } catch { log("cannot save the thread of \(rt.bot.id): \(error)") }
         push(.botChanged(rt.summary))
+        terminalViewersChanged(rt)
     }
+
+    // MARK: - Terminal
+
+    /// A Codex bot's real terminal runs only while some app shows it (spec §4): started for the first view once the thread
+    /// has a turn and the server is ready, stopped after the last view.
+    func terminalViewersChanged(_ rt: BotRuntime) {
+        guard rt.bot.agent == .codex else { return }
+        guard apps.values.contains(where: { $0.terminals.contains(rt.bot.id) }) else {
+            if rt.host.isRunning { stopTerminal(rt) }
+            return
+        }
+        // Never on a server being stopped (its next launch's `codexReady` asks again); the server's own Codex, since
+        // `statuses` forgets it while any Codex bot is crashed.
+        guard !rt.host.isRunning, !rt.stopping, rt.codexReady, let thread = rt.bot.threadId, let server = rt.codex,
+              let path = server.launch?.executable else { return }
+        rt.host.start(codexTerminalPlan(codexPath: path, threadId: thread, port: server.port, token: rt.codexToken,
+                                        cwd: paths.bot(rt.bot.id).workspace.path, baseEnvironment: environment))
+    }
+
+    /// Stops the terminal, and looks again once it has gone: shown again meanwhile, or its server relaunched and ready
+    /// before it went, it starts anew. One that exits by itself stays closed until shown again.
+    private func stopTerminal(_ rt: BotRuntime) { rt.host.stop { [weak self] in self?.terminalViewersChanged(rt) } }
 
     /// The Codex servers an engine that died (SIGKILL, a crash) left running, from their pid files: stopped like any other
     /// (SIGTERM, SIGKILL after 3 s). A pid reused since by another program, another `codex app-server` (the ChatGPT app's,

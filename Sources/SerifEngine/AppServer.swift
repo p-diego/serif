@@ -7,7 +7,11 @@ extension Engine {
         let key = ObjectIdentifier(connection)
         apps[key] = (connection, [])
         connection.onLine = { [weak self] line in self?.appLine(line, from: connection) }
-        connection.onClose = { [weak self] in self?.apps[key] = nil }
+        connection.onClose = { [weak self] in
+            guard let self else { return }
+            let shown = apps.removeValue(forKey: key)?.terminals ?? []
+            shown.compactMap { self.bots[$0] }.forEach(terminalViewersChanged)
+        }
     }
 
     private func appLine(_ line: Data, from connection: LineConnection) {
@@ -162,11 +166,16 @@ extension Engine {
             push(.botChanged(rt.summary))
             return .ok
         case let .attachTerminal(botId):
-            let replay = try runtime(botId).host.replay()
+            let rt = try runtime(botId)
+            // Codex shows a thread in its terminal only once it has a turn (spec §3.5): the app shows a placeholder.
+            if rt.bot.agent == .codex, rt.bot.threadId == nil { throw Refusal(CodexText.terminalNotYet) }
             apps[ObjectIdentifier(connection)]?.terminals.insert(botId)
+            terminalViewersChanged(rt)
+            let replay = rt.host.replay()
             return .terminal(seq: replay.seq, data: replay.data)
         case let .detachTerminal(botId):
             apps[ObjectIdentifier(connection)]?.terminals.remove(botId)
+            if let rt = bots[botId] { terminalViewersChanged(rt) }
             return .ok
         case let .terminalInput(botId, data):
             try runtime(botId).host.write(Array(data))
