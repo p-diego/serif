@@ -73,6 +73,12 @@ public final class Engine {
     /// Codex's catalog (spec §6) and when it was read; the calls waiting for one being read.
     var codexCatalogRead: (catalog: CodexCatalog, at: Date)?
     var codexCatalogWaiters: [(CodexCatalog?) -> Void] = []
+    /// The service server of the reading in progress, and what ends that reading (answers the waiters, stops the server).
+    var codexCatalogServer: CodexServer?
+    var codexCatalogFinish: ((CodexCatalog?) -> Void)?
+    /// How long a reading asks again for remote skills, and the limit for a Codex that does not answer at all.
+    var codexCatalogPollLimit: TimeInterval = 18
+    var codexCatalogHardLimit: TimeInterval = 20
     let hookCommand: String
     let environment: [String: String]
     let store: Store
@@ -122,6 +128,11 @@ public final class Engine {
             servers.forEach { $0.close() }
             servers = []
             let group = DispatchGroup()
+            if let server = codexCatalogServer {        // a catalog being read: its waiters get nil, its process goes
+                group.enter()
+                codexCatalogFinish?(nil)
+                server.stop { group.leave() }
+            }
             for rt in bots.values {
                 group.enter()
                 stop(rt) { [self] in

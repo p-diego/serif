@@ -666,4 +666,48 @@ final class EngineTests: XCTestCase {
         let client = try connect()
         XCTAssertEqual(request(client, .codexCatalog), .error("Codex did not answer"))
     }
+
+    func testRemotePluginWithoutSkillsStillGetsTheCatalog() throws {
+        let engine = try makeEngine("basic", codex: "codex-no-remote-skills")
+        engine.codexCatalogPollLimit = 2        // short, so the test is fast; the hard limit stays 20 s
+        try engine.start()
+        let client = try connect()
+        guard case let .codexCatalog(catalog) = request(client, .codexCatalog) else { return XCTFail("no catalog") }
+        XCTAssertTrue(catalog.plugins.map(\.id).contains("work-pets@openai-curated-remote"))
+        XCTAssertNil(catalog.remoteSkills["work-pets@openai-curated-remote"])
+    }
+
+    func testFailedPluginListIsNoCatalogAndNotKept() throws {
+        try makeEngine("basic", codex: "codex-plugins-fail").start()
+        let client = try connect()
+        XCTAssertEqual(request(client, .codexCatalog), .error("Codex did not answer"))
+        XCTAssertEqual(request(client, .codexCatalog), .error("Codex did not answer"))     // read again (a new fake fails again)
+        XCTAssertEqual(codexRequests("plugin/list").count, 2)
+    }
+
+    func testConcurrentCatalogRequestsShareOneServer() throws {
+        try makeEngine("basic").start()
+        let (a, b) = (try connect(), try connect())
+        let ((ea, ida), (eb, idb)) = (a.send(.codexCatalog), b.send(.codexCatalog))
+        wait(for: [ea, eb], timeout: timeout)
+        guard case .codexCatalog = a.response(ida), case .codexCatalog = b.response(idb) else { return XCTFail("no catalog") }
+        XCTAssertEqual(try launches(1).filter { $0.args.first == "app-server" }.count, 1)
+    }
+
+    func testShutdownDuringACatalogReadStopsItsServer() throws {
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_CODEX_DELAY": "5"])
+        try engine.start()
+        var answers: [CodexCatalog?] = []
+        let answered = expectation(description: "answered")
+        engine.queue.async { engine.codexCatalog { answers.append($0); answered.fulfill() } }
+        _ = try launches(1)
+        let server = try XCTUnwrap(engine.queue.sync { engine.codexCatalogServer })
+        shutdown(engine)
+        wait(for: [answered], timeout: timeout)
+        XCTAssertNil(answers.first ?? nil)
+        XCTAssertFalse(engine.queue.sync { server.isRunning }, "its process is gone")
+        engine.queue.sync { engine.codexCatalog { answers.append($0) } }
+        XCTAssertEqual(answers.count, 2, "refused at once while stopping")
+        XCTAssertNil(engine.queue.sync { engine.codexCatalogServer })
+    }
 }
