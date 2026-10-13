@@ -119,4 +119,23 @@ final class StoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.bot(bot.id).workspace.path, isDirectory: &isDir) && isDir.boolValue)
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.shared(project.id).path, isDirectory: &isDir) && isDir.boolValue)
     }
+
+    func testStateWrittenBy03Loads() throws {
+        // As Serif 0.3 saved them: no Codex plugins, no thread (spec §6, §4).
+        let state = #"""
+        {"projects":[{"id":"11111111-1111-4111-8111-111111111111","name":"P","createdAt":"2026-10-12T10:00:00.000Z",
+                      "readLinkedInstructions":true,"skills":["/s/tidy"],"plugins":["figma"]}],
+         "bots":[{"id":"22222222-2222-4222-8222-222222222222","projectId":"11111111-1111-4111-8111-111111111111",
+                  "name":"Bob","face":{"shape":"ball","body":15087423,"eyes":16119804,"eyeSize":1,"eyeLift":0,"eyeSpread":1},
+                  "agent":"claude","instructions":"","freedom":"ask","sessionId":"33333333-3333-4333-8333-333333333333",
+                  "notifications":true,"pinned":false,"createdAt":"2026-10-12T10:00:00.000Z",
+                  "skills":[],"plugins":[],"connectors":false}]}
+        """#
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(state.utf8).write(to: paths.stateFile)
+        let store = try Store(paths: paths)
+        XCTAssertEqual(store.projects.first?.plugins, ["figma"])
+        XCTAssertEqual(store.projects.first?.codexPlugins, [])
+        XCTAssertNil(try XCTUnwrap(store.bots.first).threadId)
+    }
 }

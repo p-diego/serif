@@ -546,6 +546,34 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(try launches(1).count, 1, "renaming the project relaunched its bot")
     }
 
+    func testAgentAndThreadStayTheEngines() throws {
+        try makeEngine("basic").start()
+        let client = try connect()
+        var bot = try createBot(client)
+        _ = try launches(1)
+        bot.agent = .codex                       // the agent never changes (spec §2)
+        bot.threadId = "made-up"                 // Codex's thread is the engine's to keep
+        bot.name = "Robert"
+        guard case let .bot(saved) = request(client, .updateBot(bot)) else { return XCTFail("update refused") }
+        XCTAssertEqual(saved.agent, .claude)
+        XCTAssertNil(saved.threadId)
+        XCTAssertEqual(saved.name, "Robert")
+    }
+
+    func testEachAgentRestartsForItsOwnPlugins() throws {
+        try makeEngine("basic").start()
+        let client = try connect()
+        _ = try createBot(client)
+        _ = try launches(1)
+        guard case let .snapshot(snapshot) = request(client, .snapshot), var project = snapshot.projects.first
+        else { return XCTFail("no project") }
+        project.codexPlugins = ["browser@openai-bundled"]
+        guard case let .project(saved) = request(client, .updateProject(project)) else { return XCTFail("project update refused") }
+        XCTAssertEqual(saved.codexPlugins, ["browser@openai-bundled"])
+        Thread.sleep(forTimeInterval: 1.5)       // a relaunch would have logged a second launch by now
+        XCTAssertEqual(try launches(1).count, 1, "Codex plugins restarted a Claude Code bot")
+    }
+
     func testPlanApprovalNeedsTheScreenAndKilledHookCancels() throws {
         try makeEngine("plan").start()
         let client = try connect()

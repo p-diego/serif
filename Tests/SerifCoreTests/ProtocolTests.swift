@@ -94,6 +94,15 @@ final class ProtocolTests: XCTestCase {
         try assertRoundTrip(record)
     }
 
+    func testCodexFieldsRoundTrip() throws {
+        var codexBot = bot
+        (codexBot.agent, codexBot.threadId) = (.codex, "thr-1")
+        try assertRoundTrip(AppRequest.updateBot(codexBot))
+        var codexProject = project
+        codexProject.codexPlugins = ["browser@openai-bundled"]
+        try assertRoundTrip(AppRequest.updateProject(codexProject))
+    }
+
     func testRequestAnswersRoundTrip() throws {
         let answers: [RequestAnswer] = [
             .allow, .allowSession, .deny(message: nil), .answers(["Quale?": ["A", "B"]]),

@@ -27,12 +27,15 @@ public struct Project: Codable, Identifiable, Equatable, Sendable {
     public var linkedFolder: String?
     public var readLinkedInstructions: Bool
     public var archivedAt: Date?
-    /// Skill folders and plugin ids every bot of the project gets (spec §6.1).
+    /// Skill folders and plugin ids every bot of the project gets (spec §6.1 of 0.3): `plugins` are Claude Code's,
+    /// `codexPlugins` Codex's ("name@marketplace"), since the two apps' plugins differ (spec §6).
     public var skills: [String]
     public var plugins: [String]
+    public var codexPlugins: [String]
 
     public init(id: UUID = UUID(), name: String, createdAt: Date = Date(), linkedFolder: String? = nil,
-                readLinkedInstructions: Bool = true, archivedAt: Date? = nil, skills: [String] = [], plugins: [String] = []) {
+                readLinkedInstructions: Bool = true, archivedAt: Date? = nil, skills: [String] = [], plugins: [String] = [],
+                codexPlugins: [String] = []) {
         self.id = id
         self.name = name
         self.createdAt = createdAt
@@ -41,9 +44,10 @@ public struct Project: Codable, Identifiable, Equatable, Sendable {
         self.archivedAt = archivedAt
         self.skills = skills
         self.plugins = plugins
+        self.codexPlugins = codexPlugins
     }
 
-    // A state.json from before 0.3 has neither list: the project starts without skills or plugins.
+    // A state.json from before 0.3 has no lists, from before 0.4 no Codex plugins: the project starts without them.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -54,6 +58,7 @@ public struct Project: Codable, Identifiable, Equatable, Sendable {
         archivedAt = try c.decodeIfPresent(Date.self, forKey: .archivedAt)
         skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
         plugins = try c.decodeIfPresent([String].self, forKey: .plugins) ?? []
+        codexPlugins = try c.decodeIfPresent([String].self, forKey: .codexPlugins) ?? []
     }
 }
 
@@ -76,11 +81,14 @@ public struct Bot: Codable, Identifiable, Equatable, Sendable {
     public var skills: [String]
     public var plugins: [String]
     public var connectors: Bool
+    /// A Codex bot's thread, saved once its first turn started (a thread without turns cannot be resumed, spec §3.5);
+    /// nil before that and for Claude Code bots, whose conversation is `sessionId`.
+    public var threadId: String?
 
     public init(id: UUID = UUID(), projectId: UUID, name: String, face: BotFace, agent: Agent = .claude,
                 model: String? = nil, instructions: String = "", freedom: Freedom = .ask, sessionId: UUID = UUID(),
                 notifications: Bool = true, pinned: Bool = false, createdAt: Date = Date(), archivedAt: Date? = nil,
-                skills: [String] = [], plugins: [String] = [], connectors: Bool = false) {
+                skills: [String] = [], plugins: [String] = [], connectors: Bool = false, threadId: String? = nil) {
         self.id = id
         self.projectId = projectId
         self.name = name
@@ -97,9 +105,11 @@ public struct Bot: Codable, Identifiable, Equatable, Sendable {
         self.skills = skills
         self.plugins = plugins
         self.connectors = connectors
+        self.threadId = threadId
     }
 
-    // A state.json from before 0.3: no skills or plugins, connectors off (the author's choice, spec §6.1).
+    // A state.json from before 0.3: no skills or plugins, connectors off (the author's choice, spec §6.1 of 0.3); from
+    // before 0.4: no thread.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -118,5 +128,6 @@ public struct Bot: Codable, Identifiable, Equatable, Sendable {
         skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
         plugins = try c.decodeIfPresent([String].self, forKey: .plugins) ?? []
         connectors = try c.decodeIfPresent(Bool.self, forKey: .connectors) ?? false
+        threadId = try c.decodeIfPresent(String.self, forKey: .threadId)
     }
 }

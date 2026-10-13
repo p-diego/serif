@@ -59,9 +59,12 @@ extension Engine {
             push(.projectChanged(project))
             // --add-dir, the linked instructions, skills and plugins come from the project: relaunch its bots when those
             // change. A new name reaches system.md at their next launch.
-            if (project.linkedFolder, project.readLinkedInstructions, project.skills, project.plugins)
-                != (old.linkedFolder, old.readLinkedInstructions, old.skills, old.plugins) {
-                bots.values.filter { $0.bot.projectId == project.id }.forEach(restart)
+            let shared = (project.linkedFolder, project.readLinkedInstructions, project.skills)
+                != (old.linkedFolder, old.readLinkedInstructions, old.skills)
+            for rt in bots.values where rt.bot.projectId == project.id {
+                // Each agent has its own list of plugins (spec §6).
+                let plugins = rt.bot.agent == .codex ? project.codexPlugins != old.codexPlugins : project.plugins != old.plugins
+                if shared || plugins { restart(rt) }
             }
             return .project(project)
         case let .archiveProject(id):
@@ -92,9 +95,11 @@ extension Engine {
         case let .updateBot(update):
             let rt = try runtime(update.id)
             var bot = update
-            // The engine owns the conversation id, the archive flag and the creation date (the app's copy went through
-            // JSON with millisecond dates: compared as is, a bot created in this engine run always looked changed).
-            (bot.sessionId, bot.archivedAt, bot.createdAt) = (rt.bot.sessionId, rt.bot.archivedAt, rt.bot.createdAt)
+            // The engine owns the conversation id, Codex's thread, the agent, the archive flag and the creation date (the
+            // app's copy went through JSON with millisecond dates: compared as is, a bot created in this engine run always
+            // looked changed). The agent never changes (spec §2).
+            (bot.sessionId, bot.threadId, bot.agent, bot.archivedAt, bot.createdAt) =
+                (rt.bot.sessionId, rt.bot.threadId, rt.bot.agent, rt.bot.archivedAt, rt.bot.createdAt)
             // Model, instructions, freedom, skills, plugins and connectors relaunch the bot (spec §4.5 of 0.1, §6.2); the rest
             // waits for the next launch (a new name or project reaches system.md and the folders then) or never reaches
             // Claude Code at all.
