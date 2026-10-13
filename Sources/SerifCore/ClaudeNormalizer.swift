@@ -36,13 +36,13 @@ public struct ClaudeNormalizer {
     private var texts: [String: String] = [:]               // accumulated MessageDisplay text per message id
     private var frozen: Set<String> = []                    // messages already replaced by Stop's full text
     private var lastMessage: [String: String] = [:]         // last assistant message id per prompt id
-    private var pendingChat: [String] = []
+    private var pendingChat: [(text: String, origin: MessageOrigin)] = []
     private var transcript: String?
     private var currentPrompt: String?
 
     public init() {}
 
-    public mutating func expectChatMessage(_ text: String) { pendingChat.append(text) }
+    public mutating func expectChatMessage(_ text: String, origin: MessageOrigin = .chat) { pendingChat.append((text, origin)) }
     public var nextDeadline: Date? { held.first?.deadline }
 
     public mutating func flush(now: Date) -> [NormalizerOutput] {
@@ -181,8 +181,9 @@ public struct ClaudeNormalizer {
             let text = p["prompt"]?.string ?? ""
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             var origin = MessageOrigin.terminal
-            if let i = pendingChat.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) {
-                pendingChat.removeSubrange(0...i); origin = .chat      // earlier entries never arrived
+            if let i = pendingChat.firstIndex(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) {
+                origin = pendingChat[i].origin
+                pendingChat.removeSubrange(0...i)      // earlier entries never arrived
             }
             return [.event(.userMessage(text: text, promptId: promptId, origin: origin))]
         case "PermissionRequest":

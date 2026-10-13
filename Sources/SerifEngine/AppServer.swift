@@ -72,6 +72,8 @@ extension Engine {
             return .ok
         case let .createBot(new):
             guard store.projects.contains(where: { $0.id == new.projectId }) else { throw Refusal("Unknown project") }
+            // Before saving: archived bots count too, the tour is for a project's very first bot (spec §5).
+            let firstInProject = !store.bots.contains { $0.projectId == new.projectId }
             let bot = Bot(projectId: new.projectId, name: new.name, face: new.face, agent: new.agent, model: new.model,
                           instructions: new.instructions, freedom: new.freedom, skills: new.skills, plugins: new.plugins,
                           connectors: new.connectors)
@@ -79,6 +81,11 @@ extension Engine {
             let rt = addRuntime(bot)
             push(.botChanged(rt.summary))          // the app knows the bot before its first chat event
             record(.system(.botCreated), rt)
+            // Its first turn: it introduces itself once its session is ready, like a message sent while it starts; if it
+            // crashes first, the next session delivers it (spec §5, §9).
+            let intro = introductionPrompt(instructions: new.instructions, firstInProject: firstInProject,
+                                           language: languageName(preferredLanguages: Locale.preferredLanguages))
+            rt.outbox.append((intro, .introduction))
             launch(rt)
             return .bot(bot)
         case let .updateBot(update):
@@ -109,14 +116,14 @@ extension Engine {
             return .history(try store.history(bot: botId, beforeSeq: beforeSeq, limit: limit))
         case let .send(botId, text):
             let rt = try runtime(botId)
-            if rt.stopping { rt.outbox.append(text); return .ok }  // restart window: the relaunch's SessionStart delivers it
+            if rt.stopping { rt.outbox.append((text, .chat)); return .ok }  // restart window: the relaunch's SessionStart delivers it
             switch rt.tracker.state {
-            case .starting, .crashed: rt.outbox.append(text)       // delivered on the next SessionStart
+            case .starting, .crashed: rt.outbox.append((text, .chat))       // delivered on the next SessionStart
             case .stopped: throw Refusal("The bot is archived")
             default:
                 // Enter would answer an open dialog ("Yes", approve the plan, option A): the text waits for the bot's last
                 // request to close, and behind texts already waiting so the order holds.
-                if hasOpenRequest(rt) || !rt.outbox.isEmpty { rt.outbox.append(text) } else { type(text, into: rt) }
+                if hasOpenRequest(rt) || !rt.outbox.isEmpty { rt.outbox.append((text, .chat)) } else { type(text, into: rt) }
             }
             return .ok
         case let .interrupt(botId):

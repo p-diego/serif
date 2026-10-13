@@ -13,7 +13,7 @@ final class BotRuntime {
     var normalizer = ClaudeNormalizer()
     var tracker = StateTracker()
     var token = UUID().uuidString             // new at every launch: hooks from an older process are dropped
-    var outbox: [String] = []                 // chat texts held until SessionStart, or until the open requests close
+    var outbox: [(text: String, origin: MessageOrigin)] = []   // texts held until SessionStart, or until the open requests close
     var transcriptPath: String?
     var turn: [ChatEvent] = []                // events since the userMessage that opened the current turn
     var flushTimer: DispatchSourceTimer?

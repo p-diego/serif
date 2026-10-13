@@ -124,4 +124,13 @@ final class TranscriptTests: XCTestCase {
         XCTAssertEqual(Array(kinds(t).prefix(5)), ["ts", "user", "asst", "steps", "asst"])
         XCTAssertEqual(Set(t.items.map(\.id)).count, t.items.count)
     }
+
+    func testIntroductionShowsAsASystemLine() {
+        var t = Transcript()
+        t.apply([rec(1, .userMessage(text: "You have just been created.", promptId: "p0", origin: .introduction)),
+                 rec(2, text("m", "Hi!", final: true))])
+        XCTAssertEqual(kinds(t), ["ts", "sys", "asst"])
+        guard case .system(_, let note, _) = t.items[1] else { return XCTFail() }
+        XCTAssertEqual(note, .introductionRequested)
+    }
 }

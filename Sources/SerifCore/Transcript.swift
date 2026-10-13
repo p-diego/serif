@@ -89,7 +89,9 @@ public struct Transcript: Equatable, Sendable {
     private mutating func fold(_ r: ChatEventRecord) {
         switch r.event {
         case .userMessage(let text, _, let origin):
-            add(.user(id: "u-\(r.seq)", text: text, origin: origin, at: r.at), r)
+            // Serif's own first message to a new bot is not yours: a system line says what happened (spec §5).
+            if origin == .introduction { add(.system(id: "sys-\(r.seq)", note: .introductionRequested, at: r.at), r) }
+            else { add(.user(id: "u-\(r.seq)", text: text, origin: origin, at: r.at), r) }
         case .assistantText(let id, _, let delta, let final, _):
             if let i = items.lastIndex(where: { if case .assistant(id, _, _, _) = $0 { true } else { false } }),
                case .assistant(_, var t, let at, _) = items[i] {

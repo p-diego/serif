@@ -199,7 +199,7 @@ private struct ChatContent: View {
                       open: Binding(get: { openStep[id] }, set: { openStep[id] = $0 }))
         case .request(_, let req, let resolution, let answer):
             RequestCard(request: req, resolution: resolution, given: answer, client: client)
-        case .system(_, let note, _): SystemLine(note: note)
+        case .system(_, let note, _): SystemLine(note: note, botName: summary.bot.name)
         }
     }
 }

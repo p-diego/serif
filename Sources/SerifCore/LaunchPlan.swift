@@ -71,3 +71,32 @@ public func systemPrompt(bot: Bot, project: Project, paths: SerifPaths, linkedIn
     if let linkedInstructions { s += "\nInstructions from the linked folder:\n" + linkedInstructions + "\n" }
     return s
 }
+
+/// The first message Serif sends a new bot (spec §5), queued until its session is ready. With instructions it introduces
+/// itself, without them it asks what it is for; the first bot a project ever had also gives a short tour. Answered in
+/// `language`, an English name ("Italian").
+public func introductionPrompt(instructions: String, firstInProject: Bool, language: String) -> String {
+    var s = instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        ? "You have just been created, with no instructions. Greet the user in one brief, friendly sentence, then ask "
+            + "what job they want you to take on. Do not invent a purpose."
+        : "You have just been created. Briefly introduce yourself — who you are, what you understand your job to be, and "
+            + "how you can help — in no more than three sentences. Finish with what you plan to do first, or what you need "
+            + "before you can start."
+    if firstInProject {
+        s += "\n\nBecause you are the first bot in this project, also give the user a short tour of what they can ask for: "
+            + "four or five one-line bullets, plainly worded, no tool names, picked from these:\n"
+            + "- they can change your name, face and instructions in your settings;\n"
+            + "- you work in your own folder and put files to share in the project's folder, which every bot of the project can read;\n"
+            + "- you keep notes across sessions, so what they tell you now is not lost;\n"
+            + "- your terminal is one click away;\n"
+            + "- they can give you skills and plugins in your settings."
+    }
+    return s + "\n\nReply in \(language). Do not start any other work yet."
+}
+
+/// The English name of the Mac's first language ("it-IT" → "Italian"), for the introduction; English when unknown.
+public func languageName(preferredLanguages: [String]) -> String {
+    guard let first = preferredLanguages.first, let code = Locale(identifier: first).language.languageCode?.identifier,
+          let name = Locale(identifier: "en").localizedString(forLanguageCode: code) else { return "English" }
+    return name
+}

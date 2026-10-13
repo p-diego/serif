@@ -1,0 +1,6 @@
+{"print": "READY"}
+{"hook": {"hook_event_name": "SessionStart", "source": "startup"}}
+{"waitPaste": true}
+{"hook": {"hook_event_name": "UserPromptSubmit", "prompt": "$PASTE", "prompt_id": "p0"}}
+{"hook": {"hook_event_name": "MessageDisplay", "message_id": "m0", "index": 0, "delta": "Hi, I am Bob.", "final": true, "prompt_id": "p0"}}
+{"hook": {"hook_event_name": "Stop", "prompt_id": "p0", "last_assistant_message": "Hi, I am Bob."}}

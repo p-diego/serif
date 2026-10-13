@@ -67,6 +67,7 @@ struct TimestampLine: View {
 
 struct SystemLine: View {
     let note: SystemNote
+    let botName: String
     var body: some View {
         Text(text).font(.system(size: Theme.Size.body)).foregroundStyle(Theme.textSecondary)
             .multilineTextAlignment(.center).frame(maxWidth: .infinity)
@@ -79,6 +80,7 @@ struct SystemLine: View {
         case .newConversation: String(localized: "New conversation (resuming failed)")
         case .compacted: String(localized: "Conversation compacted")
         case .interrupted: String(localized: "Interrupted")
+        case .introductionRequested: String(localized: "Serif asked \(botName) to introduce itself")
         case .linkedFolderMissing(let p): String(localized: "The linked folder is missing: \(p)")
         case .crashed(let r): String(localized: "Stopped: \(r)")
         }

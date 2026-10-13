@@ -74,6 +74,8 @@ final class ProtocolTests: XCTestCase {
     func testChatEventsRoundTrip() throws {
         let events: [ChatEvent] = [
             .userMessage(text: "ciao", promptId: "p1", origin: .terminal),
+            .userMessage(text: "Introduce yourself.", promptId: "p0", origin: .introduction),
+            .system(.introductionRequested),
             .assistantText(messageId: "m1", index: 2, delta: "x", final: true, promptId: nil),
             .assistantTextReplaced(messageId: "m1", text: "y"),
             .toolStarted(toolUseId: "t1", name: "Bash", input: .object(["command": .string("ls")]), promptId: "p1"),

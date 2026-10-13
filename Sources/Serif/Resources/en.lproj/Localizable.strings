@@ -169,3 +169,4 @@
 "Can't unpack the download" = "Can't unpack the download";
 "The download isn't a newer Serif" = "The download isn't a newer Serif";
 "The download isn't signed like this copy" = "The download isn't signed like this copy";
+"Serif asked %@ to introduce itself" = "Serif asked %@ to introduce itself";

@@ -74,17 +74,17 @@ extension Engine {
         scheduleFlush(rt)
     }
 
-    /// Types a chat message into the bot's terminal; the normalizer then marks its UserPromptSubmit as from the chat.
-    func type(_ text: String, into rt: BotRuntime) {
-        rt.normalizer.expectChatMessage(text)
+    /// Types a message into the bot's terminal; the normalizer then gives its UserPromptSubmit this origin.
+    func type(_ text: String, origin: MessageOrigin = .chat, into rt: BotRuntime) {
+        rt.normalizer.expectChatMessage(text, origin: origin)
         rt.host.typeMessage(text)
     }
 
-    /// Types the chat texts held back (before SessionStart, or while a request was open), in order.
+    /// Types the texts held back (before SessionStart, or while a request was open), in order.
     func deliverOutbox(_ rt: BotRuntime) {
         let queued = rt.outbox
         rt.outbox = []
-        queued.forEach { type($0, into: rt) }
+        queued.forEach { type($0.text, origin: $0.origin, into: rt) }
     }
 
     func hasOpenRequest(_ rt: BotRuntime) -> Bool { requests.values.contains { $0.request.botId == rt.bot.id } }

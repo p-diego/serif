@@ -233,14 +233,40 @@ final class EngineTests: XCTestCase {
         }
     }
 
-    /// A project and a bot in it; returns the bot as the engine created it.
-    private func createBot(_ client: TestClient) throws -> Bot {
-        guard case let .project(project) = request(client, .createProject(name: "P", linkedFolder: nil, readLinkedInstructions: true))
-        else { throw XCTSkip("createProject failed") }
-        let new = NewBot(projectId: project.id, name: "Bob", face: randomFace(existing: []), agent: .claude, model: nil,
+    /// A bot in `projectId`, or in a new project "P"; returns the bot as the engine created it.
+    private func createBot(_ client: TestClient, in projectId: UUID? = nil) throws -> Bot {
+        let project: UUID
+        if let projectId { project = projectId } else {
+            guard case let .project(p) = request(client, .createProject(name: "P", linkedFolder: nil, readLinkedInstructions: true))
+            else { throw XCTSkip("createProject failed") }
+            project = p.id
+        }
+        let new = NewBot(projectId: project, name: "Bob", face: randomFace(existing: []), agent: .claude, model: nil,
                          instructions: "Help.", freedom: .ask)
         guard case let .bot(bot) = request(client, .createBot(new)) else { throw XCTSkip("createBot failed") }
         return bot
+    }
+
+    func testNewBotIntroducesItselfAndOnlyAProjectsFirstBotGivesTheTour() throws {
+        try makeEngine("introduction").start()
+        let client = try connect()
+        let first = try createBot(client)
+        waitFor(client, "first reply") { $0.chatEvents(first.id).contains { label($0) == "turnEnded" } }
+        let intro = try XCTUnwrap(introduction(client.all.chatEvents(first.id)))
+        XCTAssertTrue(intro.contains("three sentences"))                // the helper's bot has instructions
+        XCTAssertTrue(intro.contains("first bot in this project"))
+        // An archived bot still counts: the project's next bot gets no tour.
+        XCTAssertEqual(request(client, .archiveBot(id: first.id)), .ok)
+        let second = try createBot(client, in: first.projectId)
+        waitFor(client, "second reply") { $0.chatEvents(second.id).contains { label($0) == "turnEnded" } }
+        XCTAssertFalse(try XCTUnwrap(introduction(client.all.chatEvents(second.id))).contains("first bot in this project"))
+        // The introduction is the conversation's first message: the next launch resumes it.
+        XCTAssertEqual(request(client, .restartBot(id: second.id)), .ok)
+        XCTAssertEqual(try launches(3)[2].args.suffix(2), ["--resume", second.sessionId.uuidString])
+    }
+
+    private func introduction(_ events: [ChatEvent]) -> String? {
+        events.lazy.compactMap { if case let .userMessage(text, _, .introduction) = $0 { text } else { nil } }.first
     }
 
     func testSignedOutClaudeCodeStopsTheBotUntilRetry() throws {

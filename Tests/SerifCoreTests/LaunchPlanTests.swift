@@ -83,4 +83,27 @@ final class LaunchPlanTests: XCTestCase {
         XCTAssertNil(env(bot)["ENABLE_CLAUDEAI_MCP_SERVERS"])
         XCTAssertFalse(args(bot, []).contains("--plugin-dir"))
     }
+
+    func testIntroductionPrompt() {
+        let withRole = introductionPrompt(instructions: "Review code.", firstInProject: false, language: "Italian")
+        XCTAssertTrue(withRole.contains("three sentences"))
+        XCTAssertFalse(withRole.contains("Do not invent a purpose"))
+        XCTAssertFalse(withRole.contains("first bot in this project"))
+        let blank = introductionPrompt(instructions: " \n", firstInProject: false, language: "Italian")
+        XCTAssertTrue(blank.contains("Do not invent a purpose"))
+        XCTAssertFalse(blank.contains("three sentences"))
+        let first = introductionPrompt(instructions: "", firstInProject: true, language: "English")
+        XCTAssertTrue(first.contains("first bot in this project"))
+        XCTAssertTrue(first.contains("skills and plugins"))
+        for prompt in [withRole, blank, first] { XCTAssertTrue(prompt.hasSuffix("Do not start any other work yet.")) }
+        XCTAssertTrue(withRole.contains("Reply in Italian."))
+        XCTAssertTrue(first.contains("Reply in English."))
+    }
+
+    func testLanguageName() {
+        XCTAssertEqual(languageName(preferredLanguages: ["it-IT", "en-US"]), "Italian")
+        XCTAssertEqual(languageName(preferredLanguages: ["en-GB"]), "English")
+        XCTAssertEqual(languageName(preferredLanguages: ["pt-BR"]), "Portuguese")
+        XCTAssertEqual(languageName(preferredLanguages: []), "English")
+    }
 }

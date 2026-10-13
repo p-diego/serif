@@ -1,11 +1,13 @@
 import Foundation
 
-/// Where a user message came from: typed in the Serif chat or in the bot's terminal.
-public enum MessageOrigin: String, Codable, Sendable { case chat, terminal }
+/// Where a user message came from: typed in the Serif chat or in the bot's terminal, or Serif's own first message to a new
+/// bot (spec §5), which the chat shows as a system line rather than as yours.
+public enum MessageOrigin: String, Codable, Sendable { case chat, terminal, introduction }
 
-/// Informational lines shown in the chat timeline.
+/// Informational lines shown in the chat timeline. `introductionRequested` is never stored: `Transcript` shows the
+/// introduction's user message as this line.
 public enum SystemNote: Codable, Equatable, Sendable {
-    case botCreated, resumed, newConversation, compacted, interrupted
+    case botCreated, resumed, newConversation, compacted, interrupted, introductionRequested
     case linkedFolderMissing(path: String)
     case crashed(reason: String)
 }

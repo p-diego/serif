@@ -161,4 +161,18 @@ final class ClaudeNormalizerTests: XCTestCase {
             .event(.turnInterrupted)])
         XCTAssertNil(n.nextDeadline)
     }
+
+    func testIntroductionKeepsItsOrigin() {
+        var n = ClaudeNormalizer()
+        n.expectChatMessage("Introduce yourself.\n- briefly\n", origin: .introduction)
+        n.expectChatMessage("hello")
+        func submit(_ text: String, _ id: String) -> [NormalizerOutput] {
+            n.ingest(.object(["hook_event_name": .string("UserPromptSubmit"), "prompt": .string(text), "prompt_id": .string(id)]),
+                     at: Date())
+        }
+        // Claude Code may trim what was pasted: it is still Serif's introduction, not the user's message.
+        XCTAssertEqual(submit("Introduce yourself.\n- briefly", "p0"),
+                       [.event(.userMessage(text: "Introduce yourself.\n- briefly", promptId: "p0", origin: .introduction))])
+        XCTAssertEqual(submit("hello", "p1"), [.event(.userMessage(text: "hello", promptId: "p1", origin: .chat))])
+    }
 }

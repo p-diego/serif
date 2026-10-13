@@ -37,6 +37,7 @@ if let log = env["SERIF_FAKE_LOG"] {
 }
 
 var input = Data()
+var lastPaste = ""          // the text of the last bracketed paste `waitPaste` read: "$PASTE" in later hooks
 func readStdin() -> Bool {
     var buf = [UInt8](repeating: 0, count: 4096)
     let n = read(0, &buf, buf.count)
@@ -53,6 +54,10 @@ func runHook(_ payload: Any, started: (Process) -> Void = { _ in }) {
     guard let bin = env["SERIF_HOOK_BIN"], var data = try? JSONSerialization.data(withJSONObject: payload) else { return }
     if let transcript = env["SERIF_FAKE_TRANSCRIPT"] {   // "$TRANSCRIPT" in a payload: the test's transcript file
         data = Data(String(decoding: data, as: UTF8.self).replacingOccurrences(of: "$TRANSCRIPT", with: transcript).utf8)
+    }
+    if let pasted = try? JSONEncoder().encode(lastPaste) {   // "$PASTE": the last paste, as a JSON string
+        data = Data(String(decoding: data, as: UTF8.self)
+            .replacingOccurrences(of: "\"$PASTE\"", with: String(decoding: pasted, as: UTF8.self)).utf8)
     }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: bin)
@@ -80,6 +85,17 @@ if let path = env["SERIF_FAKE_SCENARIO"], let text = try? String(contentsOfFile:
                     // "unexpected": printed when other input came before the match (e.g. a paste that should have waited).
                     if r.lowerBound != input.startIndex, let label = obj["unexpected"] as? String { out(label) }
                     input = Data(input[r.upperBound...]); break    // consume through the match
+                }
+                if !readStdin() { exit(0) }
+            }
+        }
+        else if obj["waitPaste"] != nil {
+            // The next bracketed paste and its Enter, as BotHost.typeMessage sends them.
+            let start = Data("\u{1B}[200~".utf8), end = Data("\u{1B}[201~\r".utf8)
+            while true {
+                if let s = input.range(of: start), let e = input.range(of: end, in: s.upperBound..<input.endIndex) {
+                    lastPaste = String(decoding: input[s.upperBound..<e.lowerBound], as: UTF8.self)
+                    input = Data(input[e.upperBound...]); break
                 }
                 if !readStdin() { exit(0) }
             }

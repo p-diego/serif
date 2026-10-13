@@ -169,3 +169,4 @@
 "Can't unpack the download" = "Non riesco a estrarre il file scaricato";
 "The download isn't a newer Serif" = "Il file scaricato non è un Serif più nuovo";
 "The download isn't signed like this copy" = "Il file scaricato non è firmato come questa copia";
+"Serif asked %@ to introduce itself" = "Serif ha chiesto a %@ di presentarsi";
