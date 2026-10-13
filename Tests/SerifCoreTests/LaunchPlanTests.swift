@@ -62,4 +62,25 @@ final class LaunchPlanTests: XCTestCase {
         }
         XCTAssertFalse(systemPrompt(bot: bot, project: proj, paths: paths, linkedInstructions: nil).contains("Instructions from"))
     }
+
+    func testPluginsAndConnectors() {
+        let proj = Project(name: "P")
+        var bot = Bot(projectId: proj.id, name: "B", face: BotFace(shape: .allCases[0], body: 1, eyes: 2))
+        let paths = SerifPaths(root: URL(fileURLWithPath: "/tmp/s"))
+        func args(_ bot: Bot, _ plugins: [String]) -> [String] {
+            claudeLaunchPlan(bot: bot, project: proj, paths: paths, claudePath: "/c", resume: false, baseEnvironment: [:],
+                             token: "t", linkedFolderExists: false, pluginFolders: plugins).args
+        }
+        func env(_ bot: Bot) -> [String: String] {
+            claudeLaunchPlan(bot: bot, project: proj, paths: paths, claudePath: "/c", resume: false, baseEnvironment: [:],
+                             token: "t", linkedFolderExists: false).environment
+        }
+        let off = args(bot, ["/p/a", "/p/b"])
+        XCTAssertTrue(off.containsSequence(["--plugin-dir", "/p/a", "--plugin-dir", "/p/b"]))
+        XCTAssertFalse(off.contains("--strict-mcp-config"))         // it would also drop the plugins' own MCP servers
+        XCTAssertEqual(env(bot)["ENABLE_CLAUDEAI_MCP_SERVERS"], "false")   // claude.ai connectors off by default (spec §6.2)
+        bot.connectors = true
+        XCTAssertNil(env(bot)["ENABLE_CLAUDEAI_MCP_SERVERS"])
+        XCTAssertFalse(args(bot, []).contains("--plugin-dir"))
+    }
 }

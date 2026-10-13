@@ -12,7 +12,8 @@ public struct LaunchPlan: Equatable, Sendable {
 }
 
 public func claudeLaunchPlan(bot: Bot, project: Project, paths: SerifPaths, claudePath: String, resume: Bool,
-                             baseEnvironment: [String: String], token: String, linkedFolderExists: Bool) -> LaunchPlan {
+                             baseEnvironment: [String: String], token: String, linkedFolderExists: Bool,
+                             pluginFolders: [String] = []) -> LaunchPlan {
     let botPaths = paths.bot(bot.id)
     var args = ["--setting-sources", "project,local",
                 "--settings", botPaths.settings.path,
@@ -20,6 +21,7 @@ public func claudeLaunchPlan(bot: Bot, project: Project, paths: SerifPaths, clau
                 "--append-system-prompt-file", botPaths.systemPrompt.path,
                 "--add-dir", paths.shared(project.id).path]
     if linkedFolderExists, let linked = project.linkedFolder { args += ["--add-dir", linked] }
+    for folder in pluginFolders { args += ["--plugin-dir", folder] }
     if let model = bot.model { args += ["--model", model] }
     args += resume ? ["--resume", bot.sessionId.uuidString] : ["--session-id", bot.sessionId.uuidString]
 
@@ -27,6 +29,9 @@ public func claudeLaunchPlan(bot: Bot, project: Project, paths: SerifPaths, clau
     // Never offer "resume from summary?" on --resume: that prompt blocks the bot (same fix as Gravity).
     env["CLAUDE_CODE_RESUME_THRESHOLD_MINUTES"] = "525600"
     env["CLAUDE_CODE_RESUME_TOKEN_THRESHOLD"] = "1000000000"
+    // claude.ai's connectors reach a bot despite --setting-sources (spec §3.3): off unless the bot turns them on. Not
+    // --strict-mcp-config: it would also drop the servers the bot's plugins bring (verified 13/10 with figma).
+    if !bot.connectors { env["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false" }
     env["SERIF_BOT_ID"] = bot.id.uuidString
     env["SERIF_HOOK_SOCKET"] = paths.hookSocket.path
     env["SERIF_TOKEN"] = token

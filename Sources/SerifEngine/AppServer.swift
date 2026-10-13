@@ -51,8 +51,9 @@ extension Engine {
             guard let old = store.projects.first(where: { $0.id == project.id }) else { throw Refusal("Unknown project") }
             try store.save(project: project)
             push(.projectChanged(project))
-            // The system prompt and --add-dir come from the project: relaunch its bots when those change.
-            if (project.name, project.linkedFolder, project.readLinkedInstructions) != (old.name, old.linkedFolder, old.readLinkedInstructions) {
+            // The system prompt, --add-dir, skills and plugins come from the project: relaunch its bots when those change.
+            if (project.name, project.linkedFolder, project.readLinkedInstructions, project.skills, project.plugins)
+                != (old.name, old.linkedFolder, old.readLinkedInstructions, old.skills, old.plugins) {
                 bots.values.filter { $0.bot.projectId == project.id }.forEach(restart)
             }
             return .project(project)
@@ -80,8 +81,9 @@ extension Engine {
             // The engine owns the conversation id, the archive flag and the creation date (the app's copy went through
             // JSON with millisecond dates: compared as is, a bot created in this engine run always looked changed).
             (bot.sessionId, bot.archivedAt, bot.createdAt) = (rt.bot.sessionId, rt.bot.archivedAt, rt.bot.createdAt)
-            // Model, instructions and freedom relaunch the bot (spec §4.5); the rest waits for the next launch (a new name or
-            // project reaches system.md and the folders then) or never reaches Claude Code at all.
+            // Model, instructions, freedom, skills, plugins and connectors relaunch the bot (spec §4.5 of 0.1, §6.2); the rest
+            // waits for the next launch (a new name or project reaches system.md and the folders then) or never reaches
+            // Claude Code at all.
             var launchFields = bot
             (launchFields.face, launchFields.pinned, launchFields.notifications, launchFields.name, launchFields.projectId) =
                 (rt.bot.face, rt.bot.pinned, rt.bot.notifications, rt.bot.name, rt.bot.projectId)

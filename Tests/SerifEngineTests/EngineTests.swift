@@ -128,7 +128,8 @@ final class EngineTests: XCTestCase {
         let scenarioPath = Bundle.module.resourceURL!.appendingPathComponent("Fixtures/scenarios/\(scenario).jsonl").path
         let hook = binDir.appendingPathComponent("serif-hook").path
         let env = ["PATH": "/usr/bin:/bin", "SERIF_FAKE_SCENARIO": scenarioPath, "SERIF_HOOK_BIN": hook,
-                   "SERIF_FAKE_LOG": fakeLog, "SERIF_FAKE_TRANSCRIPT": transcript, "CLAUDECODE": "1"]
+                   "SERIF_FAKE_LOG": fakeLog, "SERIF_FAKE_TRANSCRIPT": transcript, "CLAUDECODE": "1",
+                   "CLAUDE_CONFIG_DIR": root.path + "/claude"]      // the engine's catalog: never the real ~/.claude
         let engine = try Engine(paths: paths, claudePath: binDir.appendingPathComponent("fake-claude").path,
                                 hookCommand: hook, environment: env)
         engines.append(engine)
@@ -159,6 +160,35 @@ final class EngineTests: XCTestCase {
     }
 
     /// Waits until the fake has logged `count` launches; returns each launch's arguments and environment.
+    func testPluginsAndConnectorsReachTheLaunch() throws {
+        let engine = try makeEngine("basic")         // the data folder (root) exists from here on
+        let plugin = root.appendingPathComponent("plug")
+        try FileManager.default.createDirectory(at: plugin, withIntermediateDirectories: true)
+        let installed = root.appendingPathComponent("claude/plugins/installed_plugins.json")
+        try FileManager.default.createDirectory(at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{"version":2,"plugins":{"tool@shop":[{"scope":"user","installPath":"\#(plugin.path)"}]}}"#
+            .write(to: installed, atomically: true, encoding: .utf8)
+        try engine.start()
+        let client = try connect()
+        var bot = try createBot(client)
+        _ = try launches(1)                          // let the first launch log before the project change kills it
+        guard case let .snapshot(snapshot) = request(client, .snapshot), var project = snapshot.projects.first
+        else { return XCTFail("no project") }
+        project.plugins = ["tool@shop"]
+        guard case .project = request(client, .updateProject(project)) else { return XCTFail("project update refused") }
+        _ = try launches(2)                          // the project's plugins relaunch its bots
+        bot.plugins = ["tool@shop", "gone@shop"]
+        bot.connectors = true
+        guard case .bot = request(client, .updateBot(bot)) else { return XCTFail("bot update refused") }
+        let launched = try launches(3)
+        func pluginDirs(_ args: [String]) -> [String] { args.indices.filter { args[$0] == "--plugin-dir" }.map { args[$0 + 1] } }
+        XCTAssertEqual(launched[0].env["ENABLE_CLAUDEAI_MCP_SERVERS"], "false")
+        XCTAssertEqual(pluginDirs(launched[0].args), [])
+        XCTAssertEqual(pluginDirs(launched[1].args), [plugin.path])
+        XCTAssertEqual(pluginDirs(launched[2].args), [plugin.path])     // once, though the bot names it too; "gone" left out
+        XCTAssertNil(launched[2].env["ENABLE_CLAUDEAI_MCP_SERVERS"])
+    }
+
     private func launches(_ count: Int) throws -> [(args: [String], env: [String: String])] {
         let read = { [fakeLog] in (try? String(contentsOfFile: fakeLog, encoding: .utf8))?.split(separator: "\n") ?? [] }
         let logged = expectation(description: "\(count) launches")

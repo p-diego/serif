@@ -165,8 +165,13 @@ public final class Engine {
         rt.token = UUID().uuidString
         rt.normalizer = ClaudeNormalizer()
         rt.resumed = store.meta(rt.bot.id).hasStarted
+        // The project's plugins and the bot's, each folder once; one no longer on this Mac is left out (spec §6.2-6.3).
+        let plugins = ClaudeCatalog.pluginFolders(project.plugins + rt.bot.plugins,
+                                                  in: ClaudeCatalog.plugins(root: claudeConfigRoot(environment: environment)))
+        plugins.missing.forEach { log("bot \(rt.bot.id): plugin \($0) not found, left out") }
         let plan = claudeLaunchPlan(bot: rt.bot, project: project, paths: paths, claudePath: claudePath, resume: rt.resumed,
-                                    baseEnvironment: environment, token: rt.token, linkedFolderExists: linkedExists)
+                                    baseEnvironment: environment, token: rt.token, linkedFolderExists: linkedExists,
+                                    pluginFolders: plugins.folders)
         rt.tracker.processStarted()
         push(.botChanged(rt.summary))
         rt.host.start(plan)
