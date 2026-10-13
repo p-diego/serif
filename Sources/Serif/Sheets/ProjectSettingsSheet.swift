@@ -39,7 +39,7 @@ struct ProjectSettingsSheet: View {
                 CatalogPicker(kind: .plugins, items: catalog.plugins, chosen: $plugins)
             }
             FieldGroup(label: String(localized: "Plugins for Codex bots")) {
-                CatalogPicker(kind: .plugins, items: codexCatalog?.plugins ?? [], chosen: $codexPlugins)
+                CatalogPicker(kind: .plugins, items: codexCatalog?.plugins ?? [], chosen: $codexPlugins, known: codexCatalog != nil)
             }
             Text(String(localized: "Every bot of the project gets these skills and plugins. Changing them, the linked folder or its switch restarts the project's bots."))
                 .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)

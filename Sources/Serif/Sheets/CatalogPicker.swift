@@ -11,6 +11,8 @@ struct CatalogPicker: View {
     let items: [CatalogItem]
     @Binding var chosen: [String]
     var inherited: [String] = []
+    /// False while the plugin list has not been read (Codex's comes from the engine): a list not read yet marks nothing missing.
+    var known = true
     @State private var folderError: String?
 
     var body: some View {
@@ -77,10 +79,10 @@ struct CatalogPicker: View {
         return twin ? "\(item.name) (\(source(id)))" : item.name
     }
 
-    /// A skill is its folder: gone without its SKILL.md. A plugin is gone when Claude Code no longer lists it.
+    /// A skill is its folder: gone without its SKILL.md. A plugin is gone when its agent's list, once read, no longer has it.
     private func missing(_ id: String) -> Bool {
         kind == .skills ? !FileManager.default.fileExists(atPath: (id as NSString).appendingPathComponent("SKILL.md"))
-                        : !items.contains { $0.id == id }
+                        : known && !items.contains { $0.id == id }
     }
 
     private func chooseFolder() {

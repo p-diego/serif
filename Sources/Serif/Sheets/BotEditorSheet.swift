@@ -22,6 +22,7 @@ struct BotEditorSheet: View {
     @State private var codexSkills: [CatalogItem] = []
     @State private var codexCatalog: CodexCatalog?        // asked of the engine when the sheet opens (spec §6)
     @State private var codexStatus: AgentStatus?          // Codex can be chosen once the engine finds it ready (spec §7)
+    @State private var codexChecked = false               // the check answered or failed
     @State private var busy = false
     @State private var error: String?
     @State private var confirmArchive = false
@@ -89,7 +90,7 @@ struct BotEditorSheet: View {
                 if editing == nil, let hint = codexHint {
                     HStack(spacing: 6) {
                         Text((try? AttributedString(markdown: hint)) ?? AttributedString(hint))
-                        Link(String(localized: "Help"), destination: AgentCheckView.codexGuide)
+                        if codexChecked { Link(String(localized: "Help"), destination: AgentCheckView.codexGuide) }
                     }
                     .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
                 }
@@ -101,6 +102,8 @@ struct BotEditorSheet: View {
                     Picker(String(localized: "Model"), selection: $codexModel) {
                         Text(String(localized: "Default")).tag(String?.none)
                         ForEach(codexCatalog?.models ?? [], id: \.id) { Text($0.name).tag(Optional($0.id)) }
+                        // The saved model before the catalog arrives (or when it no longer lists it): never a blank picker.
+                        if let m = codexModel, codexCatalog?.models.contains(where: { $0.id == m }) != true { Text(m).tag(Optional(m)) }
                     }
                 }
             }
@@ -136,7 +139,8 @@ struct BotEditorSheet: View {
             }
             FieldGroup(label: String(localized: "Plugins")) {
                 CatalogPicker(kind: .plugins, items: agent == .claude ? catalog.plugins : codexCatalog?.plugins ?? [], chosen: $plugins,
-                              inherited: (agent == .claude ? project?.plugins : project?.codexPlugins) ?? [])
+                              inherited: (agent == .claude ? project?.plugins : project?.codexPlugins) ?? [],
+                              known: agent == .claude || codexCatalog != nil)
             }
             FieldGroup(label: agent == .claude ? String(localized: "claude.ai connectors") : String(localized: "ChatGPT connectors")) {
                 Toggle(agent == .claude ? String(localized: "Use my claude.ai connectors") : String(localized: "Use my ChatGPT connectors"),
@@ -164,8 +168,9 @@ struct BotEditorSheet: View {
             codexSkills = catalog.codexSkills(environment: env)
         }
         .task {
-            guard editing?.agent ?? .codex == .codex else { return }     // a Claude Code bot's settings need nothing of Codex
+            guard (editing?.agent ?? .codex) == .codex else { return }     // a Claude Code bot's settings need nothing of Codex
             codexStatus = try? await client.agentStatus(.codex)
+            codexChecked = true
             if codexStatus?.problem == nil { codexCatalog = try? await client.codexCatalog() }
         }
         .onChange(of: agent) {
@@ -177,11 +182,12 @@ struct BotEditorSheet: View {
 
     /// Why Codex cannot be chosen yet, if so (spec §7).
     private var codexHint: String? {
-        switch codexStatus?.problem {
-        case .codexNotInstalled?: String(localized: "Codex is not installed: install the ChatGPT app or the Codex CLI.")
-        case .codexNotSignedIn?: String(localized: "Codex is not signed in: type `codex login` in Terminal.")
-        default: codexStatus == nil ? String(localized: "Checking Codex…") : nil
-        }
+        guard codexChecked else { return String(localized: "Checking Codex…") }
+        if let status = codexStatus, status.problem == nil { return nil }
+        // Not installed, or a check that failed: either way Codex cannot be chosen.
+        return codexStatus?.problem == .codexNotSignedIn
+            ? String(localized: "Codex is not signed in: type `codex login` in Terminal.")
+            : String(localized: "Codex is not installed: install the ChatGPT app or the Codex CLI.")
     }
 
     private func templateCard(_ t: BotTemplate?) -> some View {

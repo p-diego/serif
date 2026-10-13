@@ -22,7 +22,11 @@ final class CatalogTests: XCTestCase {
         let skills = catalog.codexSkills(environment: ["CODEX_HOME": root.appendingPathComponent("codex").path],
                                          home: root.appendingPathComponent("home"))
         XCTAssertEqual(skills.map(\.name), ["tidy", "mine", "shared"])
-        XCTAssertEqual(catalog.codexSkills(environment: [:], home: root.appendingPathComponent("home")).map(\.name), ["tidy", "shared"])
+        // Without CODEX_HOME (or with it empty) Codex's folder is ~/.codex.
+        try write("---\nname: x\n---\n", "home/.codex/skills/x/SKILL.md")
+        for env in [[:], ["CODEX_HOME": ""]] {
+            XCTAssertEqual(catalog.codexSkills(environment: env, home: root.appendingPathComponent("home")).map(\.name), ["tidy", "x", "shared"])
+        }
     }
 
     func testSkillsFromOwnAndSyncedFolders() throws {
