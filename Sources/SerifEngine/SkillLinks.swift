@@ -1,13 +1,14 @@
 import Foundation
 
-/// Links the chosen skills into `<folder>/.claude/skills/<skill folder name>`, where Claude Code finds them (spec §6.2),
-/// and drops the links of skills no longer chosen. Serif owns only the symbolic links there: anything else (a skill the bot
-/// wrote itself) is never touched. Returns one line per skill left out, for the engine log; the bot starts without it.
-func linkSkills(_ skills: [String], into folder: URL) -> [String] {
+/// Links the chosen skills into `<folder>/<subfolder>/<skill folder name>`, where the agent finds them: `.claude/skills`
+/// for Claude Code (spec §6.2 of 0.3), `.agents/skills` for Codex (spec §6); and drops the links of skills no longer chosen.
+/// Serif owns only the symbolic links there: anything else (a skill the bot wrote itself) is never touched. Returns one line per skill left out, for the engine log; the bot starts without it.
+func linkSkills(_ skills: [String], into folder: URL, under subfolder: String = ".claude/skills") -> [String] {
     let fm = FileManager.default
-    let dir = folder.appendingPathComponent(".claude/skills")
-    // A linked `.claude` or `skills` leads outside Serif (the user's own skills): never followed, nothing is linked.
-    for path in [folder.appendingPathComponent(".claude").path, dir.path] where (try? fm.destinationOfSymbolicLink(atPath: path)) != nil {
+    let dir = folder.appendingPathComponent(subfolder)
+    // A linked `.claude` (`.agents`) or `skills` leads outside Serif (the user's own skills): never followed, nothing is linked.
+    let top = folder.appendingPathComponent(String(subfolder.split(separator: "/")[0])).path
+    for path in [top, dir.path] where (try? fm.destinationOfSymbolicLink(atPath: path)) != nil {
         return ["skills left out: \(path) is a link"]
     }
     var problems: [String] = []

@@ -16,10 +16,12 @@ func logLaunch() {
     append(line.compactText, to: path)
 }
 
+/// One write with O_APPEND: several servers (bots', the catalog's) write the same files at once, and none may lose a line.
 func append(_ line: String, to path: String) {
-    if !FileManager.default.fileExists(atPath: path) { FileManager.default.createFile(atPath: path, contents: nil) }
-    guard let h = FileHandle(forWritingAtPath: path) else { return }
-    h.seekToEndOfFile(); h.write(Data((line + "\n").utf8)); try? h.close()
+    let fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+    guard fd >= 0 else { return }
+    _ = Array((line + "\n").utf8).withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+    close(fd)
 }
 
 func value(after flag: String) -> String? { args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } }

@@ -9,7 +9,7 @@ struct Refusal: Error { let reason: String; init(_ reason: String) { self.reason
 /// One bot's live state. Only touched on the engine queue.
 final class BotRuntime {
     var bot: Bot
-    let host: BotHost
+    let host: BotHost                         // Claude Code itself; for a Codex bot, its real terminal, shown on demand
     var normalizer = ClaudeNormalizer()
     var tracker = StateTracker()
     var token = UUID().uuidString             // new at every launch: hooks from an older process are dropped
@@ -24,6 +24,16 @@ final class BotRuntime {
     var resumed = false                       // the running launch used --resume
     var unread = false
     var lastEvent: ChatEventRecord?
+    // A Codex bot (spec §4)
+    var codex: CodexServer?                   // its own app-server, while it runs
+    var codexNormalizer = CodexNormalizer()
+    var codexToken = ""                       // the running server's secret, for the terminal
+    var codexReady = false                    // thread open and isolation checked: messages go out
+    var thread: String?                       // the thread open on the running server
+    var turnId: String?                       // the turn running there: messages steer it
+    var turnStarting = false                  // a turn/start is on its way: texts wait for its id
+    var launchedAt = Date()
+    var startup: DispatchWorkItem?            // gives up on a server that is not ready in time (spec §8)
     private var preview: String?
     private var previewMessage: String?
 
@@ -52,6 +62,9 @@ final class BotRuntime {
         }
     }
 
+    /// The agent runs: Claude Code in its terminal, or a Codex bot's server (its terminal is only a view on it).
+    var isRunning: Bool { bot.agent == .codex ? codex != nil : host.isRunning }
+
     var summary: BotSummary {
         BotSummary(bot: bot, state: tracker.state, unread: unread, lastEvent: lastEvent,
                    preview: preview.map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)) })
@@ -79,6 +92,8 @@ public final class Engine {
     /// How long a reading asks again for remote skills, and the limit for a Codex that does not answer at all.
     var codexCatalogPollLimit: TimeInterval = 18
     var codexCatalogHardLimit: TimeInterval = 20
+    /// How long a Codex server has to get ready (spec §8); shorter in tests.
+    var codexStartupTimeout: TimeInterval = 15
     let hookCommand: String
     let environment: [String: String]
     let store: Store
@@ -100,7 +115,8 @@ public final class Engine {
         store = try Store(paths: paths)
     }
 
-    /// Takes the data folder's lock, opens both sockets and launches every bot that is not archived.
+    /// Takes the data folder's lock, opens both sockets, stops the Codex servers an engine that died left running, and
+    /// launches every bot that is not archived.
     public func start() throws {
         // O_CLOEXEC: bots must not inherit the lock, or a leftover child process would keep the next engine out.
         let fd = open(paths.lock.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
@@ -111,6 +127,7 @@ public final class Engine {
                 servers.append(try LineServer(path: paths.hookSocket.path, queue: queue) { [weak self] in self?.hookConnected($0) })
                 servers.append(try LineServer(path: paths.engineSocket.path, queue: queue) { [weak self] in self?.appConnected($0) })
                 lockFD = fd
+                stopLeftoverCodexServers()
                 for bot in store.bots { launch(addRuntime(bot)) }
             }
         } catch {
@@ -160,35 +177,48 @@ public final class Engine {
         return rt
     }
 
-    /// Writes the bot's system prompt and hook settings, then starts its Claude Code (spec §3.2 of 0.1). Its agent is
-    /// checked first (spec §4 of 0.3): at the first launch, after a bot crashes, and again after a check that found it
-    /// missing or signed out, since the user may have fixed it since; `checked` marks the launch that follows such a fresh
-    /// check.
+    /// Writes the bot's system prompt and hook settings, then starts its Claude Code (spec §3.2 of 0.1), or starts a Codex
+    /// bot (`launchCodex`). Its agent is checked first (spec §4 of 0.3): at the first launch, after a bot crashes, and
+    /// again after a check that found it missing or signed out, since the user may have fixed it since; `checked` marks the
+    /// launch that follows such a fresh check. A Codex bot also needs Codex's catalog (spec §6).
     func launch(_ rt: BotRuntime, checked: Bool = false) {
         rt.restart = nil
-        guard !stopping, rt.bot.archivedAt == nil, !rt.host.isRunning,
+        guard !stopping, rt.bot.archivedAt == nil, !rt.isRunning,
               let project = store.projects.first(where: { $0.id == rt.bot.projectId }) else { return }
         guard let status = statuses[rt.bot.agent], checked || status.problem == nil else {
             return checkAgent(rt.bot.agent) { [weak self] _ in self?.launch(rt, checked: true) }
         }
         if let problem = status.problem { return crashed(rt, problem.rawValue) }
         guard let agentPath = status.path else { return }       // no problem: it was found
-        guard rt.bot.agent == .claude else { return crashed(rt, "Codex bots are not supported yet") }    // Task 9
+        if rt.bot.agent == .codex, freshCodexCatalog == nil {
+            return codexCatalog { [weak self] catalog in
+                // Shutting down (the read ends with nil) or archived meanwhile: no crash for that.
+                guard let self, !stopping, rt.bot.archivedAt == nil else { return }
+                if catalog == nil { return crashedRelaunching(rt, reason: "Codex did not answer", ranFor: 0) }
+                launch(rt, checked: true)
+            }
+        }
 
         var isDirectory: ObjCBool = false
         let linkedExists = project.linkedFolder.map { FileManager.default.fileExists(atPath: $0, isDirectory: &isDirectory) && isDirectory.boolValue } ?? false
         if let linked = project.linkedFolder, !linkedExists, rt.lastEvent?.event != .system(.linkedFolderMissing(path: linked)) {
             record(.system(.linkedFolderMissing(path: linked)), rt)
         }
+        let prompt: String
         do {
             try store.prepareFolders(for: rt.bot)
             let instructions = linkedExists && project.readLinkedInstructions ? linkedInstructions(in: project.linkedFolder!) : nil
-            let files = paths.bot(rt.bot.id)
-            try systemPrompt(bot: rt.bot, project: project, paths: paths, linkedInstructions: instructions)
-                .write(to: files.systemPrompt, atomically: true, encoding: .utf8)
-            try claudeHookSettings(hookCommand: hookCommand).write(to: files.settings, options: .atomic)
+            prompt = systemPrompt(bot: rt.bot, project: project, paths: paths, linkedInstructions: instructions)
+            if rt.bot.agent == .claude {
+                let files = paths.bot(rt.bot.id)
+                try prompt.write(to: files.systemPrompt, atomically: true, encoding: .utf8)
+                try claudeHookSettings(hookCommand: hookCommand).write(to: files.settings, options: .atomic)
+            }
         } catch {
             return crashed(rt, "Cannot prepare the bot's folder: \(error.localizedDescription)")
+        }
+        if rt.bot.agent == .codex {
+            return launchCodex(rt, project: project, codexPath: agentPath, instructions: prompt, linkedExists: linkedExists)
         }
         // Skills arrive as links in the bot's folder and in the project's shared one, which every bot gets with --add-dir
         // (spec §6.2); one that cannot be linked is left out and logged, the bot starts anyway (spec §9).
@@ -249,15 +279,20 @@ public final class Engine {
         push(.botChanged(rt.summary))
     }
 
-    /// Stops the bot's process; `then` runs once it has exited (at once if it was not running).
+    /// Stops the bot's process (a Codex bot's server, and its terminal with it); `then` runs once it has exited (at once if
+    /// it was not running).
     func stop(_ rt: BotRuntime, then: @escaping () -> Void) {
         rt.restart?.cancel()
         rt.restart = nil
         rt.stopping = true
-        rt.host.stop {
+        let done = { [weak self] in
+            if rt.bot.agent == .codex { self?.codexEnded(rt) }
             rt.stopping = false
             then()
         }
+        guard let server = rt.codex else { return rt.host.stop(then: done) }
+        rt.host.stop {}
+        server.stop(then: done)
     }
 
     func restart(_ rt: BotRuntime) {
@@ -283,19 +318,24 @@ public final class Engine {
         // A turn cut short (crash, restart, shutdown) would stay "in progress" forever: close it as interrupted.
         if rt.tracker.state.inTurn { handle(rt.normalizer.interrupted(at: Date()), rt) }
         guard !rt.stopping, !stopping else { return }
-        statuses[rt.bot.agent] = nil      // a bot that crashes checks its agent again before the next launch (spec §4 of 0.3)
         let reason = code.map { "Exit code \($0)" } ?? "Could not start"
-        record(.system(.crashed(reason: reason)), rt)
         let newConversation = rt.resumed && ranFor < 10 && code != nil      // nil: the fork failed, claude never ran
-        if newConversation {
+        crashedRelaunching(rt, reason: reason, ranFor: ranFor) {
+            guard newConversation else { return }
             rt.bot.sessionId = UUID()
             try? store.save(bot: rt.bot)
             record(.system(.newConversation), rt)
+            updateMeta(rt) { $0.hasStarted = false }
         }
-        updateMeta(rt) {
-            $0.crashCount += 1
-            if newConversation { $0.hasStarted = false }
-        }
+    }
+
+    /// A crash, for either agent (spec §4.7 of 0.1, §8): a note in the chat, then `note` for more, and a relaunch after the
+    /// backoff delay; the agent is checked again first (spec §4 of 0.3).
+    func crashedRelaunching(_ rt: BotRuntime, reason: String, ranFor: TimeInterval, then note: () -> Void = {}) {
+        statuses[rt.bot.agent] = nil
+        record(.system(.crashed(reason: reason)), rt)
+        note()
+        updateMeta(rt) { $0.crashCount += 1 }
         let delay = rt.backoff.nextDelay(ranFor: ranFor)
         rt.tracker.processExited(reason: reason, retryAt: Date().addingTimeInterval(delay))
         push(.botChanged(rt.summary))

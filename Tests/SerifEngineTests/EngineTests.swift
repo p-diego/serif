@@ -710,4 +710,241 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(answers.count, 2, "refused at once while stopping")
         XCTAssertNil(engine.queue.sync { engine.codexCatalogServer })
     }
+
+    /// The app-servers started for `bot` (the catalog's own server runs in the data folder), with their environment.
+    private func codexServers(_ bot: Bot) throws -> [(args: [String], env: [String: String])] {
+        let read = { [fakeLog] in (try? String(contentsOfFile: fakeLog, encoding: .utf8))?.split(separator: "\n") ?? [] }
+        return try read().compactMap { line in
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+            guard (object["cwd"] as? String)?.hasSuffix(bot.id.uuidString + "/workspace") == true,
+                  (object["args"] as? [String])?.first == "app-server" else { return nil }
+            return (object["args"] as? [String] ?? [], object["env"] as? [String: String] ?? [:])
+        }
+    }
+
+    func testCodexBotStartsOnAnIsolatedServerOfItsOwn() throws {
+        try makeEngine("basic").start()
+        let skill = root.appendingPathComponent("my-skills/tidy")
+        try FileManager.default.createDirectory(at: skill, withIntermediateDirectories: true)
+        try "---\nname: tidy\n---\n".write(to: skill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex, skills: [skill.path])
+        waitFor(client, "ready") { $0.summaries(bot.id).contains { $0.state == .ready } }
+        let server = try XCTUnwrap(codexServers(bot).first)
+        // Every installed plugin off but the chosen (none here), the remote one's skills hidden, the account's connectors off.
+        XCTAssertEqual(Array(server.args.suffix(12)), ["--disable", "hooks", "-c", "notify=[]",
+                                                        "-c", "plugins.browser@openai-bundled.enabled=false",
+                                                        "-c", "plugins.visualize@openai-bundled.enabled=false",
+                                                        "-c", #"skills.config=[{name="work-pets:pets",enabled=false}]"#,
+                                                        "--disable", "apps"])
+        XCTAssertEqual(server.args.firstIndex(of: "--ws-token-sha256").map { server.args[$0 + 1].count }, 64)   // the hash, not the secret
+        XCTAssertNil(server.env["CLAUDECODE"])
+        let workspace = paths.bot(bot.id).workspace.path
+        let start = try XCTUnwrap(codexRequests("thread/start").first)
+        XCTAssertEqual(start["cwd"]?.string, workspace)
+        XCTAssertEqual(start["sandbox"], "read-only")
+        XCTAssertEqual(start["approvalPolicy"], "on-request")
+        XCTAssertEqual(start["model"], "gpt-6-luna")                        // "Default" is Codex's default model
+        XCTAssertTrue(start["developerInstructions"]?.string?.contains("AGENTS.md") ?? false)
+        XCTAssertEqual(start["config"], ["sandbox_workspace_write": ["writable_roots": [.string(workspace), .string(paths.shared(bot.projectId).path)]]])
+        XCTAssertEqual(codexRequests("experimentalFeature/list").first?["threadId"], "thr-1")
+        XCTAssertEqual(codexRequests("mcpServerStatus/list").first?["threadId"], "thr-1")
+        let link = paths.bot(bot.id).workspace.appendingPathComponent(".agents/skills/tidy").path
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link), skill.path)
+    }
+
+    func testLinkedFolderIsWritableOnlyWhenItExists() throws {
+        try makeEngine("basic").start()
+        let linked = root.appendingPathComponent("linked")
+        try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
+        let client = try connect()
+        var bots: [Bot] = []
+        for folder in [linked.path, root.path + "/gone"] {
+            guard case let .project(p) = request(client, .createProject(name: "P", linkedFolder: folder, readLinkedInstructions: true))
+            else { return XCTFail("no project") }
+            bots.append(try createBot(client, in: p.id, agent: .codex))
+        }
+        waitFor(client, "both ready") { m in bots.allSatisfy { b in m.summaries(b.id).contains { $0.state == .ready } } }
+        let roots = { [self] (bot: Bot) in
+            codexRequests("thread/start").first { $0["cwd"]?.string == paths.bot(bot.id).workspace.path }?["config"]?["sandbox_workspace_write"]?["writable_roots"]
+        }
+        let (present, missing) = (bots[0], bots[1])
+        XCTAssertEqual(roots(present), [.string(paths.bot(present.id).workspace.path), .string(paths.shared(present.projectId).path), .string(linked.path)])
+        XCTAssertEqual(roots(missing), [.string(paths.bot(missing.id).workspace.path), .string(paths.shared(missing.projectId).path)])
+    }
+
+    func testHooksReportedOnStopTheBot() throws {
+        // Review Focus 1: whatever turned them back on (a thread config, a new Codex), the bot never runs with them.
+        try makeEngine("basic", codex: "codex-hooks-on").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        let stopped = BotState.crashed(reason: CodexText.isolation, retryAt: nil)
+        waitFor(client, "stopped: isolation") { $0.summaries(bot.id).contains { $0.state == stopped } }
+        XCTAssertTrue(client.all.chatEvents(bot.id).contains(.system(.crashed(reason: CodexText.isolation))))
+        Thread.sleep(forTimeInterval: 2.5)       // a crash would relaunch it after 2 s
+        XCTAssertEqual(try codexServers(bot).count, 1)
+        XCTAssertTrue(codexRequests("turn/start").isEmpty, "the introduction reached a bot that is not isolated")
+    }
+
+    func testAccountConnectorsLeftOnStopTheBot() throws {
+        try makeEngine("basic", codex: "codex-apps-on").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        let stopped = BotState.crashed(reason: CodexText.isolation, retryAt: nil)
+        waitFor(client, "stopped: isolation") { $0.summaries(bot.id).contains { $0.state == stopped } }
+    }
+
+    func testConnectorsListedOnMorePagesStopTheBot() throws {
+        // A first page without codex_apps does not show it gone: it may be on the next one.
+        try makeEngine("basic", codex: "codex-apps-paged").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        let stopped = BotState.crashed(reason: CodexText.isolation, retryAt: nil)
+        waitFor(client, "stopped: isolation") { $0.summaries(bot.id).contains { $0.state == stopped } }
+    }
+
+    func testConnectorsOnAreLeftOn() throws {
+        try makeEngine("basic").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex, connectors: true)
+        waitFor(client, "ready") { $0.summaries(bot.id).contains { $0.state == .ready } }
+        XCTAssertFalse(try XCTUnwrap(codexServers(bot).first).args.contains("apps"))
+        XCTAssertTrue(codexRequests("mcpServerStatus/list").isEmpty)
+    }
+
+    func testCodexThatAnswersDifferentlyStopsTheBot() throws {
+        // Review Focus 2: a Codex updated with the ChatGPT app that no longer knows a method: stopped with its message.
+        try makeEngine("basic", codex: "codex-unknown").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        let stopped = BotState.crashed(reason: "Codex: unknown method thread/start", retryAt: nil)
+        waitFor(client, "stopped") { $0.summaries(bot.id).contains { $0.state == stopped } }
+    }
+
+    func testCodexRefusingTheHandshakeStopsTheBotAndItsServer() throws {
+        // Codex's own error at the start is Codex answering differently too: stopped, its server with it, never relaunched.
+        let scenario = root.path + "/scenario.jsonl"
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_CODEX_SCENARIO": scenario])
+        FileManager.default.createFile(atPath: scenario, contents: nil)
+        try engine.start()
+        let client = try connect()
+        guard case .codexCatalog = request(client, .codexCatalog) else { return XCTFail("no catalog") }     // read before the refusal
+        try #"{"reply": "initialize", "error": "unsupported client"}"#.write(toFile: scenario, atomically: true, encoding: .utf8)
+        let bot = try createBot(client, agent: .codex)
+        let stopped = BotState.crashed(reason: "Codex: unsupported client", retryAt: nil)
+        waitFor(client, "stopped") { $0.summaries(bot.id).contains { $0.state == stopped } }
+        XCTAssertTrue(client.all.chatEvents(bot.id).contains(.system(.crashed(reason: "Codex: unsupported client"))))
+        Thread.sleep(forTimeInterval: 2.5)       // a crash would relaunch it after 2 s
+        XCTAssertEqual(try codexServers(bot).count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.bot(bot.id).dir.appendingPathComponent("codex.pid").path),
+                       "its server is still running")
+    }
+
+    func testCodexSlowToStartIsWaitedForThenGivenUpOn() throws {
+        // Review Focus 3: a server that answers late is waited for; one that never gets ready in time is a crash.
+        let slow = try makeEngine("basic", env: ["SERIF_FAKE_CODEX_DELAY": "1"])
+        try slow.start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "ready") { $0.summaries(bot.id).contains { $0.state == .ready } }
+        client.close()
+        shutdown(slow)
+
+        let late = try makeEngine("basic", env: ["SERIF_FAKE_CODEX_DELAY": "3"])
+        late.codexStartupTimeout = 1
+        try late.start()
+        let second = try connect()
+        waitFor(second, "crashed, to start again") {
+            $0.summaries(bot.id).contains { if case .crashed(CodexText.notStarted, let retryAt) = $0.state { retryAt != nil } else { false } }
+        }
+        XCTAssertTrue(second.all.chatEvents(bot.id).contains(.system(.crashed(reason: CodexText.notStarted))))
+    }
+
+    func testPortTakenStartsCodexOnAnother() throws {
+        // Review Focus 3: the port went to someone else between the check and Codex's start: another port, no crash.
+        let busy = root.path + "/busy"
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_CODEX_BUSY": busy])
+        FileManager.default.createFile(atPath: busy, contents: nil)
+        try engine.start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "ready") { $0.summaries(bot.id).contains { $0.state == .ready } }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: busy))
+        XCTAssertFalse(client.all.chatEvents(bot.id).contains { if case .system(.crashed) = $0 { true } else { false } })
+    }
+
+    func testCodexSignedOutStopsItsBotsUntilACheckFindsItFine() throws {
+        let (flag, claudeFlag) = (root.path + "/codex-logged-out", root.path + "/logged-out")
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_CODEX_LOGGED_OUT": flag, "SERIF_FAKE_LOGGED_OUT": claudeFlag])
+        FileManager.default.createFile(atPath: flag, contents: nil)
+        FileManager.default.createFile(atPath: claudeFlag, contents: nil)
+        try engine.start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        let claudeBot = try createBot(client, in: bot.projectId)
+        let stopped = BotState.crashed(reason: AgentProblem.codexNotSignedIn.rawValue, retryAt: nil)
+        let claudeStopped = BotState.crashed(reason: AgentProblem.claudeNotSignedIn.rawValue, retryAt: nil)
+        waitFor(client, "both stopped: not signed in") { m in
+            m.summaries(bot.id).contains { $0.state == stopped } && m.summaries(claudeBot.id).contains { $0.state == claudeStopped }
+        }
+        XCTAssertTrue(try codexServers(bot).isEmpty)
+        // The user signs in to both, then Retry asks for a check of Codex: only Codex's bots start, Claude Code's wait for theirs.
+        try FileManager.default.removeItem(atPath: flag)
+        try FileManager.default.removeItem(atPath: claudeFlag)
+        guard case .agentStatus = request(client, .agentStatus(.codex)) else { return XCTFail("no status") }
+        waitFor(client, "ready") { $0.summaries(bot.id).contains { $0.state == .ready } }
+        XCTAssertEqual(engine.queue.sync { engine.bots[claudeBot.id]?.tracker.state }, claudeStopped)
+    }
+
+    func testCodexServerThatExitsIsRelaunched() throws {
+        try makeEngine("basic", codex: "codex-exit").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "crashed, to start again") {
+            $0.summaries(bot.id).contains { if case .crashed("Exit code 3", let retryAt) = $0.state { retryAt != nil } else { false } }
+        }
+        XCTAssertTrue(client.all.chatEvents(bot.id).contains(.system(.crashed(reason: "Exit code 3"))))
+        let relaunched = expectation(description: "relaunched")
+        let poll = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [unowned self] t in
+            if (try? codexServers(bot).count) ?? 0 >= 2 { t.invalidate(); relaunched.fulfill() }
+        }
+        wait(for: [relaunched], timeout: timeout)
+        poll.invalidate()
+    }
+
+    func testShutdownWhileACodexBotWaitsForTheCatalogIsNoCrash() throws {
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_CODEX_DELAY": "5"])
+        try engine.start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        _ = try launches(1)                                  // the catalog's server, still starting
+        shutdown(engine)
+        let events = try engine.store.records(bot: bot.id, afterSeq: 0).map(\.event)
+        XCTAssertFalse(events.contains { if case .system(.crashed) = $0 { true } else { false } })
+    }
+
+    func testCodexServersLeftByACrashedEngineAreStoppedAtStart() throws {
+        let engine = try makeEngine("basic")
+        // A bot's app-server an engine killed with SIGKILL left behind, and a catalog pid since reused by another program.
+        let orphan = Process(), other = Process()
+        orphan.executableURL = binDir.appendingPathComponent("fake-codex")
+        orphan.arguments = codexServerArgs(listen: "ws://127.0.0.1:\(try XCTUnwrap(freePort()))", tokenHash: codexTokenHash(codexToken()))
+        orphan.environment = [:]
+        let gone = expectation(description: "orphan stopped")
+        orphan.terminationHandler = { _ in gone.fulfill() }
+        other.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        other.arguments = ["30"]
+        try orphan.run()
+        try other.run()
+        defer { [orphan, other].forEach { if $0.isRunning { kill($0.processIdentifier, SIGKILL) } } }
+        let files = [paths.bot(UUID()).dir.appendingPathComponent("codex.pid"), paths.root.appendingPathComponent("codex-catalog.pid")]
+        for (file, process) in zip(files, [orphan, other]) {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "\(process.processIdentifier)".write(to: file, atomically: true, encoding: .utf8)
+        }
+        try engine.start()
+        wait(for: [gone], timeout: timeout)
+        XCTAssertTrue(other.isRunning, "a pid reused by another program is left alone")
+        XCTAssertFalse(files.contains { FileManager.default.fileExists(atPath: $0.path) })
+    }
 }

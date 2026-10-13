@@ -76,4 +76,19 @@ final class SkillLinksTests: XCTestCase {
         XCTAssertEqual(linkSkills([], into: bot), [])
         XCTAssertFalse(fm.fileExists(atPath: skillsDir.path))
     }
+
+    func testCodexSkillsGoUnderAgents() throws {
+        let tidy = try skill("a/tidy")
+        XCTAssertEqual(linkSkills([tidy], into: bot, under: ".agents/skills"), [])
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: bot.appendingPathComponent(".agents/skills/tidy").path), tidy)
+        XCTAssertFalse(fm.fileExists(atPath: skillsDir.path))                       // nothing under .claude
+        // A linked `.agents` leads outside Serif: never followed.
+        let other = root.appendingPathComponent("elsewhere")
+        try fm.createDirectory(at: other, withIntermediateDirectories: true)
+        let bot2 = root.appendingPathComponent("bot2")
+        try fm.createDirectory(at: bot2, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: bot2.appendingPathComponent(".agents").path, withDestinationPath: other.path)
+        XCTAssertEqual(linkSkills([tidy], into: bot2, under: ".agents/skills").count, 1)
+        XCTAssertFalse(fm.fileExists(atPath: other.appendingPathComponent("skills").path))
+    }
 }

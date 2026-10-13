@@ -45,12 +45,14 @@ public enum CodexText {
 
 /// Why a Codex bot must not run, from what its thread reports right after it opens (spec §4, §8): Siigil's hooks on
 /// (`experimentalFeature/list`), or the account's connectors there while the bot has them off (`mcpServerStatus/list`).
-/// Nil when isolated; a missing answer is never taken as isolated.
+/// Nil when isolated; a missing answer, or only a first page of servers, is never taken as isolated.
 public func codexIsolationProblem(features: JSONValue?, mcpServers: JSONValue?, connectors: Bool) -> String? {
     let hooks = features?["data"]?.array?.first { $0["name"]?.string == "hooks" }
     guard hooks?["enabled"]?.bool == false else { return "hooks are not off" }
     guard !connectors else { return nil }
-    guard let servers = mcpServers?["data"]?.array else { return "the connectors could not be checked" }
+    guard let servers = mcpServers?["data"]?.array, (mcpServers?["nextCursor"] ?? .null) == .null else {
+        return "the connectors could not be checked"
+    }
     return servers.contains { $0["name"]?.string == "codex_apps" } ? "the account's connectors are on" : nil
 }
 

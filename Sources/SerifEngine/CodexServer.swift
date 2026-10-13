@@ -15,6 +15,8 @@ final class CodexServer {
         let cwd: String
         let token: String
         let log: URL        // Codex's own output, for a look after a failure
+        /// Holds the running process's pid, so an engine that died without stopping it stops it at its next start.
+        var pidFile: URL? = nil
     }
 
     let queue: DispatchQueue
@@ -34,6 +36,7 @@ final class CodexServer {
     private var waiting: [Int: (Result<JSONValue, Failure>) -> Void] = [:]
     private var stopCallbacks: [() -> Void] = []
     private var killTimer: DispatchWorkItem?
+    private var keptAlive: CodexServer?
 
     init(queue: DispatchQueue) { self.queue = queue }
 
@@ -71,6 +74,7 @@ final class CodexServer {
         defer { pthread_sigmask(SIG_SETMASK, &saved, nil) }
         do { try p.run() } catch { return started(Failure(message: "Cannot run Codex: \(error.localizedDescription)", fromCodex: false)) }
         process = p
+        if let file = launch.pidFile { try? "\(p.processIdentifier)".write(to: file, atomically: true, encoding: .utf8) }
         connect()
     }
 
@@ -174,6 +178,7 @@ final class CodexServer {
         failWaiting("Codex stopped")
         guard let process else { return then() }
         stopCallbacks.append(then)
+        keptAlive = self        // until its exit: an owner that lets go of it still gets `then`, and the grace before SIGKILL
         terminate(process)
     }
 
@@ -190,6 +195,8 @@ final class CodexServer {
     private func exited(_ p: Process) {
         guard p === process else { return }
         process = nil
+        keptAlive = nil
+        if let file = launch?.pidFile { try? FileManager.default.removeItem(at: file) }
         killTimer?.cancel()
         killTimer = nil
         webSocket?.cancel()

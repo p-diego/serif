@@ -36,6 +36,9 @@ final class CodexProtocolTests: XCTestCase {
         XCTAssertNotNil(codexIsolationProblem(features: nil, mcpServers: noApps, connectors: false))
         XCTAssertNotNil(codexIsolationProblem(features: hooksOff, mcpServers: apps, connectors: false))
         XCTAssertNotNil(codexIsolationProblem(features: hooksOff, mcpServers: nil, connectors: false))
+        // A first page only: codex_apps may be on the next one, so it is not shown gone.
+        XCTAssertNotNil(codexIsolationProblem(features: hooksOff, mcpServers: ["data": [], "nextCursor": "2"], connectors: false))
+        XCTAssertNil(codexIsolationProblem(features: hooksOff, mcpServers: ["data": [], "nextCursor": .null], connectors: false))
     }
 
     func testCatalogFromCodex() throws {
