@@ -67,7 +67,8 @@ public func systemPrompt(bot: Bot, project: Project, paths: SerifPaths, linkedIn
     if !bot.instructions.isEmpty { s += "\nYour role:\n\(bot.instructions)\n" }
     s += "\nThe folder shared by all bots of this project: \(paths.shared(project.id).path)\n"
     if let linked = project.linkedFolder { s += "The project's linked folder: \(linked)\n" }
-    s += "\nYour memory is CLAUDE.md in your working folder: keep it up to date.\n"
+    // Each agent reads its own memory file from the working folder by itself (spec §4).
+    s += "\nYour memory is \(bot.agent == .codex ? "AGENTS.md" : "CLAUDE.md") in your working folder: keep it up to date.\n"
     if let linkedInstructions { s += "\nInstructions from the linked folder:\n" + linkedInstructions + "\n" }
     return s
 }

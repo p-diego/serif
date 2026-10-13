@@ -1,0 +1,76 @@
+import Foundation
+import CryptoKit
+
+extension Freedom {
+    /// Codex's approval policy for this freedom (spec §5): only Automatic never asks.
+    public var codexApproval: String { self == .auto ? "never" : "on-request" }
+    /// Codex's sandbox (spec §5): Asks permission reads only; the others write in the bot's folders without asking.
+    public var codexSandbox: String { self == .ask ? "read-only" : "workspace-write" }
+}
+
+/// A new secret for one launch of a Codex server: 32 random bytes as hex. It stays in the engine and the bot's terminal.
+public func codexToken() -> String { (0..<32).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined() }
+
+/// What the server gets instead of the secret (`--ws-token-sha256`): its SHA-256, hex.
+public func codexTokenHash(_ token: String) -> String {
+    SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
+}
+
+/// The arguments of a Codex app-server of Serif's (spec §4, §6): listening on `listen` (a bot's server with its token),
+/// with Siigil's hooks and the notify program off for this process; for a bot, every installed plugin on or off by name
+/// (the key without quotes: quoted, Codex ignores it, spec §3.8), the skills of the account's remote plugins it did not
+/// choose hidden, and the account's connectors off unless it has them on. Everything that isolates a bot is here, never in
+/// a thread's `config`, which would replace it (spec §3.6).
+public func codexServerArgs(listen: String, tokenHash: String?, plugins: [(id: String, enabled: Bool)] = [],
+                            hiddenSkills: [String] = [], connectors: Bool = true) -> [String] {
+    var args = ["app-server", "--listen", listen]
+    if let tokenHash { args += ["--ws-auth", "capability-token", "--ws-token-sha256", tokenHash] }
+    args += ["--disable", "hooks", "-c", "notify=[]"]
+    // ponytail: plugin ids have no dots (Codex 0.160); a dotted one would need a quoted key, which -c ignores.
+    for p in plugins { args += ["-c", "plugins.\(p.id).enabled=\(p.enabled)"] }
+    if !hiddenSkills.isEmpty {
+        let entries = hiddenSkills.map { "{name=\(JSONValue.string($0).compactText),enabled=false}" }
+        args += ["-c", "skills.config=[\(entries.joined(separator: ","))]"]
+    }
+    if !connectors { args += ["--disable", "apps"] }
+    return args
+}
+
+/// The parameters of `thread/start`, or with `resume` of `thread/resume` (spec §4-5): the bot's folder, model, the same
+/// system prompt as a Claude Code bot (memory in AGENTS.md), approval and sandbox from its freedom, and the folders it may
+/// write in. Codex forgets the sandbox on resume (spec §3.5): every launch passes everything again. The `config` holds only
+/// the writable folders: a `features`, `plugins`, `skills` or `mcp_servers` key there would replace the server's command
+/// line and turn Siigil's hooks back on (spec §3.6).
+public func codexThreadParams(resume threadId: String?, cwd: String, model: String?, instructions: String,
+                              freedom: Freedom, writableRoots: [String]) -> JSONValue {
+    var p: [String: JSONValue] = [
+        "cwd": .string(cwd),
+        "developerInstructions": .string(instructions),
+        "approvalPolicy": .string(freedom.codexApproval),
+        "sandbox": .string(freedom.codexSandbox),
+        "config": ["sandbox_workspace_write": ["writable_roots": .array(writableRoots.map(JSONValue.string))]],
+    ]
+    if let model { p["model"] = .string(model) }
+    if let threadId { p["threadId"] = .string(threadId); p["excludeTurns"] = true }    // the chat history is Serif's
+    return .object(p)
+}
+
+/// The engine's environment as Codex gets it: the bots' (no `CLAUDE*`, no `ANTHROPIC_API_KEY`) without a
+/// `CODEX_THREAD_ID` a Codex session may have left (Gravity drops it too).
+public func codexEnvironment(_ base: [String: String]) -> [String: String] {
+    var env = botEnvironment(base)
+    env["CODEX_THREAD_ID"] = nil
+    return env
+}
+
+/// The bot's real Codex terminal (spec §4): `codex resume` attached to its thread on its server, the secret in the
+/// environment (never in the arguments).
+public func codexTerminalPlan(codexPath: String, threadId: String, port: Int, token: String, cwd: String,
+                              baseEnvironment: [String: String]) -> LaunchPlan {
+    var env = codexEnvironment(baseEnvironment)
+    env["SERIF_CODEX_TOKEN"] = token
+    env["TERM"] = "xterm-256color"
+    return LaunchPlan(executable: codexPath, args: ["resume", "--remote", "ws://127.0.0.1:\(port)", "--remote-auth-token-env",
+                                                    "SERIF_CODEX_TOKEN", "--no-alt-screen", threadId],
+                      environment: env, cwd: cwd)
+}

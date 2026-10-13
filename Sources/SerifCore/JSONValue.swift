@@ -61,3 +61,15 @@ public enum JSONValue: Codable, Equatable, Hashable, Sendable {
         (try? encoded()).flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 }
+
+// Literals, so JSON-RPC parameters read like the JSON they become: ["threadId": .string(id), "limit": 500].
+extension JSONValue: ExpressibleByStringLiteral, ExpressibleByBooleanLiteral, ExpressibleByIntegerLiteral,
+                     ExpressibleByArrayLiteral, ExpressibleByDictionaryLiteral {
+    public init(stringLiteral value: String) { self = .string(value) }
+    public init(booleanLiteral value: Bool) { self = .bool(value) }
+    public init(integerLiteral value: Int) { self = .number(Double(value)) }
+    public init(arrayLiteral elements: JSONValue...) { self = .array(elements) }
+    public init(dictionaryLiteral elements: (String, JSONValue)...) {
+        self = .object(Dictionary(elements, uniquingKeysWith: { _, last in last }))
+    }
+}
