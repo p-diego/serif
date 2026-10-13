@@ -13,6 +13,18 @@ final class CatalogTests: XCTestCase {
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    func testCodexSkillsAddCodexsOwnFolders() throws {
+        try write("---\nname: tidy\n---\n", "claude/skills/tidy/SKILL.md")
+        try write("---\nname: mine\n---\n", "codex/skills/mine/SKILL.md")
+        try write("---\nname: imagegen\n---\n", "codex/skills/.system/imagegen/SKILL.md")      // Codex's own: always there
+        try write("---\nname: shared\n---\n", "home/.agents/skills/shared/SKILL.md")
+        let catalog = ClaudeCatalog(root: root.appendingPathComponent("claude"))
+        let skills = catalog.codexSkills(environment: ["CODEX_HOME": root.appendingPathComponent("codex").path],
+                                         home: root.appendingPathComponent("home"))
+        XCTAssertEqual(skills.map(\.name), ["tidy", "mine", "shared"])
+        XCTAssertEqual(catalog.codexSkills(environment: [:], home: root.appendingPathComponent("home")).map(\.name), ["tidy", "shared"])
+    }
+
     func testSkillsFromOwnAndSyncedFolders() throws {
         try write("---\nname: docx\ndescription: \"Word documents\"\nlicense: x\n---\n# Docx\n", "skills/synced/acc/docx/SKILL.md")
         try write("---\nname: tidy\ndescription: >\n  Keeps things\n  tidy.\n---\n", "skills/tidy/SKILL.md")

@@ -9,7 +9,9 @@ struct BotEditorSheet: View {
     @State private var template: BotTemplate?          // nil = Blank
     @State private var name: String
     @State private var face: BotFace
-    @State private var model: BotModel
+    @State private var agent: Agent
+    @State private var model: BotModel                    // a Claude Code bot's
+    @State private var codexModel: String?                // a Codex bot's (nil: Codex's default)
     @State private var instructions: String
     @State private var freedom: Freedom
     @State private var notifications: Bool
@@ -17,6 +19,9 @@ struct BotEditorSheet: View {
     @State private var plugins: [String]
     @State private var connectors: Bool
     @State private var catalog = ClaudeCatalog()          // read when the sheet opens
+    @State private var codexSkills: [CatalogItem] = []
+    @State private var codexCatalog: CodexCatalog?        // asked of the engine when the sheet opens (spec §6)
+    @State private var codexStatus: AgentStatus?          // Codex can be chosen once the engine finds it ready (spec §7)
     @State private var busy = false
     @State private var error: String?
     @State private var confirmArchive = false
@@ -31,7 +36,9 @@ struct BotEditorSheet: View {
             ?? defaultProjectId(projects: roster.projects, selectedBotProject: client.selectedBot.flatMap { roster.bots[$0]?.bot.projectId }))
         _name = State(initialValue: editing?.name ?? "")
         _face = State(initialValue: editing?.face ?? randomFace(existing: roster.bots.values.map(\.bot.face)))
-        _model = State(initialValue: BotModel(value: editing?.model))
+        _agent = State(initialValue: editing?.agent ?? .claude)
+        _model = State(initialValue: BotModel(value: editing?.agent == .codex ? nil : editing?.model))
+        _codexModel = State(initialValue: editing?.agent == .codex ? editing?.model : nil)
         _instructions = State(initialValue: editing?.instructions ?? "")
         _freedom = State(initialValue: editing?.freedom ?? .ask)
         _notifications = State(initialValue: editing?.notifications ?? true)
@@ -74,12 +81,27 @@ struct BotEditorSheet: View {
                 FacePicker(face: $face, existing: client.roster.bots.values.map(\.bot.face))
             }
             FieldGroup(label: String(localized: "Agent")) {
-                Picker("", selection: .constant(Agent.claude)) {
+                // Chosen at creation, never changed (spec §2); Codex only once the engine finds it ready (spec §7).
+                Picker("", selection: $agent) {
                     Text("Claude Code").tag(Agent.claude)
-                    Text(String(localized: "Codex — soon")).tag(Agent.codex).disabled(true)
-                }.pickerStyle(.segmented).labelsHidden()
-                Picker(String(localized: "Model"), selection: $model) {
-                    ForEach(BotModel.allCases, id: \.self) { Text($0.title).tag($0) }
+                    Text("Codex").tag(Agent.codex).disabled(codexStatus == nil || codexStatus?.problem != nil)
+                }.pickerStyle(.segmented).labelsHidden().disabled(editing != nil)
+                if editing == nil, let hint = codexHint {
+                    HStack(spacing: 6) {
+                        Text((try? AttributedString(markdown: hint)) ?? AttributedString(hint))
+                        Link(String(localized: "Help"), destination: AgentCheckView.codexGuide)
+                    }
+                    .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
+                }
+                if agent == .claude {
+                    Picker(String(localized: "Model"), selection: $model) {
+                        ForEach(BotModel.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                } else {
+                    Picker(String(localized: "Model"), selection: $codexModel) {
+                        Text(String(localized: "Default")).tag(String?.none)
+                        ForEach(codexCatalog?.models ?? [], id: \.id) { Text($0.name).tag(Optional($0.id)) }
+                    }
                 }
             }
             FieldGroup(label: String(localized: "Instructions")) {
@@ -99,7 +121,7 @@ struct BotEditorSheet: View {
                             Image(systemName: freedom == f ? "largecircle.fill.circle" : "circle").padding(.top, 1)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(f.title).font(.system(size: Theme.Size.body))
-                                Text(f.explanation).font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
+                                Text(f.explanation(agent)).font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
                             }
                             Spacer(minLength: 0)
                         }.contentShape(Rectangle())
@@ -107,16 +129,22 @@ struct BotEditorSheet: View {
                 }
             }
             let project = client.roster.projects.first(where: { $0.id == projectId })
+            // Each agent has its own lists (spec §6).
             FieldGroup(label: String(localized: "Skills")) {
-                CatalogPicker(kind: .skills, items: catalog.skills, chosen: $skills, inherited: project?.skills ?? [])
+                CatalogPicker(kind: .skills, items: agent == .claude ? catalog.skills : codexSkills, chosen: $skills,
+                              inherited: project?.skills ?? [])
             }
             FieldGroup(label: String(localized: "Plugins")) {
-                CatalogPicker(kind: .plugins, items: catalog.plugins, chosen: $plugins, inherited: project?.plugins ?? [])
+                CatalogPicker(kind: .plugins, items: agent == .claude ? catalog.plugins : codexCatalog?.plugins ?? [], chosen: $plugins,
+                              inherited: (agent == .claude ? project?.plugins : project?.codexPlugins) ?? [])
             }
-            FieldGroup(label: String(localized: "claude.ai connectors")) {
-                Toggle(String(localized: "Use my claude.ai connectors"), isOn: $connectors).toggleStyle(.switch)
-                // The real names need a running Claude Code: a fixed sentence (spec §6.4).
-                Text(String(localized: "The services connected to your claude.ai account (for example Gmail or Home Assistant). They are turned on all together."))
+            FieldGroup(label: agent == .claude ? String(localized: "claude.ai connectors") : String(localized: "ChatGPT connectors")) {
+                Toggle(agent == .claude ? String(localized: "Use my claude.ai connectors") : String(localized: "Use my ChatGPT connectors"),
+                       isOn: $connectors).toggleStyle(.switch)
+                // The real names need a running agent: a fixed sentence (spec §6.4 of 0.3, §6).
+                Text(agent == .claude
+                     ? String(localized: "The services connected to your claude.ai account (for example Gmail or Home Assistant). They are turned on all together.")
+                     : String(localized: "The services connected to your ChatGPT account. They are turned on all together. They include your account's web search."))
                     .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -130,7 +158,30 @@ struct BotEditorSheet: View {
         }
         .frame(width: 560).frame(minHeight: 360, idealHeight: height, maxHeight: height)
         // Before the first frame: no pill drawn as missing for a moment, and a template picked at once finds its suggestions.
-        .onAppear { catalog = ClaudeCatalog(root: claudeConfigRoot(environment: ProcessInfo.processInfo.environment)) }
+        .onAppear {
+            let env = ProcessInfo.processInfo.environment
+            catalog = ClaudeCatalog(root: claudeConfigRoot(environment: env))
+            codexSkills = catalog.codexSkills(environment: env)
+        }
+        .task {
+            guard editing?.agent ?? .codex == .codex else { return }     // a Claude Code bot's settings need nothing of Codex
+            codexStatus = try? await client.agentStatus(.codex)
+            if codexStatus?.problem == nil { codexCatalog = try? await client.codexCatalog() }
+        }
+        .onChange(of: agent) {
+            // The two agents' models and plugins differ: what was picked for the other one goes; a template suggests anew.
+            model = .standard; codexModel = nil
+            if template != nil { suggest(template) } else { plugins = [] }
+        }
+    }
+
+    /// Why Codex cannot be chosen yet, if so (spec §7).
+    private var codexHint: String? {
+        switch codexStatus?.problem {
+        case .codexNotInstalled?: String(localized: "Codex is not installed: install the ChatGPT app or the Codex CLI.")
+        case .codexNotSignedIn?: String(localized: "Codex is not signed in: type `codex login` in Terminal.")
+        default: codexStatus == nil ? String(localized: "Checking Codex…") : nil
+        }
     }
 
     private func templateCard(_ t: BotTemplate?) -> some View {
@@ -155,11 +206,19 @@ struct BotEditorSheet: View {
         face = t?.face ?? randomFace(existing: client.roster.bots.values.map(\.bot.face))
         instructions = t?.instructions ?? ""
         freedom = t?.freedom ?? .ask
-        // What the project already gives is not suggested again.
+        suggest(t)
+    }
+
+    /// The template's skills and plugins found for the chosen agent, minus what the project already gives; the Researcher on
+    /// Codex starts with the connectors on, its web search is there (spec §7).
+    private func suggest(_ t: BotTemplate?) {
         let given = client.roster.projects.first { $0.id == projectId }
-        let suggested = t?.suggestions(in: catalog)
+        let suggested = t?.suggestions(skills: agent == .claude ? catalog.skills : codexSkills,
+                                       plugins: agent == .claude ? catalog.plugins : codexCatalog?.plugins ?? [])
+        let givenPlugins = (agent == .claude ? given?.plugins : given?.codexPlugins) ?? []
         skills = suggested?.skills.filter { !(given?.skills.contains($0) ?? false) } ?? []
-        plugins = suggested?.plugins.filter { !(given?.plugins.contains($0) ?? false) } ?? []
+        plugins = suggested?.plugins.filter { !givenPlugins.contains($0) } ?? []
+        connectors = t == .researcher && agent == .codex
     }
 
     private func submit() {
@@ -173,18 +232,20 @@ struct BotEditorSheet: View {
                     guard let live = client.roster.bots[id]?.bot, live.archivedAt == nil else {
                         throw EngineError(message: String(localized: "This bot no longer exists"))
                     }
-                    try await client.updateBot(live.applying(BotEdits(name: trimmed, face: face, model: model.value,
+                    try await client.updateBot(live.applying(BotEdits(name: trimmed, face: face, model: chosenModel,
                         instructions: instructions, freedom: freedom, notifications: notifications,
                         skills: skills, plugins: plugins, connectors: connectors)))
                 } else {
-                    try await client.createBot(NewBot(projectId: projectId, name: trimmed, face: face, agent: .claude,
-                                                      model: model.value, instructions: instructions, freedom: freedom,
+                    try await client.createBot(NewBot(projectId: projectId, name: trimmed, face: face, agent: agent,
+                                                      model: chosenModel, instructions: instructions, freedom: freedom,
                                                       skills: skills, plugins: plugins, connectors: connectors))
                 }
                 client.sheet = nil
             } catch { self.error = error.localizedDescription; busy = false }
         }
     }
+
+    private var chosenModel: String? { agent == .claude ? model.value : codexModel }
 
     private func archive() {
         guard let id = editing?.id else { return }
@@ -236,11 +297,15 @@ private extension Freedom {
         case .auto: String(localized: "Automatic")
         }
     }
-    var explanation: String {
-        switch self {
-        case .ask: String(localized: "Asks you before running commands or editing files")
-        case .edits: String(localized: "Edits files without asking, asks for commands")
-        case .auto: String(localized: "Claude decides on its own what is safe")
+    /// What it means for the agent (spec §5: Codex works through its sandbox and approvals).
+    func explanation(_ agent: Agent) -> String {
+        switch (self, agent) {
+        case (.ask, .claude): String(localized: "Asks you before running commands or editing files")
+        case (.edits, .claude): String(localized: "Edits files without asking, asks for commands")
+        case (.auto, .claude): String(localized: "Claude decides on its own what is safe")
+        case (.ask, .codex): String(localized: "Reads on its own, asks before writing or leaving its folders")
+        case (.edits, .codex): String(localized: "Writes in its folders without asking, asks for the rest")
+        case (.auto, .codex): String(localized: "Never asks, and stays in its folders")
         }
     }
 }

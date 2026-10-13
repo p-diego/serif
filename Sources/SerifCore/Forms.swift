@@ -83,16 +83,16 @@ public enum BotTemplate: CaseIterable, Sendable {
     /// The reviewer only reads: it asks before anything else.
     public var freedom: Freedom { self == .reviewer ? .ask : .edits }
 
-    /// The suggested skills (folder paths) and plugins (ids) found in `catalog`. The reviewer's code review is built into
-    /// Claude Code: nothing to add.
-    public func suggestions(in catalog: ClaudeCatalog) -> (skills: [String], plugins: [String]) {
+    /// The suggested skills (folder paths) and plugins (ids) found among those offered for the bot's agent, by name (spec §7:
+    /// the same templates for both agents). The reviewer's code review is built into the agent: nothing to add.
+    public func suggestions(skills: [CatalogItem], plugins: [CatalogItem]) -> (skills: [String], plugins: [String]) {
         let (skillNames, pluginNames): ([String], [String]) = switch self {
         case .developer: ([], ["superpowers"])
         case .reviewer: ([], [])
         case .researcher: (["deep-research"], [])
         case .writer: (["docx", "pptx", "pdf"], [])
         }
-        return (skillNames.compactMap { name in catalog.skills.first { $0.name == name }?.id },
-                pluginNames.compactMap { name in catalog.plugins.first { $0.name == name }?.id })
+        return (skillNames.compactMap { name in skills.first { $0.name == name }?.id },
+                pluginNames.compactMap { name in plugins.first { $0.name == name }?.id })
     }
 }

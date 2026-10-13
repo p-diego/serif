@@ -126,7 +126,6 @@
 "Random" = "A caso";
 "Body" = "Corpo";
 "Eyes" = "Occhi";
-"Codex — soon" = "Codex — presto";
 "Instructions" = "Istruzioni";
 "What does this bot do?" = "Che cosa fa questo bot?";
 "Asks you before running commands or editing files" = "Ti chiede prima di eseguire comandi o modificare file";
@@ -228,3 +227,15 @@
 "Open Terminal, type `codex login` and follow the instructions." = "Apri il Terminale, scrivi `codex login` e segui le istruzioni.";
 "Isolation not guaranteed" = "Isolamento non garantito";
 "Codex did not start in time" = "Codex non è partito in tempo";
+"Help" = "Aiuto";
+"Checking Codex…" = "Controllo Codex…";
+"Codex is not installed: install the ChatGPT app or the Codex CLI." = "Codex non è installato: installa l'app ChatGPT o la CLI di Codex.";
+"Codex is not signed in: type `codex login` in Terminal." = "Codex non è collegato: scrivi `codex login` nel Terminale.";
+"ChatGPT connectors" = "Connettori di ChatGPT";
+"Use my ChatGPT connectors" = "Usa i miei connettori di ChatGPT";
+"The services connected to your ChatGPT account. They are turned on all together. They include your account's web search." = "I servizi collegati al tuo account ChatGPT. Si accendono tutti insieme. Comprendono la ricerca web del tuo account.";
+"Reads on its own, asks before writing or leaving its folders" = "Legge da solo, chiede prima di scrivere o di uscire dalle sue cartelle";
+"Writes in its folders without asking, asks for the rest" = "Scrive senza chiedere nelle sue cartelle, chiede per il resto";
+"Never asks, and stays in its folders" = "Non chiede mai e resta nelle sue cartelle";
+"Plugins for Claude Code bots" = "Plugin per i bot Claude Code";
+"Plugins for Codex bots" = "Plugin per i bot Codex";

@@ -152,3 +152,13 @@ public struct ClaudeCatalog: Equatable, Sendable {
         return out
     }
 }
+
+extension ClaudeCatalog {
+    /// The skills a Codex bot can be given (spec §6): the user's Claude Code skills (Codex reads the same SKILL.md), then
+    /// Codex's own folders, `$CODEX_HOME/skills` (else `~/.codex/skills`, its `.system` skills left out) and
+    /// `~/.agents/skills`.
+    public func codexSkills(environment: [String: String], home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> [CatalogItem] {
+        let codexHome = environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".codex")
+        return skills + Self.skills(root: codexHome) + Self.skills(root: home.appendingPathComponent(".agents"))
+    }
+}
