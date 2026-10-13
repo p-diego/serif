@@ -129,7 +129,8 @@ struct BotEditorSheet: View {
             }
         }
         .frame(width: 560).frame(minHeight: 360, idealHeight: height, maxHeight: height)
-        .task { catalog = ClaudeCatalog(root: claudeConfigRoot(environment: ProcessInfo.processInfo.environment)) }
+        // Before the first frame: no pill drawn as missing for a moment, and a template picked at once finds its suggestions.
+        .onAppear { catalog = ClaudeCatalog(root: claudeConfigRoot(environment: ProcessInfo.processInfo.environment)) }
     }
 
     private func templateCard(_ t: BotTemplate?) -> some View {
@@ -141,6 +142,7 @@ struct BotEditorSheet: View {
             }
             .frame(maxWidth: .infinity).padding(.vertical, 8)
             .background(RoundedRectangle(cornerRadius: Theme.Radius.row).fill(template == t ? Theme.active : Theme.pane))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.row).stroke(Theme.text, lineWidth: template == t ? 2 : 0))    // as the face picker's
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -153,9 +155,11 @@ struct BotEditorSheet: View {
         face = t?.face ?? randomFace(existing: client.roster.bots.values.map(\.bot.face))
         instructions = t?.instructions ?? ""
         freedom = t?.freedom ?? .ask
+        // What the project already gives is not suggested again.
+        let given = client.roster.projects.first { $0.id == projectId }
         let suggested = t?.suggestions(in: catalog)
-        skills = suggested?.skills ?? []
-        plugins = suggested?.plugins ?? []
+        skills = suggested?.skills.filter { !(given?.skills.contains($0) ?? false) } ?? []
+        plugins = suggested?.plugins.filter { !(given?.plugins.contains($0) ?? false) } ?? []
     }
 
     private func submit() {

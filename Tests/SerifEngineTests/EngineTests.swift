@@ -338,6 +338,20 @@ final class EngineTests: XCTestCase {
         waitFor(client, "ready after Retry") { $0.summaries(bot.id).contains { $0.state == .ready } }    // no restart needed
     }
 
+    func testClaudeCodeThatMovedIsLookedForAgain() throws {
+        let fake = binDir.appendingPathComponent("fake-claude").path
+        let old = root.path + "/old-claude"
+        let engine = try makeEngine("basic", locate: { FileManager.default.fileExists(atPath: old) ? old : fake })
+        try FileManager.default.copyItem(atPath: fake, toPath: old)
+        try engine.start()
+        let client = try connect()
+        guard case let .claudeStatus(before) = request(client, .claudeStatus) else { return XCTFail("no status") }
+        XCTAssertEqual(before.path, old)
+        try FileManager.default.removeItem(atPath: old)                  // e.g. an update moved it
+        guard case let .claudeStatus(after) = request(client, .claudeStatus) else { return XCTFail("no status") }
+        XCTAssertEqual(after.path, fake)
+    }
+
     func testChatEventsStateAndUnread() throws {
         try makeEngine("basic").start()
         let client = try connect()

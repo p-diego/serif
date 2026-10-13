@@ -83,11 +83,11 @@ public func introductionPrompt(instructions: String, firstInProject: Bool, langu
             + "how you can help — in no more than three sentences. Finish with what you plan to do first, or what you need "
             + "before you can start."
     if firstInProject {
-        s += "\n\nBecause you are the first bot in this project, also give the user a short tour of what they can ask for: "
-            + "four or five one-line bullets, plainly worded, no tool names, picked from these:\n"
+        s += "\n\nBecause you are the first bot in this project, also give the user a short tour of what they can do with "
+            + "you: four or five one-line bullets, plainly worded, no tool or file names, picked from these:\n"
             + "- they can change your name, face and instructions in your settings;\n"
             + "- you work in your own folder and put files to share in the project's folder, which every bot of the project can read;\n"
-            + "- you keep notes across sessions, so what they tell you now is not lost;\n"
+            + "- you keep notes you don't lose between sessions;\n"
             + "- your terminal is one click away;\n"
             + "- they can give you skills and plugins in your settings."
     }

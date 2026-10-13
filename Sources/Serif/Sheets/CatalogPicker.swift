@@ -20,12 +20,11 @@ struct CatalogPicker: View {
             }
         }
         Menu(kind == .skills ? String(localized: "Add skill") : String(localized: "Add plugin")) {
-            ForEach(items.filter { !chosen.contains($0.id) }) { item in
+            ForEach(offered) { item in
                 Button { chosen.append(item.id) } label: {
                     Text(item.name)
-                    if !item.description.isEmpty {
-                        Text(item.description.count > 80 ? String(item.description.prefix(79)) + "…" : item.description)
-                    }
+                    let subtitle = subtitle(item)
+                    if !subtitle.isEmpty { Text(subtitle.count > 80 ? String(subtitle.prefix(79)) + "…" : subtitle) }
                 }
             }
             if kind == .skills {
@@ -34,7 +33,7 @@ struct CatalogPicker: View {
             }
         }
         .fixedSize()
-        .disabled(kind == .plugins && items.allSatisfy { chosen.contains($0.id) })
+        .disabled(kind == .plugins && offered.isEmpty)
         if let folderError { Text(folderError).font(.system(size: Theme.Size.label)).foregroundStyle(Theme.red) }
         if !inherited.isEmpty {
             Text(String(localized: "From the project: \(inherited.map(label).joined(separator: ", "))"))
@@ -57,8 +56,25 @@ struct CatalogPicker: View {
         .help(gone ? String(localized: "Not found on this Mac") : id)
     }
 
+    /// What Add offers: neither chosen here nor already given by the project.
+    private var offered: [CatalogItem] { items.filter { !chosen.contains($0.id) && !inherited.contains($0.id) } }
+
+    /// A plugin's menu line starts with where it comes from: two plugins can share a name (installed and synced).
+    private func subtitle(_ item: CatalogItem) -> String {
+        kind == .plugins ? [source(item.id), item.description].filter { !$0.isEmpty }.joined(separator: " · ") : item.description
+    }
+
+    /// "claude.ai" for a plugin synced from there, else its marketplace ("figma@claude-plugins-official").
+    private func source(_ id: String) -> String {
+        id.split(separator: "@", maxSplits: 1).dropFirst().first.map(String.init) ?? "claude.ai"
+    }
+
     private func label(_ id: String) -> String {
-        items.first { $0.id == id }?.name ?? (kind == .skills ? URL(fileURLWithPath: id).lastPathComponent : id)
+        guard let item = items.first(where: { $0.id == id }) else {
+            return kind == .skills ? URL(fileURLWithPath: id).lastPathComponent : id
+        }
+        let twin = kind == .plugins && items.contains { $0.name == item.name && $0.id != id }
+        return twin ? "\(item.name) (\(source(id)))" : item.name
     }
 
     /// A skill is its folder: gone without its SKILL.md. A plugin is gone when Claude Code no longer lists it.

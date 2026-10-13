@@ -86,8 +86,7 @@ private struct ChatContent: View {
         HStack(spacing: 10) {
             BotAvatar(summary: summary, size: 24, alive: true)
             Text(summary.bot.name).font(.system(size: 16, weight: .medium))
-            // Redrawn when a crashed bot's retry time comes, to read "Starting…".
-            TimelineView(.explicit(summary.state.retryAt.map { [$0] } ?? [])) { _ in
+            TimelineView(summary.state.retrySchedule) { _ in
                 if let t = stateText(summary.state) {
                     Text(t).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary).lineLimit(1)
                 }

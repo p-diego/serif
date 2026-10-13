@@ -63,9 +63,11 @@ final class BotRuntime {
 public final class Engine {
     let queue = DispatchQueue(label: "com.serif.engine")
     let paths: SerifPaths
-    /// Finds the claude executable (serifd: `ClaudeLocator.find`); asked again while Claude Code is not found.
+    /// Finds the claude executable (serifd: `ClaudeLocator.find`); asked again while Claude Code is not found, or no
+    /// longer where it was.
     let locateClaude: @Sendable () -> String?
-    /// The last check of Claude Code; nil until a launch or the app's `claudeStatus` asks for one.
+    /// The last check of Claude Code; nil until a launch or the app's `claudeStatus` asks for one, and again after a bot
+    /// crashes (the next launch checks anew).
     var claudeStatus: ClaudeStatus?
     private var claudeWaiters: [(ClaudeStatus) -> Void] = []
     let hookCommand: String
@@ -145,8 +147,8 @@ public final class Engine {
     }
 
     /// Writes the bot's system prompt and hook settings, then starts its Claude Code (spec §3.2). Claude Code is checked
-    /// first (spec §4): once per engine run, and again after a check that found it missing or signed out, since the user may
-    /// have fixed it since; `checked` marks the launch that follows such a fresh check.
+    /// first (spec §4): at the first launch, after a bot crashes, and again after a check that found it missing or signed
+    /// out, since the user may have fixed it since; `checked` marks the launch that follows such a fresh check.
     func launch(_ rt: BotRuntime, checked: Bool = false) {
         rt.restart = nil
         guard !stopping, rt.bot.archivedAt == nil, !rt.host.isRunning,
@@ -197,13 +199,14 @@ public final class Engine {
 
     /// Checks Claude Code off the queue (`claude auth status` alone may take 10 s, spec §9) and keeps the result in
     /// `claudeStatus`; `then` runs on the queue with it. Calls made while a check runs share it. While Claude Code has not
-    /// been found it is looked for again, so installing it needs no engine restart.
+    /// been found, or is no longer where it was, it is looked for again, so installing or moving it needs no engine restart.
     func checkClaude(then: @escaping (ClaudeStatus) -> Void) {
         claudeWaiters.append(then)
         guard claudeWaiters.count == 1 else { return }
         let (known, locate, env) = (claudeStatus?.path, locateClaude, botEnvironment(environment))
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let status = ClaudeCheck.status(path: known ?? locate(), environment: env)
+            let path = known.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil } ?? locate()
+            let status = ClaudeCheck.status(path: path, environment: env)
             self?.queue.async { [weak self] in
                 guard let self else { return }
                 claudeStatus = status
@@ -266,7 +269,7 @@ public final class Engine {
         // A turn cut short (crash, restart, shutdown) would stay "in progress" forever: close it as interrupted.
         if rt.tracker.state.inTurn { handle(rt.normalizer.interrupted(at: Date()), rt) }
         guard !rt.stopping, !stopping else { return }
-        claudeStatus = nil          // a bot that falls checks Claude Code again before the next launch (spec §4)
+        claudeStatus = nil          // a bot that crashes checks Claude Code again before the next launch (spec §4)
         let reason = code.map { "Exit code \($0)" } ?? "Could not start"
         record(.system(.crashed(reason: reason)), rt)
         let newConversation = rt.resumed && ranFor < 10 && code != nil      // nil: the fork failed, claude never ran

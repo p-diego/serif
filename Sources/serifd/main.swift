@@ -20,7 +20,8 @@ func fail(_ error: Error) -> Never {
 let claudeOverride = env["SERIF_CLAUDE"]
 let engine: Engine
 do {
-    // Claude Code is looked for when the first bot launches, and again while it is missing (it may be installed later).
+    // Claude Code is looked for when the first bot launches, and again while it is missing (it may be installed later) or
+    // gone from where it was; it is checked again after a bot crashes.
     engine = try Engine(paths: .standard(), locateClaude: { ClaudeLocator.find(override: claudeOverride) },
                         hookCommand: hookCommand, environment: env)
 } catch { fail(error) }

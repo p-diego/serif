@@ -42,6 +42,22 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(plugins[1].name, "superpowers")
     }
 
+    func testSameNamePluginsSortByIdToo() throws {
+        let installed = root.appendingPathComponent("cache/figma/1.0").path
+        try write(#"{"version":2,"plugins":{"figma@claude-plugins-official":[{"installPath":"\#(installed)"}]}}"#,
+                  "plugins/installed_plugins.json")
+        try write(#"{"name":"figma"}"#, "cache/figma/1.0/.claude-plugin/plugin.json")
+        try write(#"{"name":"figma"}"#, "plugins/synced/acc/figma/.claude-plugin/plugin.json")
+        XCTAssertEqual(ClaudeCatalog.plugins(root: root).map(\.id), ["figma", "figma@claude-plugins-official"])
+    }
+
+    func testLinkedSkillsFolderIsRead() throws {
+        try write("---\nname: tidy\n---\n", "elsewhere/tidy/SKILL.md")
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("skills"),
+                                                   withDestinationURL: root.appendingPathComponent("elsewhere"))
+        XCTAssertEqual(ClaudeCatalog.skills(root: root).map(\.name), ["tidy"])
+    }
+
     func testPluginFoldersSkipMissingAndDuplicates() {
         let items = [CatalogItem(id: "a@m", name: "a", description: "", path: "/p/a"),
                      CatalogItem(id: "b", name: "b", description: "", path: "/p/b")]

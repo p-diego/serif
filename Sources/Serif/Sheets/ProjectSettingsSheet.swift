@@ -37,7 +37,7 @@ struct ProjectSettingsSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: 520).frame(minHeight: 360, idealHeight: sheetHeight(640), maxHeight: sheetHeight(640))
-        .task { catalog = ClaudeCatalog(root: claudeConfigRoot(environment: ProcessInfo.processInfo.environment)) }
+        .onAppear { catalog = ClaudeCatalog(root: claudeConfigRoot(environment: ProcessInfo.processInfo.environment)) }    // before the first frame
     }
 
     private func save() {

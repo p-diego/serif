@@ -95,6 +95,9 @@ final class LaunchPlanTests: XCTestCase {
         let first = introductionPrompt(instructions: "", firstInProject: true, language: "English")
         XCTAssertTrue(first.contains("first bot in this project"))
         XCTAssertTrue(first.contains("skills and plugins"))
+        XCTAssertTrue(first.contains("a short tour of what they can do with you"))
+        XCTAssertTrue(first.contains("no tool or file names"))
+        XCTAssertTrue(first.contains("- you keep notes you don't lose between sessions;"))
         for prompt in [withRole, blank, first] { XCTAssertTrue(prompt.hasSuffix("Do not start any other work yet.")) }
         XCTAssertTrue(withRole.contains("Reply in Italian."))
         XCTAssertTrue(first.contains("Reply in English."))

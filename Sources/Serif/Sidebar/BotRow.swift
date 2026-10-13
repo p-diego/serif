@@ -46,7 +46,7 @@ struct BotRow: View, Equatable {
 
     private var preview: String {
         if case .waiting = summary.state, let request { return requestSummary(request).text }
-        if let at = summary.state.retryAt, at <= Date() { return String(localized: "Starting…") }    // as in the header
+        if summary.state.relaunching { return String(localized: "Starting…") }    // as in the header
         return rowPreview(summary).text
     }
 
@@ -62,7 +62,7 @@ struct BotRow: View, Equatable {
                             .font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary)
                     }
                 }
-                TimelineView(.explicit(summary.state.retryAt.map { [$0] } ?? [])) { _ in
+                TimelineView(summary.state.retrySchedule) { _ in
                     Text(preview).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary).lineLimit(1)
                 }
             }

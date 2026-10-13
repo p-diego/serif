@@ -246,6 +246,10 @@ extension BotState {
     var hasProcess: Bool { switch self { case .stopped, .crashed: false; default: true } }
     /// When a crashed bot is relaunched by the engine, if it is.
     var retryAt: Date? { if case .crashed(_, let at) = self { at } else { nil } }
+    /// Past its retry time the engine is relaunching it (it checks Claude Code first, up to ~20 s): not stuck.
+    var relaunching: Bool { retryAt.map { $0 <= Date() } ?? false }
+    /// Redraws what shows the state when the retry time comes, so it reads "Starting…".
+    var retrySchedule: ExplicitTimelineSchedule<[Date]> { .explicit(retryAt.map { [$0] } ?? []) }
 }
 
 /// Dims a terminal of a bot that is not running and says why.
@@ -257,8 +261,10 @@ struct StoppedOverlay: View {
         if !state.hasProcess {
             ZStack {
                 Color.black.opacity(0.55)
-                if let text = stateText(state) {
-                    Text(text).font(.system(size: Theme.Size.label)).foregroundStyle(.white).multilineTextAlignment(.center).padding(8)
+                TimelineView(state.retrySchedule) { _ in
+                    if let text = stateText(state) {
+                        Text(text).font(.system(size: Theme.Size.label)).foregroundStyle(.white).multilineTextAlignment(.center).padding(8)
+                    }
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: radius))

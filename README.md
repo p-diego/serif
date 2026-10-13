@@ -124,7 +124,7 @@ Each bot runs `claude` in its own workspace with:
 - an environment without `CLAUDE*` variables and without `ANTHROPIC_API_KEY` (bots use the subscription), with the login
   shell's `PATH` so they find the user's tools.
 
-Full isolation with a separate Claude Code configuration folder is planned after 0.1.
+Full isolation with a separate Claude Code configuration folder is planned for a later version.
 
 ## License
 

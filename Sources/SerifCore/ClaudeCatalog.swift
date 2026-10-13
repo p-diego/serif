@@ -34,9 +34,10 @@ public struct ClaudeCatalog: Equatable, Sendable {
 
     /// Every folder with a SKILL.md under `<root>/skills`: the user's own and those synced from claude.ai
     /// (`synced/<account>/<name>`). Name and description come from the SKILL.md front matter, else the folder name.
+    /// A linked `skills` folder is read where it leads (the enumerator would not enter the link).
     public static func skills(root: URL) -> [CatalogItem] {
-        guard let walk = FileManager.default.enumerator(at: root.appendingPathComponent("skills"), includingPropertiesForKeys: nil,
-                                                        options: [.skipsHiddenFiles]) else { return [] }
+        guard let walk = FileManager.default.enumerator(at: root.appendingPathComponent("skills").resolvingSymlinksInPath(),
+                                                        includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
         var items: [CatalogItem] = []
         for case let url as URL in walk {
             guard let text = try? String(contentsOf: url.appendingPathComponent("SKILL.md"), encoding: .utf8) else { continue }
@@ -45,7 +46,7 @@ public struct ClaudeCatalog: Equatable, Sendable {
             items.append(CatalogItem(id: url.path, name: header["name"] ?? url.lastPathComponent,
                                      description: header["description"] ?? "", path: url.path))
         }
-        return items.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return sorted(items)
     }
 
     /// Installed plugins (`plugins/installed_plugins.json`: id → installs, the first one's `installPath`) and those synced
@@ -76,7 +77,15 @@ public struct ClaudeCatalog: Equatable, Sendable {
             }
         }
         for (name, newest) in synced { if let item = plugin(id: name, folder: newest.folder) { items.append(item) } }
-        return items.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return sorted(items)
+    }
+
+    /// By name, then id: two plugins named alike (installed "figma@…" and synced "figma") keep one order.
+    private static func sorted(_ items: [CatalogItem]) -> [CatalogItem] {
+        items.sorted {
+            let order = $0.name.localizedStandardCompare($1.name)
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
     }
 
     /// The folders of the plugins `ids` names, in order and each once (a plugin chosen for both the bot and its project
