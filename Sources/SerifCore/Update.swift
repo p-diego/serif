@@ -43,9 +43,10 @@ public func isDue(last: Date?, succeeded: Bool, now: Date) -> Bool {
 }
 
 /// The restart after the bundle is replaced, as `make install`: wait for this app to exit (with it alive, `open` would
-/// just activate it), stop the old engine still running the old binary (SIGTERM: it exits 0, so launchd's KeepAlive
-/// leaves it down), restart the agent on the new one (fails harmlessly when it isn't loaded: the app then starts the
-/// engine itself), open the new copy. The bots resume their conversations on the new engine.
+/// just activate it), stop an engine the app started itself (its argv has the full path; launchd's has only
+/// "Contents/MacOS/serifd", so pkill leaves that one alone), then `kickstart -k` kills and restarts launchd's on the new
+/// binary (fails harmlessly when the agent isn't loaded: the app then starts the engine itself), open the new copy.
+/// The bots resume their conversations on the new engine (seen live on 13/10, from 0.1.9 to 0.2).
 /// The app path is $0, so spaces can't break the script; pgrep and pkill never match this sh, their ancestor.
 public func relaunchArguments(pid: Int32, uid: UInt32, app: String) -> [String] {
     ["-c", """
