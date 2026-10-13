@@ -48,4 +48,11 @@ extension TranscriptRepairTests {
         let jsonl = user("hi") + asst("sub", side: true) + asst("main")
         XCTAssertEqual(transcriptTexts(transcriptJSONL: jsonl, prompt: "hi")?.map(\.text), ["main"])
     }
+
+    /// The chat records a paste without its tags; Claude Code's transcript may keep them.
+    func testPastedPromptMatchesWithOrWithoutItsTags() {
+        let wrapped = #"\n\n<pasted_content id=\"7\">\na\nb\n</pasted_content id=\"7\">\n"#
+        XCTAssertEqual(transcriptTexts(transcriptJSONL: user(wrapped) + asst("ok"), prompt: "a\nb")?.map(\.text), ["ok"])
+        XCTAssertEqual(transcriptTexts(transcriptJSONL: user(#"a\nb"#) + asst("ok"), prompt: "a\nb")?.map(\.text), ["ok"])
+    }
 }

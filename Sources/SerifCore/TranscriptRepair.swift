@@ -20,7 +20,8 @@ public func transcriptTexts(transcriptJSONL: String, prompt: String) -> [Transcr
         let content = v["message"]?["content"]
         if type == "user", let text = content?.string {
             // The last matching prompt wins (the turn that just finished); restart on every match.
-            inTurn = text.trimmingCharacters(in: .whitespacesAndNewlines) == wanted
+            // Unwrapped like the recorded prompt (ClaudeNormalizer), in case the transcript keeps a paste's tags.
+            inTurn = unwrappingPastes(text).trimmingCharacters(in: .whitespacesAndNewlines) == wanted
             if inTurn { found = true; lastTool = nil; out = [] }
         } else if type == "assistant", inTurn, let blocks = content?.array {
             for b in blocks {

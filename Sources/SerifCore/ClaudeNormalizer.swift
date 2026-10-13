@@ -178,7 +178,8 @@ public struct ClaudeNormalizer {
             }
             return out
         case "UserPromptSubmit":
-            let text = p["prompt"]?.string ?? ""
+            // Blank lines left at either end by an unwrapped paste are not the message.
+            let text = unwrappingPastes(p["prompt"]?.string ?? "").trimmingCharacters(in: .newlines)
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             var origin = MessageOrigin.terminal
             if let i = pendingChat.firstIndex(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) {
@@ -212,3 +213,12 @@ public struct ClaudeNormalizer {
         }
     }
 }
+
+/// The prompt with each multi-line paste unwrapped: Claude Code hands it to UserPromptSubmit as
+/// `<pasted_content id="X">\n…\n</pasted_content id="X">` (seen live with 2.1.296), the newlines inside the tags its own.
+func unwrappingPastes(_ prompt: String) -> String {
+    pasteBlock.stringByReplacingMatches(in: prompt, range: NSRange(prompt.startIndex..., in: prompt), withTemplate: "$2")
+}
+
+private let pasteBlock = try! NSRegularExpression(
+    pattern: #"<pasted_content id="([^"]*)">\n([\s\S]*?)\n</pasted_content id="\1">"#)

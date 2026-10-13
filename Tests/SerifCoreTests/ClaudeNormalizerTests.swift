@@ -175,4 +175,41 @@ final class ClaudeNormalizerTests: XCTestCase {
                        [.event(.userMessage(text: "Introduce yourself.\n- briefly", promptId: "p0", origin: .introduction))])
         XCTAssertEqual(submit("hello", "p1"), [.event(.userMessage(text: "hello", promptId: "p1", origin: .chat))])
     }
+
+    // MARK: - Pasted text (seen live with Claude Code 2.1.296)
+
+    /// A multi-line paste as UserPromptSubmit.prompt carries it.
+    private func pasted(_ text: String, id: String = "88bd") -> String {
+        "\n\n<pasted_content id=\"\(id)\">\n\(text)\n</pasted_content id=\"\(id)\">\n"
+    }
+    private func submit(_ n: inout ClaudeNormalizer, _ prompt: String) -> [NormalizerOutput] {
+        n.ingest(ev("UserPromptSubmit", ["prompt": str(prompt), "prompt_id": str("p")]), at: Date())
+    }
+
+    func testPastedIntroductionIsStillTheIntroduction() {
+        var n = ClaudeNormalizer()
+        let intro = "You have just been created.\n\n- a tour\n- of things"
+        n.expectChatMessage(intro, origin: .introduction)
+        XCTAssertEqual(submit(&n, pasted(intro)), [.event(.userMessage(text: intro, promptId: "p", origin: .introduction))])
+    }
+
+    func testPastedChatMessageLosesTheTags() {
+        var n = ClaudeNormalizer()
+        n.expectChatMessage("first line\nsecond line")
+        XCTAssertEqual(submit(&n, pasted("first line\nsecond line")),
+                       [.event(.userMessage(text: "first line\nsecond line", promptId: "p", origin: .chat))])
+    }
+
+    func testTerminalPasteLosesTheTags() {
+        var n = ClaudeNormalizer()
+        let text = "costs $2\nC:\\1"        // the pasted text is taken as is, never as a replacement template
+        XCTAssertEqual(submit(&n, pasted(text)), [.event(.userMessage(text: text, promptId: "p", origin: .terminal))])
+    }
+
+    func testTypedTextAroundPastesIsKept() {
+        var n = ClaudeNormalizer()
+        let prompt = "look at this" + pasted("x\ny", id: "1") + "and this" + pasted("z\nw", id: "2") + "thanks"
+        XCTAssertEqual(submit(&n, prompt), [.event(.userMessage(text: "look at this\n\nx\ny\nand this\n\nz\nw\nthanks",
+                                                                promptId: "p", origin: .terminal))])
+    }
 }
