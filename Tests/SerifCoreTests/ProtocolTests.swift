@@ -101,11 +101,17 @@ final class ProtocolTests: XCTestCase {
         var codexProject = project
         codexProject.codexPlugins = ["browser@openai-bundled"]
         try assertRoundTrip(AppRequest.updateProject(codexProject))
+        var card = request
+        card.decisions = ["accept", "cancel"]
+        try assertRoundTrip(Push.requestOpened(card))
+        // A card stored before 0.4 has no decisions.
+        let old = try protocolEncoder().encode(request)
+        XCTAssertNil(try protocolDecoder().decode(PendingRequest.self, from: old).decisions)
     }
 
     func testRequestAnswersRoundTrip() throws {
         let answers: [RequestAnswer] = [
-            .allow, .allowSession, .deny(message: nil), .answers(["Quale?": ["A", "B"]]),
+            .allow, .allowSession, .deny(message: nil), .denyAndStop, .answers(["Quale?": ["A", "B"]]),
             .approvePlan, .rejectPlan(message: "no"),
         ]
         for answer in answers { try assertRoundTrip(answer) }

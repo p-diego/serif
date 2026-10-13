@@ -14,9 +14,12 @@ public struct PendingRequest: Codable, Equatable, Identifiable, Sendable {
     public let promptId: String?
     public let suggestions: JSONValue?
     public let openedAt: Date
+    /// The answers a Codex server accepts, in its order ("accept", "acceptForSession", "decline", "cancel"); nil for
+    /// Claude Code's cards, whose buttons are fixed (spec §4).
+    public var decisions: [String]?
 
     public init(id: UUID = UUID(), botId: UUID, kind: WaitKind, toolName: String, input: JSONValue,
-                toolUseId: String?, promptId: String?, suggestions: JSONValue?, openedAt: Date = Date()) {
+                toolUseId: String?, promptId: String?, suggestions: JSONValue?, openedAt: Date = Date(), decisions: [String]? = nil) {
         self.id = id
         self.botId = botId
         self.kind = kind
@@ -26,6 +29,7 @@ public struct PendingRequest: Codable, Equatable, Identifiable, Sendable {
         self.promptId = promptId
         self.suggestions = suggestions
         self.openedAt = openedAt
+        self.decisions = decisions
     }
 
     /// Questions and plan approvals have their own UI; every other tool is a permission prompt.
@@ -44,6 +48,7 @@ public enum RequestResolution: String, Codable, Sendable { case answeredInApp, a
 /// The user's answer to a pending request.
 public enum RequestAnswer: Codable, Equatable, Sendable {
     case allow, allowSession, deny(message: String?)
+    case denyAndStop                      // Codex's "cancel": no, and the turn stops
     case answers([String: [String]])      // question text → chosen labels (one element unless multiSelect)
     case approvePlan, rejectPlan(message: String)
 }
@@ -143,4 +148,33 @@ public func questionAnswer(_ questions: [QuestionSpec], chosen: [Int: [String]])
         out[q.text] = q.options.map(\.label).filter(picked.contains)
     }
     return .answers(out)
+}
+
+/// What answers a Codex server's request (spec §4), or nil when `answer` does not fit it: a decision it offered, a
+/// question's choices by question id, or for extra permissions the ones asked for (this turn or the session) or none.
+public func codexReply(for answer: RequestAnswer, request: PendingRequest) -> JSONValue? {
+    switch (answer, request.toolName) {
+    case let (.answers(chosen), "AskUserQuestion"):
+        // The card keys answers by question text; Codex wants them by question id.
+        var out: [String: JSONValue] = [:]
+        for q in request.input["questions"]?.array ?? [] {
+            guard let id = q["id"]?.string, let text = q["question"]?.string else { continue }
+            out[id] = ["answers": .array((chosen[text] ?? []).map(JSONValue.string))]
+        }
+        return ["answers": .object(out)]
+    case (.allow, "Permissions"): return ["permissions": request.input["permissions"] ?? [:], "scope": "turn"]
+    case (.allowSession, "Permissions"): return ["permissions": request.input["permissions"] ?? [:], "scope": "session"]
+    case (.deny, "Permissions"): return ["permissions": [:]]
+    default:
+        let decision: String
+        switch answer {
+        case .allow: decision = "accept"
+        case .allowSession: decision = "acceptForSession"
+        case .deny: decision = "decline"
+        case .denyAndStop: decision = "cancel"
+        default: return nil
+        }
+        guard request.decisions?.contains(decision) == true else { return nil }
+        return ["decision": .string(decision)]
+    }
 }

@@ -108,6 +108,7 @@ struct RequestCard: View {
         case .allowSession?: return (String(localized: "Allowed for this session"), .done)
         case .deny?, .rejectPlan?: return (request.kind == .plan ? String(localized: "Rejected") : String(localized: "Denied"), .failed)
         case .approvePlan?: return (String(localized: "Approved"), .done)
+        case .denyAndStop?: return (String(localized: "Denied and stopped"), .failed)
         case .answers(let a)?:
             return (String(localized: "Answered: \(a.values.flatMap { $0 }.joined(separator: ", "))"), .done)
         case nil: return (String(localized: "Answered"), .done)    // answered before this session of the app

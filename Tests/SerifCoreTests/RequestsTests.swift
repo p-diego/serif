@@ -112,4 +112,38 @@ final class QuestionAnswerTests: XCTestCase {
                        .answers(["Colore?": ["Verde"], "Extra?": ["A", "C"]]))    // option order, not pick order
         XCTAssertEqual(questionAnswer(Array(specs.prefix(1)), chosen: [0: ["Blu"]]), .answers(["Colore?": ["Blu"]]))
     }
+
+    private func codexCard(_ tool: String, input: JSONValue = [:], decisions: [String]?) -> PendingRequest {
+        PendingRequest(botId: UUID(), kind: PendingRequest.kind(forTool: tool), toolName: tool, input: input,
+                       toolUseId: "exec-1", promptId: "turn-1", suggestions: nil, decisions: decisions)
+    }
+
+    func testCodexDecisions() {
+        let card = codexCard("Bash", decisions: ["accept", "acceptForSession", "decline", "cancel"])
+        XCTAssertEqual(codexReply(for: .allow, request: card), ["decision": "accept"])
+        XCTAssertEqual(codexReply(for: .allowSession, request: card), ["decision": "acceptForSession"])
+        XCTAssertEqual(codexReply(for: .deny(message: "why"), request: card), ["decision": "decline"])     // Codex takes no message
+        XCTAssertEqual(codexReply(for: .denyAndStop, request: card), ["decision": "cancel"])
+        // Only what Codex offered (recorded 12/10: accept, the permanent rule, cancel).
+        let narrow = codexCard("Bash", decisions: ["accept", "cancel"])
+        XCTAssertNil(codexReply(for: .allowSession, request: narrow))
+        XCTAssertNil(codexReply(for: .deny(message: nil), request: narrow))
+        XCTAssertNil(codexReply(for: .approvePlan, request: card))
+        XCTAssertEqual(hookOutcome(for: .denyAndStop, request: card), .silent)       // never Claude Code's
+    }
+
+    func testCodexQuestionsAndPermissions() {
+        let questions: JSONValue = ["questions": [["id": "language", "header": "Lingua", "question": "In che lingua?",
+                                                   "options": [["label": "Italiano"], ["label": "Inglese"]]]]]
+        let card = codexCard("AskUserQuestion", input: questions, decisions: nil)
+        XCTAssertEqual(card.kind, .question)
+        XCTAssertEqual(questionSpecs(card).first?.options.map(\.label), ["Italiano", "Inglese"])     // the same card as Claude Code's
+        XCTAssertEqual(codexReply(for: .answers(["In che lingua?": ["Inglese"]]), request: card),
+                       ["answers": ["language": ["answers": ["Inglese"]]]])
+        let permissions = codexCard("Permissions", input: ["permissions": ["network": ["enabled": true]]],
+                                    decisions: ["accept", "acceptForSession", "decline"])
+        XCTAssertEqual(codexReply(for: .allow, request: permissions), ["permissions": ["network": ["enabled": true]], "scope": "turn"])
+        XCTAssertEqual(codexReply(for: .allowSession, request: permissions), ["permissions": ["network": ["enabled": true]], "scope": "session"])
+        XCTAssertEqual(codexReply(for: .deny(message: nil), request: permissions), ["permissions": [:]])
+    }
 }
