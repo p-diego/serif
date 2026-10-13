@@ -147,7 +147,10 @@ final class ProtocolTests: XCTestCase {
         try assertRoundTrip(AppRequest.terminalInput(botId: botId, data: Data([0x1b, 0x5b, 0x41])))
     }
     func testAppRequestResizeTerminal() throws { try assertRoundTrip(AppRequest.resizeTerminal(botId: botId, cols: 120, rows: 40)) }
-    func testAppRequestClaudeStatus() throws { try assertRoundTrip(AppRequest.claudeStatus) }
+    func testAppRequestAgentStatus() throws {
+        try assertRoundTrip(AppRequest.agentStatus(.claude))
+        try assertRoundTrip(AppRequest.agentStatus(.codex))
+    }
     func testAppRequestShutdown() throws { try assertRoundTrip(AppRequest.shutdown) }
 
     // MARK: ResponseBody
@@ -162,10 +165,11 @@ final class ProtocolTests: XCTestCase {
     func testResponseBot() throws { try assertRoundTrip(ResponseBody.bot(bot)) }
     func testResponseHistory() throws { try assertRoundTrip(ResponseBody.history([record])) }
     func testResponseTerminal() throws { try assertRoundTrip(ResponseBody.terminal(seq: 3, data: Data([0, 1, 2, 255]))) }
-    func testResponseClaudeStatus() throws {
-        try assertRoundTrip(ResponseBody.claudeStatus(ClaudeStatus(path: "/u/.local/bin/claude", version: "2.1.296",
+    func testResponseAgentStatus() throws {
+        try assertRoundTrip(ResponseBody.agentStatus(AgentStatus(agent: .claude, path: "/u/.local/bin/claude", version: "2.1.296",
                                                                    loggedIn: true, email: "a@b.c")))
-        try assertRoundTrip(ResponseBody.claudeStatus(ClaudeStatus(path: nil, version: nil, loggedIn: nil, email: nil)))
+        try assertRoundTrip(ResponseBody.agentStatus(AgentStatus(agent: .claude, path: nil, version: nil, loggedIn: nil, email: nil)))
+        try assertRoundTrip(ResponseBody.agentStatus(AgentStatus(agent: .codex, path: "/c", version: "0.160.0", loggedIn: false, email: nil)))
     }
     func testResponseError() throws { try assertRoundTrip(ResponseBody.error("nope")) }
 

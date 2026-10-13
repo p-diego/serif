@@ -165,14 +165,24 @@ final class BotHostTests: XCTestCase {
     }
 }
 
-final class ClaudeLocatorTests: XCTestCase {
+final class AgentLocatorTests: XCTestCase {
     func testOrder() {
         let all: (String) -> Bool = { _ in true }
-        XCTAssertEqual(ClaudeLocator.find(override: "/o/claude", home: "/h", isExecutable: all, shell: { "/s" }), "/o/claude")
-        XCTAssertEqual(ClaudeLocator.find(override: "/o/claude", home: "/h", isExecutable: { $0 != "/o/claude" }, shell: { "/s" }), "/h/.local/bin/claude")
-        XCTAssertEqual(ClaudeLocator.find(override: nil, home: "/h", isExecutable: { $0 != "/h/.local/bin/claude" }, shell: { "/s" }), "/opt/homebrew/bin/claude")
-        XCTAssertEqual(ClaudeLocator.find(override: nil, home: "/h", isExecutable: { $0 == "/s" }, shell: { "/s" }), "/s")
-        XCTAssertNil(ClaudeLocator.find(override: nil, home: "/h", isExecutable: { _ in false }, shell: { "/s" }))
-        XCTAssertNil(ClaudeLocator.find(override: nil, home: "/h", isExecutable: { $0 == "rel" }, shell: { "rel" }))
+        XCTAssertEqual(AgentLocator.find(.claude, override: "/o/claude", home: "/h", isExecutable: all, shell: { "/s" }), "/o/claude")
+        XCTAssertEqual(AgentLocator.find(.claude, override: "/o/claude", home: "/h", isExecutable: { $0 != "/o/claude" }, shell: { "/s" }), "/h/.local/bin/claude")
+        XCTAssertEqual(AgentLocator.find(.claude, override: nil, home: "/h", isExecutable: { $0 != "/h/.local/bin/claude" }, shell: { "/s" }), "/opt/homebrew/bin/claude")
+        XCTAssertEqual(AgentLocator.find(.claude, override: nil, home: "/h", isExecutable: { $0 == "/s" }, shell: { "/s" }), "/s")
+        XCTAssertNil(AgentLocator.find(.claude, override: nil, home: "/h", isExecutable: { _ in false }, shell: { "/s" }))
+        XCTAssertNil(AgentLocator.find(.claude, override: nil, home: "/h", isExecutable: { $0 == "rel" }, shell: { "rel" }))
+    }
+
+    func testCodexOrder() {
+        let app = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex"
+        let all: (String) -> Bool = { _ in true }
+        XCTAssertEqual(AgentLocator.find(.codex, override: "/o/codex", home: "/h", isExecutable: all, shell: { "/s/codex" }), "/o/codex")
+        // A Codex the user installed comes before the ChatGPT app's copy (spec §3.1).
+        XCTAssertEqual(AgentLocator.find(.codex, override: nil, home: "/h", isExecutable: all, shell: { "/s/codex" }), "/s/codex")
+        XCTAssertEqual(AgentLocator.find(.codex, override: nil, home: "/h", isExecutable: all, shell: { nil }), app)
+        XCTAssertNil(AgentLocator.find(.codex, override: nil, home: "/h", isExecutable: { $0 != app }, shell: { nil }))
     }
 }

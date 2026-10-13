@@ -17,12 +17,12 @@ func fail(_ error: Error) -> Never {
     exit(1)
 }
 
-let claudeOverride = env["SERIF_CLAUDE"]
+let overrides: [Agent: String] = [.claude: env["SERIF_CLAUDE"], .codex: env["SERIF_CODEX"]].compactMapValues { $0 }
 let engine: Engine
 do {
-    // Claude Code is looked for when the first bot launches, and again while it is missing (it may be installed later) or
-    // gone from where it was; it is checked again after a bot crashes.
-    engine = try Engine(paths: .standard(), locateClaude: { ClaudeLocator.find(override: claudeOverride) },
+    // An agent is looked for when its first bot launches, and again while it is missing (it may be installed later) or
+    // gone from where it was; it is checked again after one of its bots crashes.
+    engine = try Engine(paths: .standard(), locate: { AgentLocator.find($0, override: overrides[$0]) },
                         hookCommand: hookCommand, environment: env)
 } catch { fail(error) }
 

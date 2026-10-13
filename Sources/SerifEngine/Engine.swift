@@ -63,13 +63,13 @@ final class BotRuntime {
 public final class Engine {
     let queue = DispatchQueue(label: "com.serif.engine")
     let paths: SerifPaths
-    /// Finds the claude executable (serifd: `ClaudeLocator.find`); asked again while Claude Code is not found, or no
-    /// longer where it was.
-    let locateClaude: @Sendable () -> String?
-    /// The last check of Claude Code; nil until a launch or the app's `claudeStatus` asks for one, and again after a bot
-    /// crashes (the next launch checks anew).
-    var claudeStatus: ClaudeStatus?
-    private var claudeWaiters: [(ClaudeStatus) -> Void] = []
+    /// Finds an agent's executable (serifd: `AgentLocator.find`); asked again while it is not found, or no longer where it
+    /// was.
+    let locate: @Sendable (Agent) -> String?
+    /// The last check of each agent; missing until a launch or the app's `agentStatus` asks for one, and again after a bot of
+    /// that agent crashes (its next launch checks anew).
+    var statuses: [Agent: AgentStatus] = [:]
+    private var statusWaiters: [Agent: [(AgentStatus) -> Void]] = [:]
     let hookCommand: String
     let environment: [String: String]
     let store: Store
@@ -82,10 +82,10 @@ public final class Engine {
     private var servers: [LineServer] = []
     private var lockFD: Int32 = -1
 
-    public init(paths: SerifPaths, locateClaude: @escaping @Sendable () -> String?, hookCommand: String,
+    public init(paths: SerifPaths, locate: @escaping @Sendable (Agent) -> String?, hookCommand: String,
                 environment: [String: String]) throws {
         self.paths = paths
-        self.locateClaude = locateClaude
+        self.locate = locate
         self.hookCommand = hookCommand
         self.environment = environment
         store = try Store(paths: paths)
@@ -146,20 +146,20 @@ public final class Engine {
         return rt
     }
 
-    /// Writes the bot's system prompt and hook settings, then starts its Claude Code (spec §3.2). Claude Code is checked
-    /// first (spec §4): at the first launch, after a bot crashes, and again after a check that found it missing or signed
-    /// out, since the user may have fixed it since; `checked` marks the launch that follows such a fresh check.
+    /// Writes the bot's system prompt and hook settings, then starts its Claude Code (spec §3.2 of 0.1). Its agent is
+    /// checked first (spec §4 of 0.3): at the first launch, after a bot crashes, and again after a check that found it
+    /// missing or signed out, since the user may have fixed it since; `checked` marks the launch that follows such a fresh
+    /// check.
     func launch(_ rt: BotRuntime, checked: Bool = false) {
         rt.restart = nil
         guard !stopping, rt.bot.archivedAt == nil, !rt.host.isRunning,
               let project = store.projects.first(where: { $0.id == rt.bot.projectId }) else { return }
-        guard rt.bot.agent == .claude else { return crashed(rt, "Codex bots are not supported yet") }
-        guard let status = claudeStatus, checked || status.problem == nil else {
-            return checkClaude { [weak self] _ in self?.launch(rt, checked: true) }
+        guard let status = statuses[rt.bot.agent], checked || status.problem == nil else {
+            return checkAgent(rt.bot.agent) { [weak self] _ in self?.launch(rt, checked: true) }
         }
-        guard status.problem == nil, let claudePath = status.path else {
-            return crashed(rt, (status.problem ?? .notInstalled).rawValue)
-        }
+        if let problem = status.problem { return crashed(rt, problem.rawValue) }
+        guard let agentPath = status.path else { return }       // no problem: it was found
+        guard rt.bot.agent == .claude else { return crashed(rt, "Codex bots are not supported yet") }    // Task 9
 
         var isDirectory: ObjCBool = false
         let linkedExists = project.linkedFolder.map { FileManager.default.fileExists(atPath: $0, isDirectory: &isDirectory) && isDirectory.boolValue } ?? false
@@ -189,7 +189,7 @@ public final class Engine {
         let plugins = ClaudeCatalog.pluginFolders(project.plugins + rt.bot.plugins,
                                                   in: ClaudeCatalog.plugins(root: claudeConfigRoot(environment: environment)))
         plugins.missing.forEach { log("bot \(rt.bot.id): plugin \($0) not found, left out") }
-        let plan = claudeLaunchPlan(bot: rt.bot, project: project, paths: paths, claudePath: claudePath, resume: rt.resumed,
+        let plan = claudeLaunchPlan(bot: rt.bot, project: project, paths: paths, claudePath: agentPath, resume: rt.resumed,
                                     baseEnvironment: environment, token: rt.token, linkedFolderExists: linkedExists,
                                     pluginFolders: plugins.folders)
         rt.tracker.processStarted()
@@ -197,26 +197,26 @@ public final class Engine {
         rt.host.start(plan)
     }
 
-    /// Checks Claude Code off the queue (`claude auth status` alone may take 10 s, spec §9) and keeps the result in
-    /// `claudeStatus`; `then` runs on the queue with it. Calls made while a check runs share it. While Claude Code has not
-    /// been found, or is no longer where it was, it is looked for again, so installing or moving it needs no engine restart.
-    func checkClaude(then: @escaping (ClaudeStatus) -> Void) {
-        claudeWaiters.append(then)
-        guard claudeWaiters.count == 1 else { return }
-        let (known, locate, env) = (claudeStatus?.path, locateClaude, botEnvironment(environment))
+    /// Checks an agent off the queue (`claude auth status` alone may take 10 s, spec §9 of 0.3) and keeps the result in
+    /// `statuses`; `then` runs on the queue with it. Calls made while a check of that agent runs share it. While the agent
+    /// has not been found, or is no longer where it was, it is looked for again, so installing or moving it needs no engine
+    /// restart.
+    func checkAgent(_ agent: Agent, then: @escaping (AgentStatus) -> Void) {
+        statusWaiters[agent, default: []].append(then)
+        guard statusWaiters[agent]?.count == 1 else { return }
+        let (known, locate, env) = (statuses[agent]?.path, locate, botEnvironment(environment))
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let path = known.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil } ?? locate()
-            let status = ClaudeCheck.status(path: path, environment: env)
+            let path = known.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil } ?? locate(agent)
+            let status = AgentCheck.status(agent, path: path, environment: env)
             self?.queue.async { [weak self] in
                 guard let self else { return }
-                claudeStatus = status
-                let waiters = claudeWaiters
-                claudeWaiters = []
+                statuses[agent] = status
+                let waiters = statusWaiters.removeValue(forKey: agent) ?? []
                 waiters.forEach { $0(status) }
-                // Fixed: the bots stopped for Claude Code start by themselves (the app's Retry only asks for a check).
+                // Fixed: the bots stopped for this agent start by themselves (the app's Retry only asks for a check).
                 guard status.problem == nil else { return }
-                for rt in bots.values {
-                    if case let .crashed(reason, nil) = rt.tracker.state, ClaudeProblem(rawValue: reason) != nil { launch(rt) }
+                for rt in bots.values where rt.bot.agent == agent {
+                    if case let .crashed(reason, nil) = rt.tracker.state, AgentProblem(rawValue: reason) != nil { launch(rt) }
                 }
             }
         }
@@ -230,7 +230,7 @@ public final class Engine {
         return texts.isEmpty ? nil : texts.joined(separator: "\n\n")
     }
 
-    private func crashed(_ rt: BotRuntime, _ reason: String) {
+    func crashed(_ rt: BotRuntime, _ reason: String) {
         rt.tracker.processExited(reason: reason, retryAt: nil)
         push(.botChanged(rt.summary))
     }
@@ -269,7 +269,7 @@ public final class Engine {
         // A turn cut short (crash, restart, shutdown) would stay "in progress" forever: close it as interrupted.
         if rt.tracker.state.inTurn { handle(rt.normalizer.interrupted(at: Date()), rt) }
         guard !rt.stopping, !stopping else { return }
-        claudeStatus = nil          // a bot that crashes checks Claude Code again before the next launch (spec §4)
+        statuses[rt.bot.agent] = nil      // a bot that crashes checks its agent again before the next launch (spec §4 of 0.3)
         let reason = code.map { "Exit code \($0)" } ?? "Could not start"
         record(.system(.crashed(reason: reason)), rt)
         let newConversation = rt.resumed && ranFor < 10 && code != nil      // nil: the fork failed, claude never ran

@@ -47,7 +47,7 @@ private struct ChatContent: View {
     private var isWorking: Bool { working != nil }
     /// Stopped because Claude Code is missing or signed out: the chat shows how to fix it (spec §4).
     private var needsClaudeHelp: Bool {
-        if case .crashed(let reason, _) = summary.state { return ClaudeProblem(rawValue: reason) != nil }
+        if case .crashed(let reason, _) = summary.state { return AgentProblem(rawValue: reason) != nil }
         return false
     }
 

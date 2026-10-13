@@ -89,7 +89,7 @@ struct OnboardingView: View {
 struct ClaudeCheckView: View {
     let client: EngineClient
     var onContinue: (() -> Void)?
-    @State private var status: ClaudeStatus?
+    @State private var status: AgentStatus?
     @State private var checking = true
 
     static let installCommand = "curl -fsSL https://claude.ai/install.sh | bash"
@@ -121,7 +121,7 @@ struct ClaudeCheckView: View {
     /// The engine's check can take up to ~20 s (`claude auth status` has 10 s): the spinner shows it is not stuck.
     private func check() async {
         checking = true
-        status = try? await client.claudeStatus()
+        status = try? await client.agentStatus(.claude)
         checking = false
     }
 
@@ -134,7 +134,7 @@ struct ClaudeCheckView: View {
         }
     }
 
-    @ViewBuilder private func installedRows(_ s: ClaudeStatus) -> some View {
+    @ViewBuilder private func installedRows(_ s: AgentStatus) -> some View {
         if s.installed {
             row(true, s.version.map { String(localized: "Claude Code \($0)") } ?? String(localized: "Claude Code is installed"))
         } else {
@@ -156,7 +156,7 @@ struct ClaudeCheckView: View {
         }
     }
 
-    @ViewBuilder private func signInRows(_ s: ClaudeStatus) -> some View {
+    @ViewBuilder private func signInRows(_ s: AgentStatus) -> some View {
         switch s.loggedIn {
         case true?:
             row(true, s.email.map { String(localized: "Signed in as \($0)") } ?? String(localized: "Signed in"))
@@ -187,11 +187,13 @@ struct ClaudeHelpCard: View {
     }
 }
 
-/// A crash reason as the user reads it: the two Claude Code problems are translated, any other reason is shown as is.
+/// A crash reason as the user reads it: the agents' problems are translated, any other reason is shown as is.
 func crashReasonText(_ reason: String) -> String {
-    switch ClaudeProblem(rawValue: reason) {
-    case .notInstalled?: String(localized: "Claude Code is not installed")
-    case .notSignedIn?: String(localized: "Claude Code is not signed in")
+    switch AgentProblem(rawValue: reason) {
+    case .claudeNotInstalled?: String(localized: "Claude Code is not installed")
+    case .claudeNotSignedIn?: String(localized: "Claude Code is not signed in")
+    case .codexNotInstalled?: String(localized: "Codex is not installed")
+    case .codexNotSignedIn?: String(localized: "Codex is not signed in")
     case nil: reason
     }
 }

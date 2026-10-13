@@ -125,7 +125,7 @@ final class EngineTests: XCTestCase {
     }
 
     private func makeEngine(_ scenario: String, env extra: [String: String] = [:],
-                            locate: (@Sendable () -> String?)? = nil) throws -> Engine {
+                            locate: (@Sendable (Agent) -> String?)? = nil) throws -> Engine {
         let scenarioPath = Bundle.module.resourceURL!.appendingPathComponent("Fixtures/scenarios/\(scenario).jsonl").path
         let hook = binDir.appendingPathComponent("serif-hook").path
         let fake = binDir.appendingPathComponent("fake-claude").path
@@ -133,7 +133,8 @@ final class EngineTests: XCTestCase {
                    "SERIF_FAKE_LOG": fakeLog, "SERIF_FAKE_TRANSCRIPT": transcript, "CLAUDECODE": "1",
                    "CLAUDE_CONFIG_DIR": root.path + "/claude"]      // the engine's catalog: never the real ~/.claude
             .merging(extra) { $1 }
-        let engine = try Engine(paths: paths, locateClaude: locate ?? { fake }, hookCommand: hook, environment: env)
+        let fakeCodex = binDir.appendingPathComponent("fake-codex").path
+        let engine = try Engine(paths: paths, locate: locate ?? { $0 == .claude ? fake : fakeCodex }, hookCommand: hook, environment: env)
         engines.append(engine)
         return engine
     }
@@ -234,15 +235,16 @@ final class EngineTests: XCTestCase {
     }
 
     /// A bot in `projectId`, or in a new project "P"; returns the bot as the engine created it.
-    private func createBot(_ client: TestClient, in projectId: UUID? = nil) throws -> Bot {
+    private func createBot(_ client: TestClient, in projectId: UUID? = nil, agent: Agent = .claude, connectors: Bool = false,
+                           skills: [String] = []) throws -> Bot {
         let project: UUID
         if let projectId { project = projectId } else {
             guard case let .project(p) = request(client, .createProject(name: "P", linkedFolder: nil, readLinkedInstructions: true))
             else { throw XCTSkip("createProject failed") }
             project = p.id
         }
-        let new = NewBot(projectId: project, name: "Bob", face: randomFace(existing: []), agent: .claude, model: nil,
-                         instructions: "Help.", freedom: .ask)
+        let new = NewBot(projectId: project, name: "Bob", face: randomFace(existing: []), agent: agent, model: nil,
+                         instructions: "Help.", freedom: .ask, skills: skills, connectors: connectors)
         guard case let .bot(bot) = request(client, .createBot(new)) else { throw XCTSkip("createBot failed") }
         return bot
     }
@@ -276,10 +278,10 @@ final class EngineTests: XCTestCase {
         try engine.start()
         let client = try connect()
         let bot = try createBot(client)
-        let stopped = BotState.crashed(reason: ClaudeProblem.notSignedIn.rawValue, retryAt: nil)
+        let stopped = BotState.crashed(reason: AgentProblem.claudeNotSignedIn.rawValue, retryAt: nil)
         waitFor(client, "stopped: not signed in") { $0.summaries(bot.id).contains { $0.state == stopped } }
         XCTAssertFalse(FileManager.default.fileExists(atPath: fakeLog), "a signed-out Claude Code was launched")
-        guard case let .claudeStatus(status) = request(client, .claudeStatus) else { return XCTFail("no status") }
+        guard case let .agentStatus(status) = request(client, .agentStatus(.claude)) else { return XCTFail("no status") }
         XCTAssertEqual(status.loggedIn, false)
         XCTAssertEqual(status.version, "2.1.296")
 
@@ -296,11 +298,11 @@ final class EngineTests: XCTestCase {
         let client = try connect()
         let first = try createBot(client)
         let second = try createBot(client, in: first.projectId)
-        let stopped = BotState.crashed(reason: ClaudeProblem.notSignedIn.rawValue, retryAt: nil)
+        let stopped = BotState.crashed(reason: AgentProblem.claudeNotSignedIn.rawValue, retryAt: nil)
         waitFor(client, "both stopped: not signed in") { m in [first, second].allSatisfy { m.summaries($0.id).contains { $0.state == stopped } } }
 
         try FileManager.default.removeItem(atPath: flag)                // the user signs in, then Retry asks for a check
-        guard case .claudeStatus = request(client, .claudeStatus) else { return XCTFail("no status") }
+        guard case .agentStatus = request(client, .agentStatus(.claude)) else { return XCTFail("no status") }
         XCTAssertEqual(try launches(2).count, 2)
         waitFor(client, "both ready") { m in [first, second].allSatisfy { m.summaries($0.id).contains { $0.state == .ready } } }
     }
@@ -312,7 +314,7 @@ final class EngineTests: XCTestCase {
         let bot = try createBot(client)
         _ = try launches(1)                                              // signed in: the first launch goes ahead
         FileManager.default.createFile(atPath: flag, contents: nil)      // signed out before the 2 s crash relaunch
-        let stopped = BotState.crashed(reason: ClaudeProblem.notSignedIn.rawValue, retryAt: nil)
+        let stopped = BotState.crashed(reason: AgentProblem.claudeNotSignedIn.rawValue, retryAt: nil)
         waitFor(client, "stopped: not signed in") { $0.summaries(bot.id).contains { $0.state == stopped } }
         XCTAssertEqual(try launches(1).count, 1, "relaunched while signed out")
 
@@ -321,34 +323,45 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(try launches(2).count, 2)
     }
 
+    func testCodexNotInstalledStopsItsBot() throws {
+        let fake = binDir.appendingPathComponent("fake-claude").path
+        try makeEngine("basic", locate: { $0 == .claude ? fake : nil }).start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        let stopped = BotState.crashed(reason: AgentProblem.codexNotInstalled.rawValue, retryAt: nil)
+        waitFor(client, "stopped: not installed") { $0.summaries(bot.id).contains { $0.state == stopped } }
+        guard case let .agentStatus(status) = request(client, .agentStatus(.codex)) else { return XCTFail("no status") }
+        XCTAssertEqual(status, AgentStatus(agent: .codex, path: nil, version: nil, loggedIn: nil, email: nil))
+    }
+
     func testClaudeCodeInstalledLaterIsFoundOnRetry() throws {
         let installed = root.path + "/installed"
         let fake = binDir.appendingPathComponent("fake-claude").path
-        try makeEngine("basic", locate: { FileManager.default.fileExists(atPath: installed) ? fake : nil }).start()
+        try makeEngine("basic", locate: { _ in FileManager.default.fileExists(atPath: installed) ? fake : nil }).start()
         let client = try connect()
         let bot = try createBot(client)
-        let stopped = BotState.crashed(reason: ClaudeProblem.notInstalled.rawValue, retryAt: nil)
+        let stopped = BotState.crashed(reason: AgentProblem.claudeNotInstalled.rawValue, retryAt: nil)
         waitFor(client, "stopped: not installed") { $0.summaries(bot.id).contains { $0.state == stopped } }
-        guard case let .claudeStatus(missing) = request(client, .claudeStatus) else { return XCTFail("no status") }
+        guard case let .agentStatus(missing) = request(client, .agentStatus(.claude)) else { return XCTFail("no status") }
         XCTAssertFalse(missing.installed)
 
         FileManager.default.createFile(atPath: installed, contents: nil) // the user installs Claude Code, then presses Retry
-        guard case let .claudeStatus(found) = request(client, .claudeStatus) else { return XCTFail("no status") }
-        XCTAssertEqual(found, ClaudeStatus(path: fake, version: "2.1.296", loggedIn: true, email: "bot@example.com"))
+        guard case let .agentStatus(found) = request(client, .agentStatus(.claude)) else { return XCTFail("no status") }
+        XCTAssertEqual(found, AgentStatus(agent: .claude, path: fake, version: "2.1.296", loggedIn: true, email: "bot@example.com"))
         waitFor(client, "ready after Retry") { $0.summaries(bot.id).contains { $0.state == .ready } }    // no restart needed
     }
 
     func testClaudeCodeThatMovedIsLookedForAgain() throws {
         let fake = binDir.appendingPathComponent("fake-claude").path
         let old = root.path + "/old-claude"
-        let engine = try makeEngine("basic", locate: { FileManager.default.fileExists(atPath: old) ? old : fake })
+        let engine = try makeEngine("basic", locate: { _ in FileManager.default.fileExists(atPath: old) ? old : fake })
         try FileManager.default.copyItem(atPath: fake, toPath: old)
         try engine.start()
         let client = try connect()
-        guard case let .claudeStatus(before) = request(client, .claudeStatus) else { return XCTFail("no status") }
+        guard case let .agentStatus(before) = request(client, .agentStatus(.claude)) else { return XCTFail("no status") }
         XCTAssertEqual(before.path, old)
         try FileManager.default.removeItem(atPath: old)                  // e.g. an update moved it
-        guard case let .claudeStatus(after) = request(client, .claudeStatus) else { return XCTFail("no status") }
+        guard case let .agentStatus(after) = request(client, .agentStatus(.claude)) else { return XCTFail("no status") }
         XCTAssertEqual(after.path, fake)
     }
 

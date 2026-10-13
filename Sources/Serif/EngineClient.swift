@@ -299,9 +299,9 @@ final class EngineClient {
     func terminalInput(bot: UUID, data: Data) async throws { _ = try await send(.terminalInput(botId: bot, data: data)) }
     func resizeTerminal(bot: UUID, cols: Int, rows: Int) async throws { _ = try await send(.resizeTerminal(botId: bot, cols: cols, rows: rows)) }
     func shutdownEngine() async throws { _ = try await send(.shutdown) }
-    /// Claude Code as the engine sees it (installed, version, signed in); the engine checks again on every call.
-    func claudeStatus() async throws -> ClaudeStatus {
-        guard case .claudeStatus(let status) = try await send(.claudeStatus) else { throw EngineError(message: "Unexpected reply") }
+    /// An agent as the engine sees it (installed, version, signed in); the engine checks again on every call.
+    func agentStatus(_ agent: Agent) async throws -> AgentStatus {
+        guard case .agentStatus(let status) = try await send(.agentStatus(agent)) else { throw EngineError(message: "Unexpected reply") }
         return status
     }
 }

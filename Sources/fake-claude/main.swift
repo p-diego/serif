@@ -3,7 +3,7 @@ import Foundation
 // Scenario player standing in for the interactive `claude` TUI (tests only).
 let env = ProcessInfo.processInfo.environment
 
-// Claude Code's own checks, as the engine runs them before a launch (ClaudeCheck): answered at once, outside the scenario
+// Claude Code's own checks, as the engine runs them before a launch (AgentCheck): answered at once, outside the scenario
 // and the launch log. Signed out while the file SERIF_FAKE_LOGGED_OUT names exists.
 switch Array(CommandLine.arguments.dropFirst()) {
 case ["--version"]:
