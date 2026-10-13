@@ -58,6 +58,25 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(ClaudeCatalog.skills(root: root).map(\.name), ["tidy"])
     }
 
+    /// Ids stay under the unresolved `<root>/skills`, so skills saved by earlier builds still match.
+    func testLinkedSkillsFolderKeepsTheUnresolvedPath() throws {
+        try write("---\nname: x\n---\n", "elsewhere/x/SKILL.md")
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("skills"),
+                                                   withDestinationURL: root.appendingPathComponent("elsewhere"))
+        let item = try XCTUnwrap(ClaudeCatalog.skills(root: root).first)
+        XCTAssertEqual(item.path, root.appendingPathComponent("skills/x").path)
+        XCTAssertEqual(item.id, item.path)
+    }
+
+    func testLinkedConfigFolderKeepsTheUnresolvedPath() throws {
+        try write("---\nname: x\n---\n", "real/skills/x/SKILL.md")
+        let link = root.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: root.appendingPathComponent("real"))
+        let item = try XCTUnwrap(ClaudeCatalog.skills(root: link).first)
+        XCTAssertEqual(item.path, link.appendingPathComponent("skills/x").path)
+        XCTAssertEqual(item.id, item.path)
+    }
+
     func testPluginFoldersSkipMissingAndDuplicates() {
         let items = [CatalogItem(id: "a@m", name: "a", description: "", path: "/p/a"),
                      CatalogItem(id: "b", name: "b", description: "", path: "/p/b")]

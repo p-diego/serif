@@ -34,17 +34,23 @@ public struct ClaudeCatalog: Equatable, Sendable {
 
     /// Every folder with a SKILL.md under `<root>/skills`: the user's own and those synced from claude.ai
     /// (`synced/<account>/<name>`). Name and description come from the SKILL.md front matter, else the folder name.
-    /// A linked `skills` folder is read where it leads (the enumerator would not enter the link).
+    /// A linked `skills` folder (or config root) is read where it leads (the enumerator would not enter the link), but
+    /// paths are reported under the unresolved `<root>/skills`, so ids saved earlier keep matching.
     public static func skills(root: URL) -> [CatalogItem] {
-        guard let walk = FileManager.default.enumerator(at: root.appendingPathComponent("skills").resolvingSymlinksInPath(),
+        let shown = root.appendingPathComponent("skills").path
+        let resolved = root.appendingPathComponent("skills").resolvingSymlinksInPath().path
+        guard let walk = FileManager.default.enumerator(at: URL(fileURLWithPath: resolved),
                                                         includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
         var items: [CatalogItem] = []
         for case let url as URL in walk {
             guard let text = try? String(contentsOf: url.appendingPathComponent("SKILL.md"), encoding: .utf8) else { continue }
             walk.skipDescendants()          // a skill's own files are not skills
             let header = frontMatter(text)
-            items.append(CatalogItem(id: url.path, name: header["name"] ?? url.lastPathComponent,
-                                     description: header["description"] ?? "", path: url.path))
+            // Normalise the same way as `resolved` (it drops a leading /private, the enumerator's paths keep it).
+            let real = url.resolvingSymlinksInPath().path
+            let path = real.hasPrefix(resolved) ? shown + real.dropFirst(resolved.count) : url.path
+            items.append(CatalogItem(id: path, name: header["name"] ?? url.lastPathComponent,
+                                     description: header["description"] ?? "", path: path))
         }
         return sorted(items)
     }
