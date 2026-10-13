@@ -85,13 +85,14 @@ struct OnboardingView: View {
 
 /// The agents installed and signed in, as the engine sees them (spec §4 step 2 of 0.3, §7). Retry checks again; the first
 /// launch adds Continue, on once nothing keeps Claude Code's bots from starting (an unknown sign-in does not; Codex is
-/// optional). A check that finds an agent fine also starts the bots it had stopped (the engine does it).
+/// optional and never holds it back). A check that finds an agent fine also starts the bots it had stopped (the engine
+/// does it).
 struct AgentCheckView: View {
     let client: EngineClient
     let agents: [Agent]
     var onContinue: (() -> Void)?
     @State private var statuses: [Agent: AgentStatus] = [:]
-    @State private var checking = true
+    @State private var checking = Set(Agent.allCases)    // the agents whose check has not answered yet
 
     static let installCommand = "curl -fsSL https://claude.ai/install.sh | bash"
     static let guide = URL(string: "https://docs.anthropic.com/en/docs/claude-code/setup")!
@@ -101,23 +102,28 @@ struct AgentCheckView: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(agents, id: \.self) { agent in
                 if agents.count > 1 {
-                    Text(agent == .claude ? "Claude Code" : String(localized: "Codex (optional)"))
-                        .font(.system(size: Theme.Size.body, weight: .medium)).padding(.top, agent == agents.first ? 0 : 6)
+                    HStack(spacing: 8) {
+                        Text(agent == .claude ? "Claude Code" : String(localized: "Codex (optional)"))
+                            .font(.system(size: Theme.Size.body, weight: .medium))
+                        if checking.contains(agent) { ProgressView().controlSize(.small) }
+                    }
+                    .padding(.top, agent == agents.first ? 0 : 6)
                 }
                 if let status = statuses[agent] {
                     installedRows(status)
                     if status.installed { signInRows(status) }
-                } else if !checking {
+                } else if !checking.contains(agent) {
                     Text(String(localized: "The engine did not answer")).foregroundStyle(Theme.textSecondary)
                 }
             }
             HStack(spacing: 10) {
                 Spacer()
-                if checking { ProgressView().controlSize(.small) }
-                CardButton(title: String(localized: "Retry"), enabled: !checking) { Task { await check() } }
+                if agents.count == 1, !checking.isEmpty { ProgressView().controlSize(.small) }
+                CardButton(title: String(localized: "Retry"), enabled: checking.isEmpty) { Task { await check() } }
                 if let onContinue {
                     CardButton(title: String(localized: "Continue"), style: .primary,
-                               enabled: !checking && statuses[.claude] != nil && statuses[.claude]?.problem == nil, action: onContinue)
+                               enabled: !checking.contains(.claude) && statuses[.claude].map { $0.problem == nil } == true,
+                               action: onContinue)
                         .keyboardShortcut(.defaultAction)
                 }
             }
@@ -126,11 +132,14 @@ struct AgentCheckView: View {
         .task { await check() }
     }
 
-    /// The engine's check can take up to ~20 s per agent (a sign-in check has 10 s): the spinner shows it is not stuck.
+    /// The engine's check can take up to ~20 s per agent (a sign-in check has 10 s): the agents are checked side by side,
+    /// each shown as soon as it answers, with a spinner until then so it does not look stuck.
     private func check() async {
-        checking = true
-        for agent in agents { statuses[agent] = try? await client.agentStatus(agent) }
-        checking = false
+        checking = Set(agents)
+        await withTaskGroup(of: (Agent, AgentStatus?).self) { group in
+            for agent in agents { group.addTask { (agent, try? await client.agentStatus(agent)) } }
+            for await (agent, status) in group { statuses[agent] = status; checking.remove(agent) }
+        }
     }
 
     private func row(_ ok: Bool?, _ title: String) -> some View {
