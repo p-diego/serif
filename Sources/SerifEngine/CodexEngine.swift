@@ -86,8 +86,10 @@ extension Engine {
     func launchCodex(_ rt: BotRuntime, project: Project, codexPath: String, instructions: String, linkedExists: Bool) {
         guard let catalog = freshCodexCatalog else { return }
         let bot = rt.bot, workspace = paths.bot(bot.id).workspace
-        // Codex does not read the project's folder for skills: the project's go into the bot's folder too (spec §6).
-        for problem in linkSkills(bot.skills + project.skills, into: workspace, under: ".agents/skills") {
+        // Codex does not read the project's folder for skills: the project's go into the bot's folder too (spec §6), once
+        // when both chose one.
+        var seen = Set<String>()
+        for problem in linkSkills((bot.skills + project.skills).filter { seen.insert($0).inserted }, into: workspace, under: ".agents/skills") {
             log("bot \(bot.id): \(problem)")
         }
         let chosen = Set(bot.plugins + project.codexPlugins)
@@ -222,7 +224,8 @@ extension Engine {
     }
 
     /// The Codex servers an engine that died (SIGKILL, a crash) left running, from their pid files: stopped like any other
-    /// (SIGTERM, SIGKILL after 3 s). A pid reused since by another program is left alone.
+    /// (SIGTERM, SIGKILL after 3 s). A pid reused since by another program, another `codex app-server` (the ChatGPT app's,
+    /// an editor's) included, is left alone: only the process with the recorded secret's hash is Serif's.
     func stopLeftoverCodexServers() {
         let bots = paths.root.appendingPathComponent("bots")
         let files = [paths.root.appendingPathComponent("codex-catalog.pid")]
@@ -230,17 +233,17 @@ extension Engine {
         for file in files {
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
             try? FileManager.default.removeItem(at: file)
-            guard let pid = pid_t(text), isCodexServer(pid) else { continue }
+            let parts = text.split(separator: " ").map(String.init)
+            guard parts.count == 2, let pid = pid_t(parts[0]), runsCodexServer(pid, tokenHash: parts[1]) else { continue }
             log("stopping Codex server \(pid), left running by an earlier engine")
             kill(pid, SIGTERM)
-            DispatchQueue.global().asyncAfter(deadline: .now() + 3) { if isCodexServer(pid) { kill(pid, SIGKILL) } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 3) { if runsCodexServer(pid, tokenHash: parts[1]) { kill(pid, SIGKILL) } }
         }
     }
 }
 
-/// `pid` runs `codex … app-server` (and is not a pid reused since by another program).
-private func isCodexServer(_ pid: pid_t) -> Bool {
+/// `pid` runs the server started with `--ws-token-sha256 <tokenHash>`: the hash of a secret only that launch had.
+private func runsCodexServer(_ pid: pid_t, tokenHash: String) -> Bool {
     let words = AgentCheck.output("/bin/ps", ["-o", "command=", "-p", "\(pid)"], [:])?.split(whereSeparator: \.isWhitespace) ?? []
-    guard let server = words.firstIndex(of: "app-server") else { return false }
-    return words[..<server].contains { $0.split(separator: "/").last?.contains("codex") == true }
+    return zip(words, words.dropFirst()).contains { $0 == "--ws-token-sha256" && $1 == tokenHash }
 }

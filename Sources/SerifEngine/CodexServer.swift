@@ -15,7 +15,8 @@ final class CodexServer {
         let cwd: String
         let token: String
         let log: URL        // Codex's own output, for a look after a failure
-        /// Holds the running process's pid, so an engine that died without stopping it stops it at its next start.
+        /// Holds the running process's pid and its secret's hash ("<pid> <hash>"), so an engine that died without stopping it
+        /// stops it at its next start, and only it.
         var pidFile: URL? = nil
     }
 
@@ -74,7 +75,9 @@ final class CodexServer {
         defer { pthread_sigmask(SIG_SETMASK, &saved, nil) }
         do { try p.run() } catch { return started(Failure(message: "Cannot run Codex: \(error.localizedDescription)", fromCodex: false)) }
         process = p
-        if let file = launch.pidFile { try? "\(p.processIdentifier)".write(to: file, atomically: true, encoding: .utf8) }
+        if let file = launch.pidFile {
+            try? "\(p.processIdentifier) \(codexTokenHash(launch.token))".write(to: file, atomically: true, encoding: .utf8)
+        }
         connect()
     }
 
@@ -196,7 +199,10 @@ final class CodexServer {
         guard p === process else { return }
         process = nil
         keptAlive = nil
-        if let file = launch?.pidFile { try? FileManager.default.removeItem(at: file) }
+        // Only while it is still this process's: the next server may have written its own there meanwhile.
+        if let file = launch?.pidFile, (try? String(contentsOf: file, encoding: .utf8))?.hasPrefix("\(p.processIdentifier) ") == true {
+            try? FileManager.default.removeItem(at: file)
+        }
         killTimer?.cancel()
         killTimer = nil
         webSocket?.cancel()

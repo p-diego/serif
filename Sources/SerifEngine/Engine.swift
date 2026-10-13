@@ -34,6 +34,7 @@ final class BotRuntime {
     var turnStarting = false                  // a turn/start is on its way: texts wait for its id
     var launchedAt = Date()
     var startup: DispatchWorkItem?            // gives up on a server that is not ready in time (spec §8)
+    var waitingForCatalog = false             // its launch waits for Codex's catalog: launched again, it waits once
     private var preview: String?
     private var previewMessage: String?
 
@@ -183,7 +184,7 @@ public final class Engine {
     /// launch that follows such a fresh check. A Codex bot also needs Codex's catalog (spec §6).
     func launch(_ rt: BotRuntime, checked: Bool = false) {
         rt.restart = nil
-        guard !stopping, rt.bot.archivedAt == nil, !rt.isRunning,
+        guard !stopping, rt.bot.archivedAt == nil, !rt.isRunning, !rt.waitingForCatalog,
               let project = store.projects.first(where: { $0.id == rt.bot.projectId }) else { return }
         guard let status = statuses[rt.bot.agent], checked || status.problem == nil else {
             return checkAgent(rt.bot.agent) { [weak self] _ in self?.launch(rt, checked: true) }
@@ -191,7 +192,9 @@ public final class Engine {
         if let problem = status.problem { return crashed(rt, problem.rawValue) }
         guard let agentPath = status.path else { return }       // no problem: it was found
         if rt.bot.agent == .codex, freshCodexCatalog == nil {
+            rt.waitingForCatalog = true
             return codexCatalog { [weak self] catalog in
+                rt.waitingForCatalog = false
                 // Shutting down (the read ends with nil) or archived meanwhile: no crash for that.
                 guard let self, !stopping, rt.bot.archivedAt == nil else { return }
                 if catalog == nil { return crashedRelaunching(rt, reason: "Codex did not answer", ranFor: 0) }
@@ -332,6 +335,7 @@ public final class Engine {
     /// A crash, for either agent (spec §4.7 of 0.1, §8): a note in the chat, then `note` for more, and a relaunch after the
     /// backoff delay; the agent is checked again first (spec §4 of 0.3).
     func crashedRelaunching(_ rt: BotRuntime, reason: String, ranFor: TimeInterval, then note: () -> Void = {}) {
+        rt.restart?.cancel()                // one relaunch chain per bot
         statuses[rt.bot.agent] = nil
         record(.system(.crashed(reason: reason)), rt)
         note()

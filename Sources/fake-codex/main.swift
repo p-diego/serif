@@ -44,6 +44,12 @@ default:
 }
 
 logLaunch()
+let queue = DispatchQueue(label: "fake-codex")
+// Never outlives whoever started it (watched from here, before any delay): a test that crashes before its tearDown would
+// leave it listening forever.
+let parent = DispatchSource.makeProcessSource(identifier: getppid(), eventMask: .exit, queue: queue)
+parent.setEventHandler { exit(0) }
+parent.resume()
 // The port was taken (spec §8): exits like Codex would, once per flag file.
 if let busy = env["SERIF_FAKE_CODEX_BUSY"], FileManager.default.fileExists(atPath: busy) {
     try? FileManager.default.removeItem(atPath: busy)
@@ -68,12 +74,7 @@ if let path = env["SERIF_FAKE_CODEX_SCENARIO"], let text = try? String(contentsO
 let disabled = Set(args.indices.filter { args[$0] == "--disable" && $0 + 1 < args.count }.map { args[$0 + 1] })
 var thread = "thr-1", turn = "", input = "", turns = 0
 var hooksOn = !disabled.contains("hooks")
-let queue = DispatchQueue(label: "fake-codex")
 var connection: NWConnection?
-// Never outlives whoever started it: a test that crashes before its tearDown would leave it listening forever.
-let parent = DispatchSource.makeProcessSource(identifier: getppid(), eventMask: .exit, queue: queue)
-parent.setEventHandler { exit(0) }
-parent.resume()
 
 func send(_ text: String) {
     let meta = NWProtocolWebSocket.Metadata(opcode: .text)

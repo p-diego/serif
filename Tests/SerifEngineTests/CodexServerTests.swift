@@ -49,6 +49,19 @@ final class CodexServerTests: XCTestCase {
         ((try? String(contentsOfFile: path, encoding: .utf8)) ?? "").split(separator: "\n").compactMap { try? JSONValue.parse(Data($0.utf8)) }
     }
 
+    func testPidFileIsRemovedOnlyWhileItIsStillThisServers() throws {
+        var launch = self.launch("codex-server")
+        launch.pidFile = root.appendingPathComponent("codex.pid")
+        XCTAssertNil(start(launch))
+        let written = try String(contentsOf: launch.pidFile!, encoding: .utf8)
+        XCTAssertEqual(written.split(separator: " ").last.map(String.init), codexTokenHash(launch.token))   // pid, then the hash
+        try "1 newer".write(to: launch.pidFile!, atomically: true, encoding: .utf8)     // the next server's, written meanwhile
+        let stopped = expectation(description: "stopped")
+        queue.async { self.server.stop { stopped.fulfill() } }
+        wait(for: [stopped], timeout: 5)
+        XCTAssertEqual(try String(contentsOf: launch.pidFile!, encoding: .utf8), "1 newer")
+    }
+
     func testTalksJSONRPCWithItsSecretAndReportsItsExit() throws {
         let token = codexToken()
         XCTAssertNil(start("codex-server", token: token))
