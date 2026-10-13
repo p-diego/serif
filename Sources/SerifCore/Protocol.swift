@@ -43,9 +43,12 @@ public struct NewBot: Codable, Equatable, Sendable {
     public var model: String?
     public var instructions: String
     public var freedom: Freedom
+    public var skills: [String]
+    public var plugins: [String]
+    public var connectors: Bool
 
     public init(projectId: UUID, name: String, face: BotFace, agent: Agent, model: String?,
-                instructions: String, freedom: Freedom) {
+                instructions: String, freedom: Freedom, skills: [String] = [], plugins: [String] = [], connectors: Bool = false) {
         self.projectId = projectId
         self.name = name
         self.face = face
@@ -53,6 +56,9 @@ public struct NewBot: Codable, Equatable, Sendable {
         self.model = model
         self.instructions = instructions
         self.freedom = freedom
+        self.skills = skills
+        self.plugins = plugins
+        self.connectors = connectors
     }
 }
 

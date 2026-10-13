@@ -45,9 +45,12 @@ public func emptyStateFaces(count: Int) -> [BotFace] {
 /// The fields the bot editor changes; everything else (session, pin, archive state) stays as the live bot has it.
 public struct BotEdits: Equatable, Sendable {
     public var name: String, face: BotFace, model: String?, instructions: String, freedom: Freedom, notifications: Bool
-    public init(name: String, face: BotFace, model: String?, instructions: String, freedom: Freedom, notifications: Bool) {
+    public var skills: [String], plugins: [String], connectors: Bool
+    public init(name: String, face: BotFace, model: String?, instructions: String, freedom: Freedom, notifications: Bool,
+                skills: [String], plugins: [String], connectors: Bool) {
         self.name = name; self.face = face; self.model = model; self.instructions = instructions
         self.freedom = freedom; self.notifications = notifications
+        self.skills = skills; self.plugins = plugins; self.connectors = connectors
     }
 }
 
@@ -57,6 +60,7 @@ extension Bot {
         var bot = self
         bot.name = edits.name; bot.face = edits.face; bot.model = edits.model
         bot.instructions = edits.instructions; bot.freedom = edits.freedom; bot.notifications = edits.notifications
+        bot.skills = edits.skills; bot.plugins = edits.plugins; bot.connectors = edits.connectors
         return bot
     }
 }

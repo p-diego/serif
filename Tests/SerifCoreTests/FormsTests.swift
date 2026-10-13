@@ -34,11 +34,15 @@ final class FormsTests: XCTestCase {
         let face = BotFace(shape: .ball, body: 0xE8483F, eyes: 0xF5F7FC)
         var live = Bot(projectId: UUID(), name: "Old", face: face)
         live.pinned = true; live.archivedAt = Date(timeIntervalSince1970: 5)
-        let edits = BotEdits(name: "New", face: face, model: "opus", instructions: "x", freedom: .auto, notifications: false)
+        let edits = BotEdits(name: "New", face: face, model: "opus", instructions: "x", freedom: .auto, notifications: false,
+                             skills: ["/s/tidy"], plugins: ["superpowers@official"], connectors: true)
         let out = live.applying(edits)
         XCTAssertEqual([out.name, out.model, out.instructions], ["New", "opus", "x"])
         XCTAssertEqual(out.freedom, .auto)
         XCTAssertFalse(out.notifications)
+        XCTAssertEqual(out.skills, ["/s/tidy"])
+        XCTAssertEqual(out.plugins, ["superpowers@official"])
+        XCTAssertTrue(out.connectors)
         XCTAssertTrue(out.pinned)                      // changed meanwhile: kept
         XCTAssertEqual(out.sessionId, live.sessionId)
         XCTAssertEqual(out.archivedAt, live.archivedAt)

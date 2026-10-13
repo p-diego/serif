@@ -113,7 +113,8 @@ struct BotEditorSheet: View {
                         throw EngineError(message: String(localized: "This bot no longer exists"))
                     }
                     try await client.updateBot(live.applying(BotEdits(name: trimmed, face: face, model: model.value,
-                        instructions: instructions, freedom: freedom, notifications: notifications)))
+                        instructions: instructions, freedom: freedom, notifications: notifications,
+                        skills: live.skills, plugins: live.plugins, connectors: live.connectors)))
                 } else {
                     try await client.createBot(NewBot(projectId: projectId, name: trimmed, face: face, agent: .claude,
                                                       model: model.value, instructions: instructions, freedom: freedom))

@@ -66,7 +66,8 @@ extension Engine {
         case let .createBot(new):
             guard store.projects.contains(where: { $0.id == new.projectId }) else { throw Refusal("Unknown project") }
             let bot = Bot(projectId: new.projectId, name: new.name, face: new.face, agent: new.agent, model: new.model,
-                          instructions: new.instructions, freedom: new.freedom)
+                          instructions: new.instructions, freedom: new.freedom, skills: new.skills, plugins: new.plugins,
+                          connectors: new.connectors)
             try store.save(bot: bot)
             let rt = addRuntime(bot)
             push(.botChanged(rt.summary))          // the app knows the bot before its first chat event

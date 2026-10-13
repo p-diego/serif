@@ -9,14 +9,16 @@ final class ProtocolTests: XCTestCase {
     private let requestId = UUID()
 
     private var project: Project {
-        Project(id: projectId, name: "Lavoro", createdAt: at, linkedFolder: "/Users/x/proj", readLinkedInstructions: true)
+        Project(id: projectId, name: "Lavoro", createdAt: at, linkedFolder: "/Users/x/proj", readLinkedInstructions: true,
+                skills: ["/s/tidy"], plugins: ["design"])
     }
     private var bot: Bot {
-        Bot(id: botId, projectId: projectId, name: "Chief", face: BotFace(shape: .allCases[0], body: 0x6BC4A6, eyes: 0x14141A), createdAt: at)
+        Bot(id: botId, projectId: projectId, name: "Chief", face: BotFace(shape: .allCases[0], body: 0x6BC4A6, eyes: 0x14141A), createdAt: at,
+            skills: ["/s/tidy"], plugins: ["superpowers@official"], connectors: true)
     }
     private var newBot: NewBot {
         NewBot(projectId: projectId, name: "Chief", face: bot.face, agent: .claude, model: "opus",
-               instructions: "Be brief.", freedom: .edits)
+               instructions: "Be brief.", freedom: .edits, skills: ["/s/tidy"], plugins: ["design"], connectors: true)
     }
     private var request: PendingRequest {
         PendingRequest(id: requestId, botId: botId, kind: .permission, toolName: "Bash",

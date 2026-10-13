@@ -20,6 +20,26 @@ final class StoreTests: XCTestCase {
 
     func makeBot(_ project: Project) -> Bot { Bot(projectId: project.id, name: "b", face: randomFace(existing: []), createdAt: t0) }
 
+    func testStateWrittenBy02Loads() throws {
+        // Projects and bots as Serif 0.2 saved them: no skills, plugins or connectors. They start empty and off (spec §6.1).
+        let state = #"""
+        {"projects":[{"id":"11111111-1111-4111-8111-111111111111","name":"P","createdAt":"2026-10-12T10:00:00.000Z",
+                      "readLinkedInstructions":true}],
+         "bots":[{"id":"22222222-2222-4222-8222-222222222222","projectId":"11111111-1111-4111-8111-111111111111",
+                  "name":"Bob","face":{"shape":"ball","body":15087423,"eyes":16119804,"eyeSize":1,"eyeLift":0,"eyeSpread":1},
+                  "agent":"claude","instructions":"","freedom":"ask","sessionId":"33333333-3333-4333-8333-333333333333",
+                  "notifications":true,"pinned":false,"createdAt":"2026-10-12T10:00:00.000Z"}]}
+        """#
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(state.utf8).write(to: paths.stateFile)
+        let store = try Store(paths: paths)
+        let project = try XCTUnwrap(store.projects.first)
+        XCTAssertEqual(project.skills, []); XCTAssertEqual(project.plugins, [])
+        let bot = try XCTUnwrap(store.bots.first)
+        XCTAssertEqual(bot.name, "Bob")
+        XCTAssertEqual(bot.skills, []); XCTAssertEqual(bot.plugins, []); XCTAssertFalse(bot.connectors)
+    }
+
     func testUnreadableStateThrows() throws {
         let store = try Store(paths: paths)
         try store.save(project: Project(name: "p", createdAt: t0))

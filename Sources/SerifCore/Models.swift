@@ -27,15 +27,33 @@ public struct Project: Codable, Identifiable, Equatable, Sendable {
     public var linkedFolder: String?
     public var readLinkedInstructions: Bool
     public var archivedAt: Date?
+    /// Skill folders and plugin ids every bot of the project gets (spec §6.1).
+    public var skills: [String]
+    public var plugins: [String]
 
     public init(id: UUID = UUID(), name: String, createdAt: Date = Date(), linkedFolder: String? = nil,
-                readLinkedInstructions: Bool = true, archivedAt: Date? = nil) {
+                readLinkedInstructions: Bool = true, archivedAt: Date? = nil, skills: [String] = [], plugins: [String] = []) {
         self.id = id
         self.name = name
         self.createdAt = createdAt
         self.linkedFolder = linkedFolder
         self.readLinkedInstructions = readLinkedInstructions
         self.archivedAt = archivedAt
+        self.skills = skills
+        self.plugins = plugins
+    }
+
+    // A state.json from before 0.3 has neither list: the project starts without skills or plugins.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        linkedFolder = try c.decodeIfPresent(String.self, forKey: .linkedFolder)
+        readLinkedInstructions = try c.decode(Bool.self, forKey: .readLinkedInstructions)
+        archivedAt = try c.decodeIfPresent(Date.self, forKey: .archivedAt)
+        skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
+        plugins = try c.decodeIfPresent([String].self, forKey: .plugins) ?? []
     }
 }
 
@@ -54,10 +72,15 @@ public struct Bot: Codable, Identifiable, Equatable, Sendable {
     public var pinned: Bool
     public var createdAt: Date
     public var archivedAt: Date?
+    /// Skill folders linked into the bot's folder, plugin ids, and whether claude.ai's connectors reach it (spec §6.1).
+    public var skills: [String]
+    public var plugins: [String]
+    public var connectors: Bool
 
     public init(id: UUID = UUID(), projectId: UUID, name: String, face: BotFace, agent: Agent = .claude,
                 model: String? = nil, instructions: String = "", freedom: Freedom = .ask, sessionId: UUID = UUID(),
-                notifications: Bool = true, pinned: Bool = false, createdAt: Date = Date(), archivedAt: Date? = nil) {
+                notifications: Bool = true, pinned: Bool = false, createdAt: Date = Date(), archivedAt: Date? = nil,
+                skills: [String] = [], plugins: [String] = [], connectors: Bool = false) {
         self.id = id
         self.projectId = projectId
         self.name = name
@@ -71,5 +94,29 @@ public struct Bot: Codable, Identifiable, Equatable, Sendable {
         self.pinned = pinned
         self.createdAt = createdAt
         self.archivedAt = archivedAt
+        self.skills = skills
+        self.plugins = plugins
+        self.connectors = connectors
+    }
+
+    // A state.json from before 0.3: no skills or plugins, connectors off (the author's choice, spec §6.1).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        projectId = try c.decode(UUID.self, forKey: .projectId)
+        name = try c.decode(String.self, forKey: .name)
+        face = try c.decode(BotFace.self, forKey: .face)
+        agent = try c.decode(Agent.self, forKey: .agent)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        instructions = try c.decode(String.self, forKey: .instructions)
+        freedom = try c.decode(Freedom.self, forKey: .freedom)
+        sessionId = try c.decode(UUID.self, forKey: .sessionId)
+        notifications = try c.decode(Bool.self, forKey: .notifications)
+        pinned = try c.decode(Bool.self, forKey: .pinned)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        archivedAt = try c.decodeIfPresent(Date.self, forKey: .archivedAt)
+        skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
+        plugins = try c.decodeIfPresent([String].self, forKey: .plugins) ?? []
+        connectors = try c.decodeIfPresent(Bool.self, forKey: .connectors) ?? false
     }
 }
