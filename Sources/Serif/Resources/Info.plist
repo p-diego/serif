@@ -9,8 +9,8 @@
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleIconFile</key><string>serif_icon</string>
     <key>CFBundleIconName</key><string>serif_icon</string>
-    <key>CFBundleShortVersionString</key><string>0.2</string>
-    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleShortVersionString</key><string>0.3</string>
+    <key>CFBundleVersion</key><string>3</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>

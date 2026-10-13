@@ -144,10 +144,10 @@ final class ProtocolTests: XCTestCase {
     // MARK: ResponseBody
 
     func testResponseOk() throws { try assertRoundTrip(ResponseBody.ok) }
-    func testResponseWelcome() throws { try assertRoundTrip(ResponseBody.welcome(protocolVersion: 1, engineVersion: "0.1.0")) }
+    func testResponseWelcome() throws { try assertRoundTrip(ResponseBody.welcome(protocolVersion: 1, engineVersion: SerifVersion.current)) }
     func testResponseSnapshot() throws {
         let summary = BotSummary(bot: bot, state: .working(.thinking), unread: true, lastEvent: record, preview: "ciao")
-        try assertRoundTrip(ResponseBody.snapshot(Snapshot(projects: [project], bots: [summary], requests: [request], engineVersion: "0.1.0")))
+        try assertRoundTrip(ResponseBody.snapshot(Snapshot(projects: [project], bots: [summary], requests: [request], engineVersion: SerifVersion.current)))
     }
     func testResponseProject() throws { try assertRoundTrip(ResponseBody.project(project)) }
     func testResponseBot() throws { try assertRoundTrip(ResponseBody.bot(bot)) }
