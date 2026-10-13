@@ -519,6 +519,19 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(try launches(2).count, 2)
     }
 
+    func testProjectRenameWaitsForTheNextLaunch() throws {
+        try makeEngine("basic").start()
+        let client = try connect()
+        let bot = try createBot(client)
+        waitFor(client, "turn ended") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        guard case let .snapshot(snapshot) = request(client, .snapshot), var project = snapshot.projects.first
+        else { return XCTFail("no project") }
+        project.name = "Renamed"
+        guard case .project = request(client, .updateProject(project)) else { return XCTFail("rename refused") }
+        Thread.sleep(forTimeInterval: 1.5)          // a relaunch would have logged a second launch by now
+        XCTAssertEqual(try launches(1).count, 1, "renaming the project relaunched its bot")
+    }
+
     func testPlanApprovalNeedsTheScreenAndKilledHookCancels() throws {
         try makeEngine("plan").start()
         let client = try connect()

@@ -32,7 +32,7 @@ struct ProjectSettingsSheet: View {
             ProjectFields(name: $name, folder: $folder, readInstructions: $readInstructions, focusName: false)
             FieldGroup(label: String(localized: "Skills")) { CatalogPicker(kind: .skills, items: catalog.skills, chosen: $skills) }
             FieldGroup(label: String(localized: "Plugins")) { CatalogPicker(kind: .plugins, items: catalog.plugins, chosen: $plugins) }
-            Text(String(localized: "Every bot of the project gets these skills and plugins; changing them restarts its bots."))
+            Text(String(localized: "Every bot of the project gets these skills and plugins. Changing them, the linked folder or its switch restarts the project's bots."))
                 .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

@@ -57,9 +57,10 @@ extension Engine {
             guard let old = store.projects.first(where: { $0.id == project.id }) else { throw Refusal("Unknown project") }
             try store.save(project: project)
             push(.projectChanged(project))
-            // The system prompt, --add-dir, skills and plugins come from the project: relaunch its bots when those change.
-            if (project.name, project.linkedFolder, project.readLinkedInstructions, project.skills, project.plugins)
-                != (old.name, old.linkedFolder, old.readLinkedInstructions, old.skills, old.plugins) {
+            // --add-dir, the linked instructions, skills and plugins come from the project: relaunch its bots when those
+            // change. A new name reaches system.md at their next launch.
+            if (project.linkedFolder, project.readLinkedInstructions, project.skills, project.plugins)
+                != (old.linkedFolder, old.readLinkedInstructions, old.skills, old.plugins) {
                 bots.values.filter { $0.bot.projectId == project.id }.forEach(restart)
             }
             return .project(project)

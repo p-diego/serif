@@ -205,7 +205,7 @@
 "Project settings…" = "Impostazioni progetto…";
 "Project settings" = "Impostazioni progetto";
 "This project no longer exists" = "Questo progetto non esiste più";
-"Every bot of the project gets these skills and plugins; changing them restarts its bots." = "Tutti i bot del progetto ricevono queste skill e questi plugin; cambiarli riavvia i suoi bot.";
+"Every bot of the project gets these skills and plugins. Changing them, the linked folder or its switch restarts the project's bots." = "Tutti i bot del progetto ricevono queste skill e questi plugin. Cambiarli, o cambiare la cartella collegata o il suo interruttore, riavvia i bot del progetto.";
 
 "Ready-made bots" = "Bot pronti";
 "Blank" = "Vuoto";
