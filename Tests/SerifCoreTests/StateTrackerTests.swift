@@ -311,4 +311,13 @@ final class StateTrackerTests: XCTestCase {
     func testNotUnreadWhenNoRecords() {
         XCTAssertFalse(isUnread(lastReadSeq: 0, records: []))
     }
+
+    func testAStepClosingAfterItsTurnLeavesTheBotReady() {
+        // Codex: a command an interruption left running ends after its turn (spec §3.3).
+        var s = workingTracker()
+        s.apply(.toolStarted(toolUseId: "t1", name: "Bash", input: .null, promptId: "p"))
+        s.apply(.turnInterrupted)
+        s.apply(.toolFinished(toolUseId: "t1", ok: true, output: "", durationMs: 30_000))
+        XCTAssertEqual(s.state, .ready)
+    }
 }

@@ -65,7 +65,8 @@ public struct StateTracker: Sendable {
         case let .toolStarted(_, name, input, _):
             state = .working(Activity.from(toolName: name, input: input))
         case .toolFinished:
-            state = .working(.thinking)
+            // A Codex command left running when its turn ended closes later (spec §3.3): the bot stays ready.
+            if state.inTurn { state = .working(.thinking) }
         case let .requestOpened(request):
             open.append((request.id, request.kind))
         case let .requestClosed(requestId, _, _):

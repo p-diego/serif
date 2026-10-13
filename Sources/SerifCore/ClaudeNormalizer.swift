@@ -9,7 +9,29 @@ public enum NormalizerOutput: Equatable, Sendable {
     case notification(type: String?)
     case rateLimited
     case transcriptPath(String)
+    /// A Codex server's request for a card (approvals, questions), with the decisions it accepts; `id` is its JSON-RPC id.
+    case serverRequest(id: JSONValue, toolName: String, input: JSONValue, decisions: [String]?, turnId: String?, itemId: String?)
+    /// Some client (the bot's terminal, or Serif) answered the Codex request `id`.
+    case serverRequestResolved(id: JSONValue)
 }
+
+/// Texts Serif sent, waiting for the agent to report them as user messages: a match takes the origin it was sent with,
+/// anything else was typed in the terminal. Compared trimmed (Claude Code trims); earlier entries never arrived.
+struct SentMessages {
+    private var pending: [(text: String, origin: MessageOrigin)] = []
+    mutating func expect(_ text: String, origin: MessageOrigin) { pending.append((text, origin)) }
+    mutating func origin(of text: String) -> MessageOrigin {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let i = pending.firstIndex(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) else {
+            return .terminal
+        }
+        defer { pending.removeSubrange(0...i) }
+        return pending[i].origin
+    }
+}
+
+/// A tool's output as the chat keeps it: 20 000 characters at most.
+func truncatedOutput(_ s: String) -> String { s.count > 20_000 ? String(s.prefix(20_000)) + "…" : s }
 
 /// Turns Claude Code hook payloads into ordered chat events.
 /// Hooks come from separate processes and can arrive a few ms out of order, so PreToolUse and Stop
@@ -36,13 +58,13 @@ public struct ClaudeNormalizer {
     private var texts: [String: String] = [:]               // accumulated MessageDisplay text per message id
     private var frozen: Set<String> = []                    // messages already replaced by Stop's full text
     private var lastMessage: [String: String] = [:]         // last assistant message id per prompt id
-    private var pendingChat: [(text: String, origin: MessageOrigin)] = []
+    private var sent = SentMessages()
     private var transcript: String?
     private var currentPrompt: String?
 
     public init() {}
 
-    public mutating func expectChatMessage(_ text: String, origin: MessageOrigin = .chat) { pendingChat.append((text, origin)) }
+    public mutating func expectChatMessage(_ text: String, origin: MessageOrigin = .chat) { sent.expect(text, origin: origin) }
     public var nextDeadline: Date? { held.first?.deadline }
 
     public mutating func flush(now: Date) -> [NormalizerOutput] {
@@ -138,16 +160,14 @@ public struct ClaudeNormalizer {
 
     private static func chomp(_ s: String) -> String { s.hasSuffix("\n") ? String(s.dropLast()) : s }
 
-    private static func truncated(_ s: String) -> String { s.count > 20_000 ? String(s.prefix(20_000)) + "…" : s }
-
     private static func output(of response: JSONValue?) -> String {
         guard let response else { return "" }
-        if let s = response.string { return truncated(s) }
+        if let s = response.string { return truncatedOutput(s) }
         if response.object != nil, let stdout = response["stdout"]?.string {
             let err = response["stderr"]?.string ?? ""
-            return truncated(stdout + (err.isEmpty ? "" : "\n" + err))
+            return truncatedOutput(stdout + (err.isEmpty ? "" : "\n" + err))
         }
-        return truncated(response.compactText)
+        return truncatedOutput(response.compactText)
     }
 
     private mutating func finish(_ id: String, ok: Bool, output: String, durationMs: Int?) -> [NormalizerOutput] {
@@ -163,7 +183,7 @@ public struct ClaudeNormalizer {
         case "PostToolUseFailure":
             guard let id = p["tool_use_id"]?.string else { return [] }
             let text = p["error"].map { $0.string ?? $0.compactText } ?? "Tool failed"
-            return finish(id, ok: false, output: Self.truncated(text), durationMs: p["duration_ms"]?.int)
+            return finish(id, ok: false, output: truncatedOutput(text), durationMs: p["duration_ms"]?.int)
         case "PostToolBatch":
             // A tool still unfinished here never ran to completion (denied or blocked): always a failure.
             var out: [NormalizerOutput] = []
@@ -180,13 +200,7 @@ public struct ClaudeNormalizer {
         case "UserPromptSubmit":
             // Blank lines left at either end by an unwrapped paste are not the message.
             let text = unwrappingPastes(p["prompt"]?.string ?? "").trimmingCharacters(in: .newlines)
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            var origin = MessageOrigin.terminal
-            if let i = pendingChat.firstIndex(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) {
-                origin = pendingChat[i].origin
-                pendingChat.removeSubrange(0...i)      // earlier entries never arrived
-            }
-            return [.event(.userMessage(text: text, promptId: promptId, origin: origin))]
+            return [.event(.userMessage(text: text, promptId: promptId, origin: sent.origin(of: text)))]
         case "PermissionRequest":
             let input = p["tool_input"] ?? .null
             let match = started.last { !finished.contains($0.id) && $0.promptId == promptId && $0.input == input }

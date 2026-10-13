@@ -67,7 +67,7 @@ extension Engine {
                 push(.botChanged(rt.summary))
             case let .transcriptPath(path):
                 rt.transcriptPath = path
-            case .sessionEnded, .notification:
+            case .sessionEnded, .notification, .serverRequest, .serverRequestResolved:
                 break
             }
         }
