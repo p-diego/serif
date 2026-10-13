@@ -1,4 +1,5 @@
 import Foundation
+import SerifCore
 
 public enum ClaudeLocator {
     /// Order: `override` (if executable) -> well-known install paths -> an interactive login zsh
@@ -38,5 +39,39 @@ public enum LoginShell {
         timeout.cancel()
         return String(decoding: data, as: UTF8.self).split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty }
+    }
+}
+
+/// Claude Code as the engine checks it before launching bots (spec §4): `claude --version` and `claude auth status`, run
+/// with the bots' environment. A command that does not answer within 10 s leaves its field unknown (spec §9).
+enum ClaudeCheck {
+    static func status(path: String?, environment: [String: String]) -> ClaudeStatus {
+        guard let path, FileManager.default.isExecutableFile(atPath: path) else {
+            return ClaudeStatus(path: nil, version: nil, loggedIn: nil, email: nil)
+        }
+        let version = output(path, ["--version"], environment).flatMap(claudeVersion)
+        let auth = output(path, ["auth", "status"], environment).map(claudeAuth)
+        return ClaudeStatus(path: path, version: version, loggedIn: auth?.loggedIn, email: auth?.email)
+    }
+
+    /// Standard output of `executable args`, whatever its exit code (`auth status` exits 1 when signed out); nil if it cannot
+    /// start or is still running after `timeout` seconds (it is then terminated).
+    static func output(_ executable: String, _ args: [String], _ environment: [String: String],
+                       timeout: TimeInterval = 10) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: executable)
+        p.arguments = args
+        p.environment = environment
+        p.standardInput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        guard (try? p.run()) != nil else { return nil }
+        let timer = DispatchWorkItem { if p.isRunning { p.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer)
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        timer.cancel()
+        return p.terminationReason == .exit ? String(decoding: data, as: UTF8.self) : nil
     }
 }

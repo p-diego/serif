@@ -3,6 +3,23 @@ import Foundation
 // Scenario player standing in for the interactive `claude` TUI (tests only).
 let env = ProcessInfo.processInfo.environment
 
+// Claude Code's own checks, as the engine runs them before a launch (ClaudeCheck): answered at once, outside the scenario
+// and the launch log. Signed out while the file SERIF_FAKE_LOGGED_OUT names exists.
+switch Array(CommandLine.arguments.dropFirst()) {
+case ["--version"]:
+    print("2.1.296 (Claude Code)")
+    exit(0)
+case ["auth", "status"]:
+    if let flag = env["SERIF_FAKE_LOGGED_OUT"], FileManager.default.fileExists(atPath: flag) {
+        print(#"{"loggedIn": false, "authMethod": "none"}"#)
+        exit(1)
+    }
+    print(#"{"loggedIn": true, "authMethod": "claude.ai", "email": "bot@example.com"}"#)
+    exit(0)
+default:
+    break
+}
+
 // Raw stdin, like a real TUI: PTY input bytes arrive unmodified.
 var attrs = termios()
 if tcgetattr(0, &attrs) == 0 { cfmakeraw(&attrs); tcsetattr(0, TCSANOW, &attrs) }
