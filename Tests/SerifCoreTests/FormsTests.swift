@@ -47,4 +47,18 @@ final class FormsTests: XCTestCase {
         XCTAssertEqual(out.sessionId, live.sessionId)
         XCTAssertEqual(out.archivedAt, live.archivedAt)
     }
+
+    func testTemplateSuggestionsSkipWhatIsMissing() {
+        var catalog = ClaudeCatalog()
+        catalog.skills = [CatalogItem(id: "/s/docx", name: "docx", description: "", path: "/s/docx"),
+                          CatalogItem(id: "/s/pdf", name: "pdf", description: "", path: "/s/pdf")]
+        catalog.plugins = [CatalogItem(id: "superpowers@official", name: "superpowers", description: "", path: "/p/sp")]
+        XCTAssertEqual(BotTemplate.writer.suggestions(in: catalog).skills, ["/s/docx", "/s/pdf"])   // no pptx on this Mac
+        XCTAssertEqual(BotTemplate.developer.suggestions(in: catalog).plugins, ["superpowers@official"])
+        XCTAssertEqual(BotTemplate.researcher.suggestions(in: catalog).skills, [])
+        XCTAssertEqual(BotTemplate.reviewer.suggestions(in: catalog).skills, [])
+        XCTAssertEqual(BotTemplate.reviewer.freedom, .ask)
+        XCTAssertEqual(BotTemplate.writer.freedom, .edits)
+        XCTAssertEqual(Set(BotTemplate.allCases.map(\.face)).count, 4)
+    }
 }

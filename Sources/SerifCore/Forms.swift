@@ -64,3 +64,35 @@ extension Bot {
         return bot
     }
 }
+
+/// The ready-made bots at the top of the New bot sheet (spec §7-8). The app gives each its localized name and instructions;
+/// suggested skills and plugins are matched by name in the user's catalog, and those not on this Mac are skipped.
+public enum BotTemplate: CaseIterable, Sendable {
+    case developer, reviewer, researcher, writer
+
+    /// Fixed faces, readable eyes on each body (contrast at least 3:1, like `randomFace`).
+    public var face: BotFace {
+        switch self {
+        case .developer: BotFace(shape: .squircle, body: 0x739EFA, eyes: 0x14141A)
+        case .reviewer: BotFace(shape: .hexagon, body: 0xF0B429, eyes: 0x14141A)
+        case .researcher: BotFace(shape: .cloud, body: 0x3ECF8E, eyes: 0x14141A)
+        case .writer: BotFace(shape: .drop, body: 0x8B5CF6, eyes: 0xF5F7FC)
+        }
+    }
+
+    /// The reviewer only reads: it asks before anything else.
+    public var freedom: Freedom { self == .reviewer ? .ask : .edits }
+
+    /// The suggested skills (folder paths) and plugins (ids) found in `catalog`. The reviewer's code review is built into
+    /// Claude Code: nothing to add.
+    public func suggestions(in catalog: ClaudeCatalog) -> (skills: [String], plugins: [String]) {
+        let (skillNames, pluginNames): ([String], [String]) = switch self {
+        case .developer: ([], ["superpowers"])
+        case .reviewer: ([], [])
+        case .researcher: (["deep-research"], [])
+        case .writer: (["docx", "pptx", "pdf"], [])
+        }
+        return (skillNames.compactMap { name in catalog.skills.first { $0.name == name }?.id },
+                pluginNames.compactMap { name in catalog.plugins.first { $0.name == name }?.id })
+    }
+}

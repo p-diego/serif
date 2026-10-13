@@ -206,3 +206,14 @@
 "Project settings" = "Project settings";
 "This project no longer exists" = "This project no longer exists";
 "Every bot of the project gets these skills and plugins; changing them restarts its bots." = "Every bot of the project gets these skills and plugins; changing them restarts its bots.";
+
+"Ready-made bots" = "Ready-made bots";
+"Blank" = "Blank";
+"Developer" = "Developer";
+"Reviewer" = "Reviewer";
+"Researcher" = "Researcher";
+"Writer" = "Writer";
+"You write and fix code in the project's linked folder. Read the code involved before changing it, run the tests after every change, and say what you checked." = "You write and fix code in the project's linked folder. Read the code involved before changing it, run the tests after every change, and say what you checked.";
+"You review changes and find bugs without changing any file. For each problem, say where it is, why it matters and how to fix it." = "You review changes and find bugs without changing any file. For each problem, say where it is, why it matters and how to fix it.";
+"You search the web and write reports. Check each fact in more than one source, say where it comes from, and save every report as a file in the project's shared folder." = "You search the web and write reports. Check each fact in more than one source, say where it comes from, and save every report as a file in the project's shared folder.";
+"You write documents: texts, presentations and PDFs. Ask what the document is for and who will read it, then save it in the project's shared folder." = "You write documents: texts, presentations and PDFs. Ask what the document is for and who will read it, then save it in the project's shared folder.";

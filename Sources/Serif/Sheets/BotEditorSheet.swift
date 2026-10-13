@@ -6,6 +6,7 @@ struct BotEditorSheet: View {
     let client: EngineClient
     let editing: Bot?
     @State private var projectId: UUID?
+    @State private var template: BotTemplate?          // nil = Blank
     @State private var name: String
     @State private var face: BotFace
     @State private var model: BotModel
@@ -44,6 +45,14 @@ struct BotEditorSheet: View {
                    primary: editing == nil ? String(localized: "Create") : String(localized: "Save"),
                    canSubmit: canCreateBot(name: name, projectId: projectId), busy: busy, error: error, submit: submit,
                    cancel: { client.sheet = nil }) {
+            if editing == nil {
+                FieldGroup(label: String(localized: "Ready-made bots")) {
+                    HStack(spacing: 8) {
+                        templateCard(nil)
+                        ForEach(BotTemplate.allCases, id: \.self) { templateCard($0) }
+                    }
+                }
+            }
             if editing == nil && client.roster.projects.isEmpty {
                 FieldGroup(label: String(localized: "Project")) {
                     Text(String(localized: "Create a project first")).foregroundStyle(Theme.textSecondary)
@@ -123,6 +132,32 @@ struct BotEditorSheet: View {
         .task { catalog = ClaudeCatalog(root: claudeConfigRoot(environment: ProcessInfo.processInfo.environment)) }
     }
 
+    private func templateCard(_ t: BotTemplate?) -> some View {
+        Button { apply(t) } label: {
+            VStack(spacing: 4) {
+                if let t { MascotImage(face: t.face, mood: .watch, size: 34) }
+                else { Image(systemName: "square.dashed").font(.system(size: 24)).frame(height: 34) }
+                Text(t?.title ?? String(localized: "Blank")).font(.system(size: Theme.Size.small)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.row).fill(template == t ? Theme.active : Theme.pane))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Fills the form from a ready-made bot (or empties it for Blank); everything stays editable (spec §7).
+    private func apply(_ t: BotTemplate?) {
+        template = t
+        name = t?.title ?? ""
+        face = t?.face ?? randomFace(existing: client.roster.bots.values.map(\.bot.face))
+        instructions = t?.instructions ?? ""
+        freedom = t?.freedom ?? .ask
+        let suggested = t?.suggestions(in: catalog)
+        skills = suggested?.skills ?? []
+        plugins = suggested?.plugins ?? []
+    }
+
     private func submit() {
         guard let projectId else { return }
         busy = true; error = nil
@@ -155,6 +190,25 @@ struct BotEditorSheet: View {
                 if client.selectedBot == id { client.selectedBot = nil }
                 client.sheet = nil
             } catch { self.error = error.localizedDescription }
+        }
+    }
+}
+
+private extension BotTemplate {
+    var title: String {
+        switch self {
+        case .developer: String(localized: "Developer")
+        case .reviewer: String(localized: "Reviewer")
+        case .researcher: String(localized: "Researcher")
+        case .writer: String(localized: "Writer")
+        }
+    }
+    var instructions: String {
+        switch self {
+        case .developer: String(localized: "You write and fix code in the project's linked folder. Read the code involved before changing it, run the tests after every change, and say what you checked.")
+        case .reviewer: String(localized: "You review changes and find bugs without changing any file. For each problem, say where it is, why it matters and how to fix it.")
+        case .researcher: String(localized: "You search the web and write reports. Check each fact in more than one source, say where it comes from, and save every report as a file in the project's shared folder.")
+        case .writer: String(localized: "You write documents: texts, presentations and PDFs. Ask what the document is for and who will read it, then save it in the project's shared folder.")
         }
     }
 }

@@ -206,3 +206,14 @@
 "Project settings" = "Impostazioni progetto";
 "This project no longer exists" = "Questo progetto non esiste più";
 "Every bot of the project gets these skills and plugins; changing them restarts its bots." = "Tutti i bot del progetto ricevono queste skill e questi plugin; cambiarli riavvia i suoi bot.";
+
+"Ready-made bots" = "Bot pronti";
+"Blank" = "Vuoto";
+"Developer" = "Sviluppatore";
+"Reviewer" = "Revisore";
+"Researcher" = "Ricercatore";
+"Writer" = "Scrittore";
+"You write and fix code in the project's linked folder. Read the code involved before changing it, run the tests after every change, and say what you checked." = "Scrivi e correggi il codice nella cartella collegata del progetto. Leggi il codice coinvolto prima di cambiarlo, fai girare le prove dopo ogni modifica e di' cosa hai controllato.";
+"You review changes and find bugs without changing any file. For each problem, say where it is, why it matters and how to fix it." = "Rileggi le modifiche e trovi gli errori senza cambiare nessun file. Per ogni problema di' dov'è, perché conta e come correggerlo.";
+"You search the web and write reports. Check each fact in more than one source, say where it comes from, and save every report as a file in the project's shared folder." = "Cerchi sul web e scrivi rapporti. Controlli ogni fatto su più di una fonte, dici da dove viene e salvi ogni rapporto come file nella cartella comune del progetto.";
+"You write documents: texts, presentations and PDFs. Ask what the document is for and who will read it, then save it in the project's shared folder." = "Scrivi documenti: testi, presentazioni e PDF. Chiedi a cosa serve il documento e chi lo leggerà, poi salvalo nella cartella comune del progetto.";
