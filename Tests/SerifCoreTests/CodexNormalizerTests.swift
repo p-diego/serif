@@ -131,6 +131,23 @@ final class CodexNormalizerTests: XCTestCase {
         XCTAssertEqual(out.last, .event(.assistantTextReplaced(messageId: "m2", text: "Ciao")))
     }
 
+    func testAReplyCutShortClosesWithItsTurn() {
+        // Interrupted while writing: no item/completed comes, what streamed of the reply is still the bot's message.
+        var n = CodexNormalizer()
+        var out: [NormalizerOutput] = []
+        for delta in ["Eseguo", " `sleep`"] {
+            out += n.ingest(notification("item/agentMessage/delta", ["itemId": "m", "turnId": "t", "delta": .string(delta)]))
+        }
+        out += n.ingest(notification("turn/completed", ["turn": ["id": "t", "status": "interrupted"]]))
+        XCTAssertEqual(out, [.event(.assistantText(messageId: "m", index: 0, delta: "Eseguo `sleep`", final: true, promptId: "t")),
+                             .event(.turnInterrupted)])
+        // A reply that completed adds nothing at the turn's end.
+        _ = n.ingest(notification("item/agentMessage/delta", ["itemId": "m2", "turnId": "t2", "delta": "Ciao"]))
+        _ = n.ingest(notification("item/completed", ["turnId": "t2", "item": ["type": "agentMessage", "id": "m2", "text": "Ciao"]]))
+        XCTAssertEqual(n.ingest(notification("turn/completed", ["turn": ["id": "t2", "status": "completed"]])),
+                       [.event(.turnEnded(promptId: "t2", lastMessage: "Ciao"))])
+    }
+
     func testOtherStepsReadLikeClaudeCodesTools() {
         // fileChange, mcpToolCall and webSearch never came up in the trials: their shapes are the schema's.
         var n = CodexNormalizer()

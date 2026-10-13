@@ -51,16 +51,22 @@ public struct CodexNormalizer {
             return p["requestId"].map { [.serverRequestResolved(id: $0)] } ?? []
         case "turn/completed":
             let t = p["turn"]
+            // A reply cut short (interrupted, failed) may get no item/completed: what streamed of it closes here.
+            var out: [NormalizerOutput] = []
+            for (id, rest) in pending.sorted(by: { $0.key < $1.key }) where !rest.isEmpty || parts[id] != nil {
+                out += emit(id, rest, final: true, turn: t?["id"]?.string)
+            }
+            (pending, streamed, parts) = ([:], [:], [:])
             switch t?["status"]?.string {
-            case "interrupted": return [.event(.turnInterrupted)]
+            case "interrupted": out.append(.event(.turnInterrupted))
             case "failed":
                 let error = t?["error"]
-                var out: [NormalizerOutput] = [.event(.turnFailed(reason: Self.reason(error)))]
+                out.append(.event(.turnFailed(reason: Self.reason(error))))
                 if ["usageLimitExceeded", "rateLimitExceeded"].contains(error?["codexErrorInfo"]?.string ?? "") { out.append(.rateLimited) }
-                return out
             default:
-                return [.event(.turnEnded(promptId: t?["id"]?.string, lastMessage: answer))]
+                out.append(.event(.turnEnded(promptId: t?["id"]?.string, lastMessage: answer)))
             }
+            return out
         default:
             return []
         }
