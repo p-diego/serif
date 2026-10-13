@@ -45,8 +45,8 @@ private struct ChatContent: View {
     private var items: [ChatItem] { transcript?.items ?? [] }
     private var working: Activity? { if case .working(let a) = summary.state { a } else { nil } }
     private var isWorking: Bool { working != nil }
-    /// Stopped because Claude Code is missing or signed out: the chat shows how to fix it (spec §4).
-    private var needsClaudeHelp: Bool {
+    /// Stopped because its agent is missing or signed out: the chat shows how to fix it (spec §4 of 0.3, §7).
+    private var needsAgentHelp: Bool {
         if case .crashed(let reason, _) = summary.state { return AgentProblem(rawValue: reason) != nil }
         return false
     }
@@ -149,8 +149,8 @@ private struct ChatContent: View {
                         UserBubble(text: text, origin: .chat, pending: true, maxWidth: maxBubble)
                             .padding(.top, gap(items.last, .user(id: "", text: "", origin: .chat, at: .now)))
                     }
-                    if needsClaudeHelp {
-                        ClaudeHelpCard(client: client).padding(.top, 14)
+                    if needsAgentHelp {
+                        AgentHelpCard(client: client, agent: summary.bot.agent).padding(.top, 14)
                     }
                     if let a = working {
                         LiveStatus(summary: summary, activity: a).padding(.top, 14)
@@ -192,7 +192,7 @@ private struct ChatContent: View {
     /// Changes whenever something is added or a streaming reply grows.
     private var scrollTick: Int {
         var h = Hasher()
-        h.combine(items.count); h.combine(pending.count); h.combine(isWorking); h.combine(needsClaudeHelp)
+        h.combine(items.count); h.combine(pending.count); h.combine(isWorking); h.combine(needsAgentHelp)
         if case .assistant(_, let t, _, _)? = items.last { h.combine(t.utf8.count) }
         if case .steps(_, let s, _)? = items.last { h.combine(s.count) }
         return h.finalize()

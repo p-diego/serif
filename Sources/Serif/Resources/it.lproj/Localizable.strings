@@ -220,3 +220,11 @@
 "Codex is not installed" = "Codex non è installato";
 "Codex is not signed in" = "Codex non è collegato";
 "Denied and stopped" = "Negato e fermato";
+"Agents" = "Agenti";
+"Codex (optional)" = "Codex (facoltativo)";
+"Codex %@" = "Codex %@";
+"Codex is installed" = "Codex è installato";
+"Install the ChatGPT app, or the Codex CLI." = "Installa l'app ChatGPT, oppure la CLI di Codex.";
+"Open Terminal, type `codex login` and follow the instructions." = "Apri il Terminale, scrivi `codex login` e segui le istruzioni.";
+"Isolation not guaranteed" = "Isolamento non garantito";
+"Codex did not start in time" = "Codex non è partito in tempo";
