@@ -162,6 +162,12 @@ public final class Engine {
         } catch {
             return crashed(rt, "Cannot prepare the bot's folder: \(error.localizedDescription)")
         }
+        // Skills arrive as links in the bot's folder and in the project's shared one, which every bot gets with --add-dir
+        // (spec §6.2); one that cannot be linked is left out and logged, the bot starts anyway (spec §9).
+        for problem in linkSkills(rt.bot.skills, into: paths.bot(rt.bot.id).workspace)
+            + linkSkills(project.skills, into: paths.shared(project.id)) {
+            log("bot \(rt.bot.id): \(problem)")
+        }
         rt.token = UUID().uuidString
         rt.normalizer = ClaudeNormalizer()
         rt.resumed = store.meta(rt.bot.id).hasStarted

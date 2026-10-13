@@ -159,7 +159,6 @@ final class EngineTests: XCTestCase {
         wait(for: [client.expectation(description, condition)], timeout: timeout)
     }
 
-    /// Waits until the fake has logged `count` launches; returns each launch's arguments and environment.
     func testPluginsAndConnectorsReachTheLaunch() throws {
         let engine = try makeEngine("basic")         // the data folder (root) exists from here on
         let plugin = root.appendingPathComponent("plug")
@@ -189,6 +188,35 @@ final class EngineTests: XCTestCase {
         XCTAssertNil(launched[2].env["ENABLE_CLAUDEAI_MCP_SERVERS"])
     }
 
+    func testSkillLinksFollowTheBotAndItsProject() throws {
+        let engine = try makeEngine("basic")
+        let skill = root.appendingPathComponent("my-skills/tidy")
+        try FileManager.default.createDirectory(at: skill, withIntermediateDirectories: true)
+        try "---\nname: tidy\n---\n".write(to: skill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try engine.start()
+        let client = try connect()
+        var bot = try createBot(client)
+        _ = try launches(1)                          // let the first launch log before the update kills it
+        bot.skills = [skill.path]
+        guard case .bot = request(client, .updateBot(bot)) else { return XCTFail("update refused") }
+        _ = try launches(2)                          // a new skill relaunches the bot
+        let botLink = paths.bot(bot.id).workspace.appendingPathComponent(".claude/skills/tidy").path
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: botLink), skill.path)
+
+        bot.skills = []
+        guard case .bot = request(client, .updateBot(bot)) else { return XCTFail("update refused") }
+        _ = try launches(3)
+        XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: botLink))
+        guard case let .snapshot(snapshot) = request(client, .snapshot), var project = snapshot.projects.first
+        else { return XCTFail("no project") }
+        project.skills = [skill.path]
+        guard case .project = request(client, .updateProject(project)) else { return XCTFail("project update refused") }
+        _ = try launches(4)                          // the project's skills relaunch its bots
+        let projectLink = paths.shared(project.id).appendingPathComponent(".claude/skills/tidy").path
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: projectLink), skill.path)
+    }
+
+    /// Waits until the fake has logged `count` launches; returns each launch's arguments and environment.
     private func launches(_ count: Int) throws -> [(args: [String], env: [String: String])] {
         let read = { [fakeLog] in (try? String(contentsOfFile: fakeLog, encoding: .utf8))?.split(separator: "\n") ?? [] }
         let logged = expectation(description: "\(count) launches")
