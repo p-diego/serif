@@ -47,7 +47,10 @@ struct BotRow: View, Equatable {
     private var preview: String {
         if case .waiting = summary.state, let request { return requestSummary(request).text }
         if summary.state.relaunching { return String(localized: "Starting…") }    // as in the header
-        return rowPreview(summary).text
+        let preview = rowPreview(summary)
+        // A small sign of the agent while a Codex bot is idle (spec §7); the mascots stay as they are.
+        guard summary.bot.agent == .codex, case .text(let text) = preview else { return preview.text }
+        return text.isEmpty ? "Codex" : "Codex · \(text)"
     }
 
     var body: some View {

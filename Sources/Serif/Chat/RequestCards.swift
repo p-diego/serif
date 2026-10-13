@@ -79,7 +79,9 @@ struct RequestCard: View {
         .onKeyPress(characters: .letters, phases: .down, action: letterKey)
         .onKeyPress(.escape) {
             guard request.kind == .permission, !busy, !denyFieldOpen else { return .ignored }
-            submit(.deny(message: nil)); return .handled
+            // Codex may offer only "no, and stop" (spec §4).
+            submit(request.decisions.map { $0.contains("decline") ? .deny(message: nil) : .denyAndStop } ?? .deny(message: nil))
+            return .handled
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -123,6 +125,7 @@ private func cardTitle(_ r: PendingRequest) -> String {
     case .permission:
         switch r.toolName {
         case "Write", "Edit", "MultiEdit", "NotebookEdit": return String(localized: "Edit file")
+        case "Permissions": return String(localized: "More permissions")      // Codex asks for network or folders
         default: return r.toolName.components(separatedBy: "__").last.flatMap { $0.isEmpty ? nil : $0 } ?? r.toolName
         }
     }
@@ -246,10 +249,15 @@ private struct PermissionBody: View {
             CodeBox(text: detail)
             // Buttons wrap with gap 8; "Nega" sits on the right when everything fits on one line.
             HStack(spacing: 8) {
-                CardButton(title: String(localized: "Allow"), style: .primary, enabled: !busy) { submit(.allow) }
-                CardButton(title: String(localized: "Allow for this session"), enabled: !busy) { submit(.allowSession) }
-                Spacer(minLength: 0)
-                CardButton(title: String(localized: "Deny"), style: .ghost, enabled: !busy) { fieldOpen.toggle() }
+                if let decisions = request.decisions {
+                    // Codex's own choices, in its order (spec §4); its "no" takes no message.
+                    ForEach(decisions, id: \.self) { decision($0) }
+                } else {
+                    CardButton(title: String(localized: "Allow"), style: .primary, enabled: !busy) { submit(.allow) }
+                    CardButton(title: String(localized: "Allow for this session"), enabled: !busy) { submit(.allowSession) }
+                    Spacer(minLength: 0)
+                    CardButton(title: String(localized: "Deny"), style: .ghost, enabled: !busy) { fieldOpen.toggle() }
+                }
             }
             if fieldOpen {
                 MessageField(placeholder: String(localized: "Tell the bot why (optional)"), required: false, busy: busy, close: { fieldOpen = false }) {
@@ -357,6 +365,18 @@ private struct PlanBody: View {
                 }
             }
             ErrorLine(text: error)
+        }
+    }
+}
+
+extension PermissionBody {
+    @ViewBuilder fileprivate func decision(_ d: String) -> some View {
+        switch d {
+        case "accept": CardButton(title: String(localized: "Allow"), style: .primary, enabled: !busy) { submit(.allow) }
+        case "acceptForSession": CardButton(title: String(localized: "Allow for this session"), enabled: !busy) { submit(.allowSession) }
+        case "decline": CardButton(title: String(localized: "Deny"), style: .ghost, enabled: !busy) { submit(.deny(message: nil)) }
+        case "cancel": CardButton(title: String(localized: "Deny and stop"), style: .ghost, enabled: !busy) { submit(.denyAndStop) }
+        default: EmptyView()
         }
     }
 }

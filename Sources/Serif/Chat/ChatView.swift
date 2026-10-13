@@ -57,6 +57,14 @@ private struct ChatContent: View {
             if showTerminal {
                 BigTerminal(session: client.terminal(for: summary.bot.id), running: summary.state.hasProcess).padding(.leading, 8)
                     .overlay { StoppedOverlay(state: summary.state) }
+                    .overlay {
+                        // Codex opens a conversation in its terminal only after its first turn (spec §4).
+                        if summary.bot.agent == .codex, summary.bot.threadId == nil, summary.state.hasProcess {
+                            Text(String(localized: "The terminal opens after the first message"))
+                                .font(.system(size: Theme.Size.body)).foregroundStyle(Theme.textSecondary)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.pane)
+                        }
+                    }
             } else {
             ZStack(alignment: .bottom) {
                 conversation
