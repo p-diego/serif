@@ -1,7 +1,7 @@
 import Foundation
 
 /// A skill or plugin of the user's Claude Code that a bot or a project can be given (spec §6.3).
-public struct CatalogItem: Equatable, Identifiable, Sendable {
+public struct CatalogItem: Codable, Equatable, Identifiable, Sendable {
     /// What is saved: a skill's folder path; a plugin's id ("name@marketplace" when installed, "name" when synced).
     public let id: String
     public let name: String

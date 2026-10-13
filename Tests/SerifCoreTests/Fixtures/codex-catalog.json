@@ -1,0 +1,342 @@
+{
+ "pluginList": {
+  "marketplaces": [
+   {
+    "name": "openai-primary-runtime",
+    "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/.agents/plugins/marketplace.json",
+    "plugins": [
+     {
+      "id": "documents@openai-primary-runtime",
+      "name": "documents",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/documents"
+      },
+      "interface": {
+       "displayName": "Documents",
+       "shortDescription": "Create and edit documents"
+      }
+     },
+     {
+      "id": "pdf@openai-primary-runtime",
+      "name": "pdf",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/pdf"
+      },
+      "interface": {
+       "displayName": "PDF",
+       "shortDescription": "Read, create, and verify PDFs"
+      }
+     },
+     {
+      "id": "spreadsheets@openai-primary-runtime",
+      "name": "spreadsheets",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/spreadsheets"
+      },
+      "interface": {
+       "displayName": "Spreadsheets",
+       "shortDescription": "Create and edit spreadsheets"
+      }
+     },
+     {
+      "id": "presentations@openai-primary-runtime",
+      "name": "presentations",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/presentations"
+      },
+      "interface": {
+       "displayName": "Presentations",
+       "shortDescription": "Create and edit presentations"
+      }
+     },
+     {
+      "id": "template-creator@openai-primary-runtime",
+      "name": "template-creator",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/template-creator"
+      },
+      "interface": {
+       "displayName": "Template Creator",
+       "shortDescription": "Create or update reusable templates from reference content"
+      }
+     }
+    ]
+   },
+   {
+    "name": "openai-bundled",
+    "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/.agents/plugins/marketplace.json",
+    "plugins": [
+     {
+      "id": "codex-app-tools@openai-bundled",
+      "name": "codex-app-tools",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/codex-app-tools"
+      }
+     },
+     {
+      "id": "browser@openai-bundled",
+      "name": "browser",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/browser"
+      }
+     },
+     {
+      "id": "unified-computer-use@openai-bundled",
+      "name": "unified-computer-use",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/unified-computer-use"
+      }
+     },
+     {
+      "id": "computer-use@openai-bundled",
+      "name": "computer-use",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/computer-use"
+      }
+     },
+     {
+      "id": "code-review@openai-bundled",
+      "name": "code-review",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/code-review"
+      }
+     },
+     {
+      "id": "visualize@openai-bundled",
+      "name": "visualize",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "AVAILABLE",
+      "source": {
+       "type": "local",
+       "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/visualize"
+      }
+     }
+    ],
+    "_trimmed": "10 plugin nel catalogo, tenuti solo i 6 installati/attivi"
+   },
+   {
+    "name": "openai-curated-remote",
+    "path": null,
+    "plugins": [
+     {
+      "id": "plugin-management@openai-curated-remote",
+      "name": "plugin-management",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "INSTALLED_BY_DEFAULT",
+      "source": {
+       "type": "remote"
+      }
+     },
+     {
+      "id": "work-pets@openai-curated-remote",
+      "name": "work-pets",
+      "installed": true,
+      "enabled": true,
+      "installPolicy": "INSTALLED_BY_DEFAULT",
+      "source": {
+       "type": "remote"
+      }
+     }
+    ],
+    "_trimmed": "5885 plugin nel catalogo, tenuti solo i 2 installati/attivi"
+   }
+  ],
+  "marketplaceLoadErrors": []
+ },
+ "skillList": {
+  "data": [
+   {
+    "cwd": "/tmp/codex-skill/other",
+    "skills": [
+     {
+      "name": "documents:documents",
+      "description": "Create, edit, redline, and comment on `.docx`, Word, and Google Docs-targeted document artifacts inside the container, with a strict render-and-verify workflow. Use `render_docx.py` to generate page PNGs (and optional PDF) for visual QA, then iterate until layout is flawless before delivering the final document.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "documents@openai-primary-runtime"
+     },
+     {
+      "name": "pdf:pdf",
+      "description": "Read, create, inspect, render, and verify PDF files where visual layout matters, including fillable AcroForms. Use Poppler rendering plus Python tools such as reportlab, pdfplumber, and pypdf for generation and extraction.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "pdf@openai-primary-runtime"
+     },
+     {
+      "name": "plugin-management:plugin-management",
+      "description": "Discover and suggest relevant plugins, inspect app permissions and dependencies, and manage plugin connections or removal. Use when the user asks about plugins or when a task would materially benefit from an external app, account, service, or data source that available tools cannot access.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "plugin-management@openai-curated-remote"
+     },
+     {
+      "name": "presentations:Presentations",
+      "description": "Read, create or edit PowerPoint or Google Slides decks. Use for presentation, slide deck, PowerPoint, PPT, PPTX, or Google Slides requests.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "presentations@openai-primary-runtime"
+     },
+     {
+      "name": "spreadsheets:Spreadsheets",
+      "description": "Use skill when user requests to create, modify, analyze, visualize, or work with spreadsheet files (`.xlsx`, `.xls`, `.csv`, `.tsv`) or Google Sheets with formulas, formatting, charts, tables, and recalculation. Do not use for live controlling Microsoft Excel app or a live Excel session.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "spreadsheets@openai-primary-runtime"
+     },
+     {
+      "name": "spreadsheets:excel-live-control",
+      "description": "Control an open or active Microsoft Excel workbook through the ChatGPT add-in or connected session. Use when the user tags the Microsoft Excel app in Codex or follows up on an established live Excel task. Do not use for standalone spreadsheet files or Google Sheets.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "spreadsheets@openai-primary-runtime"
+     },
+     {
+      "name": "template-creator:template-creator",
+      "description": "Create or update a reusable personal Codex artifact-template skill. Use when the user invokes $template-creator or asks in natural language to create a reusable template from a reference document, presentation, spreadsheet, Google Docs, Slides, or Sheets link, ImageGen or Product Design image, email, Slack message, or Site project, or explicitly asks to edit or update a passed artifact-template skill. Do not use for one-off creation from an existing template.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "template-creator@openai-primary-runtime"
+     },
+     {
+      "name": "visualize:visualize",
+      "description": "Create visualizations and interactive tools directly in conversation. Proactively use to show how something works; explore 'what happens when', 'what changes', or 'help me understand'; compare or inspect; create simulations, maps, charts, graphs, and mockups. Use standard tools for static scientific figures.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "visualize@openai-bundled"
+     },
+     {
+      "name": "work-pets:create-pet",
+      "description": "Create, repair, validate, preview, upload, or activate an animated v2 pet in ChatGPT Work mode from a character idea, brand cue, or reference image. Use for new ChatGPT Pets, custom mascots, non-pixel styles, and unattached sprite sheets requiring nine animation states plus sixteen look directions. Preserve Library artifacts and Pets MCP lifecycle behavior. Exclude real pets, standalone images, and other-app pets; clarify before invoking.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "work-pets@openai-curated-remote"
+     },
+     {
+      "name": "work-pets:pets",
+      "description": "List, inspect, select, download, or delete animated pets in ChatGPT Work mode. Use for an explicit pet in ChatGPT or established ChatGPT Pets context. Exclude real-world and other-app pets; clarify before invoking.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "work-pets@openai-curated-remote"
+     },
+     {
+      "name": "work-pets:update-pet",
+      "description": "Inspect, validate, preview, repair, or update a custom pet in ChatGPT Work mode, including its name, description, or sprite sheet. Use for a pet in ChatGPT or established ChatGPT Pets context. Exclude real-world and other-app pets; clarify before invoking.",
+      "scope": "user",
+      "enabled": true,
+      "pluginId": "work-pets@openai-curated-remote"
+     },
+     {
+      "name": "imagegen",
+      "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas.",
+      "scope": "system",
+      "enabled": true,
+      "pluginId": null
+     },
+     {
+      "name": "openai-docs",
+      "description": "Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products and ChatGPT Work. Also use for model choice/migration, prompting, SDKs, Responses, Realtime, agents, evals, and Chat/Work/Codex comparisons. Do not use for generic app/software tasks that merely mention Codex.",
+      "scope": "system",
+      "enabled": true,
+      "pluginId": null
+     },
+     {
+      "name": "review-agent",
+      "description": "Perform a read-only, defect-first review of a specified code change and return every actionable finding. Use when another agent delegates review of uncommitted changes, a base-branch diff, a commit, or custom review instructions.",
+      "scope": "system",
+      "enabled": true,
+      "pluginId": null
+     },
+     {
+      "name": "skill-creator",
+      "description": "Create or update a Codex skill with appropriately scoped instructions and any needed supporting resources.",
+      "scope": "system",
+      "enabled": true,
+      "pluginId": null
+     },
+     {
+      "name": "skill-installer",
+      "description": "Install Codex skills into $CODEX_HOME/skills from a curated list or a GitHub repo path. Use when a user asks to list installable skills, install a curated skill, or install a skill from another repo (including private repos).",
+      "scope": "system",
+      "enabled": true,
+      "pluginId": null
+     }
+    ],
+    "errors": []
+   }
+  ]
+ },
+ "modelList": {
+  "data": [
+   {
+    "id": "gpt-6-luna",
+    "model": "gpt-6-luna",
+    "displayName": "GPT-6-Luna",
+    "description": "Fast and affordable model for easier tasks.",
+    "hidden": false,
+    "isDefault": true,
+    "defaultReasoningEffort": "medium"
+   },
+   {
+    "id": "gpt-5.6-terra",
+    "model": "gpt-5.6-terra",
+    "displayName": "GPT-5.6-Terra",
+    "description": "Older balanced model for straightforward work.",
+    "hidden": false,
+    "isDefault": false,
+    "defaultReasoningEffort": "medium"
+   },
+   {
+    "id": "gpt-5.6-luna",
+    "model": "gpt-5.6-luna",
+    "displayName": "GPT-5.6-Luna",
+    "description": "Older fast and efficient model.",
+    "hidden": false,
+    "isDefault": false,
+    "defaultReasoningEffort": "medium"
+   }
+  ],
+  "nextCursor": null
+ }
+}

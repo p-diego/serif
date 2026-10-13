@@ -157,7 +157,7 @@ extension Engine {
         case let .resizeTerminal(botId, cols, rows):
             try runtime(botId).host.resize(cols: cols, rows: rows)
             return .ok
-        case .agentStatus:
+        case .agentStatus, .codexCatalog:
             return .ok      // never reached: appLine answers it once the check is done
         case .shutdown:
             return .ok      // never reached: appLine answers it after the bots have stopped

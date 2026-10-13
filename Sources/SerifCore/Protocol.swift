@@ -83,6 +83,7 @@ public enum AppRequest: Codable, Equatable, Sendable {
     case terminalInput(botId: UUID, data: Data)
     case resizeTerminal(botId: UUID, cols: Int, rows: Int)
     case agentStatus(Agent)     // the agent installed and signed in? Checked again on every request (spec §4 of 0.3)
+    case codexCatalog           // Codex's plugins and models for the sheets (spec §6), kept a few minutes
     case shutdown
 }
 
@@ -107,6 +108,7 @@ public enum ResponseBody: Codable, Equatable, Sendable {
     case history([ChatEventRecord])
     case terminal(seq: Int, data: Data)
     case agentStatus(AgentStatus)
+    case codexCatalog(CodexCatalog)
     case error(String)
 }
 
