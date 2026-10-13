@@ -51,6 +51,27 @@ final class SkillLinksTests: XCTestCase {
         XCTAssertNil(link("gone"))                                      // its dangling link is gone too
     }
 
+    /// A `.claude` or `.claude/skills` that is a link leads outside Serif (e.g. to the user's own skills): never edited.
+    func testLinkedClaudeFoldersAreNeverFollowed() throws {
+        let userSkills = root.appendingPathComponent("user-skills")
+        let tidy = try skill("a/tidy")
+        try fm.createDirectory(at: userSkills, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: userSkills.appendingPathComponent("tidy").path, withDestinationPath: tidy)
+        try fm.createDirectory(at: bot.appendingPathComponent(".claude"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: skillsDir, withDestinationURL: userSkills)
+        XCTAssertEqual(linkSkills([], into: bot).count, 1)
+        XCTAssertEqual(linkSkills([try skill("b/docx")], into: bot).count, 1)
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: userSkills.path), ["tidy"])     // nothing removed, nothing added
+
+        let userClaude = root.appendingPathComponent("user-claude")
+        try fm.createDirectory(at: userClaude.appendingPathComponent("skills"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: userClaude.appendingPathComponent("skills/tidy").path, withDestinationPath: tidy)
+        try fm.removeItem(at: bot.appendingPathComponent(".claude"))
+        try fm.createSymbolicLink(at: bot.appendingPathComponent(".claude"), withDestinationURL: userClaude)
+        XCTAssertEqual(linkSkills([], into: bot).count, 1)
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: userClaude.appendingPathComponent("skills/tidy").path), tidy)
+    }
+
     func testNoSkillsCreatesNothing() {
         XCTAssertEqual(linkSkills([], into: bot), [])
         XCTAssertFalse(fm.fileExists(atPath: skillsDir.path))

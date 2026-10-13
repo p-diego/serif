@@ -6,6 +6,10 @@ import Foundation
 func linkSkills(_ skills: [String], into folder: URL) -> [String] {
     let fm = FileManager.default
     let dir = folder.appendingPathComponent(".claude/skills")
+    // A linked `.claude` or `skills` leads outside Serif (the user's own skills): never followed, nothing is linked.
+    for path in [folder.appendingPathComponent(".claude").path, dir.path] where (try? fm.destinationOfSymbolicLink(atPath: path)) != nil {
+        return ["skills left out: \(path) is a link"]
+    }
     var problems: [String] = []
     var wanted: [String: String] = [:]          // link name → skill folder
     for skill in skills {
