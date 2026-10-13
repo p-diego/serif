@@ -129,7 +129,8 @@ private func cardTitle(_ r: PendingRequest) -> String {
 
 // MARK: - Pieces
 
-private struct CardButton: View {
+/// The capsule button of the cards in the chat (requests, Claude Code help) and of the first launch.
+struct CardButton: View {
     enum Style { case primary, tinted, ghost }
     let title: String
     var style: Style = .tinted

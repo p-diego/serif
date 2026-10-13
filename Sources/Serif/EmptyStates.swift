@@ -1,9 +1,9 @@
 import SwiftUI
 import SerifCore
 
-/// No projects yet: mascots scattered around the title, like the store screenshot of the reference app.
-struct NoProjectsView: View {
-    let client: EngineClient
+/// Mascots scattered on an ellipse around the centre, like the store screenshot of the reference app: the empty state and
+/// the first launch.
+struct ScatteredMascots: View {
     private let faces = emptyStateFaces(count: 8)
     private let sizes: [CGFloat] = [64, 48, 56, 70, 52, 66, 58, 72]
 
@@ -16,6 +16,17 @@ struct NoProjectsView: View {
                     .rotationEffect(.degrees(Double((i * 37) % 21) - 10))
                     .offset(x: cos(angle) * 270, y: sin(angle) * 190)
             }
+        }
+    }
+}
+
+/// No projects yet (and the first launch already done): mascots around the title.
+struct NoProjectsView: View {
+    let client: EngineClient
+
+    var body: some View {
+        ZStack {
+            ScatteredMascots()
             VStack(spacing: 8) {
                 Text("Serif").font(.system(size: 28, weight: .semibold))
                 Text(String(localized: "Your bots, always at work")).font(.system(size: Theme.Size.body)).foregroundStyle(Theme.textSecondary)

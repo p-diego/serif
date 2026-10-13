@@ -25,15 +25,25 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         client.onChatEvent = { [weak self] bot, record in self?.handle(bot: bot, record: record) }
         guard let center else { return }
         center.delegate = self
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, error in
-            if let error { NSLog("Serif: notification authorization failed: \(error)") }
-        }
+    }
+
+    /// Asks macOS for notifications while the choice is still open: from the first launch's "Enable notifications", or the
+    /// first time a bot waits for you after "Not now" (spec §4). Once answered it does nothing.
+    static func requestAuthorizationIfNeeded() async {
+        guard Bundle.main.bundleIdentifier != nil else { return }      // unbundled `swift run`: no notifications
+        let center = UNUserNotificationCenter.current()
+        guard await center.notificationSettings().authorizationStatus == .notDetermined else { return }
+        do { _ = try await center.requestAuthorization(options: [.alert, .sound, .badge]) }
+        catch { NSLog("Serif: notification authorization failed: \(error)") }
     }
 
     private func handle(bot id: UUID, record: ChatEventRecord) {
         guard let center, let bot = client.state.bots[id]?.bot else { return }
         guard record.seq > (lastSeq[id] ?? -1) else { return }
         lastSeq[id] = record.seq
+        // "Not now" at first launch: macOS asks the first time a bot waits for you; this notification waits for the answer.
+        var asking: Task<Void, Never>?
+        if case .requestOpened = record.event { asking = Task { await Self.requestAuthorizationIfNeeded() } }
         let windowKey = NSApp.isActive && NSApp.keyWindow != nil
         guard let kind = shouldNotify(event: record.event, bot: bot, viewingBot: client.selectedBot, windowKey: windowKey) else { return }
         let content = UNMutableNotificationContent()
@@ -48,12 +58,16 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             content.body = String(plainText(markdown: last ?? "").prefix(120))
         case (.failed, .turnFailed(let reason)), (.failed, .system(.crashed(let reason))):
             content.title = String(localized: "\(bot.name) has stopped")
-            content.body = reason
+            content.body = crashReasonText(reason)
         default:    // rate limited
             content.title = String(localized: "\(bot.name) has reached its limit")
         }
         // Same identifier = replaced, so a repeated event never stacks.
-        center.add(UNNotificationRequest(identifier: "\(id)-\(record.seq)", content: content, trigger: nil))
+        let request = UNNotificationRequest(identifier: "\(id)-\(record.seq)", content: content, trigger: nil)
+        Task {
+            await asking?.value
+            try? await center.add(request)
+        }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {

@@ -46,6 +46,7 @@ struct BotRow: View, Equatable {
 
     private var preview: String {
         if case .waiting = summary.state, let request { return requestSummary(request).text }
+        if let at = summary.state.retryAt, at <= Date() { return String(localized: "Starting…") }    // as in the header
         return rowPreview(summary).text
     }
 
@@ -61,7 +62,9 @@ struct BotRow: View, Equatable {
                             .font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary)
                     }
                 }
-                Text(preview).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                TimelineView(.explicit(summary.state.retryAt.map { [$0] } ?? [])) { _ in
+                    Text(preview).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                }
             }
         }
         .padding(.horizontal, 8).frame(height: 56)
@@ -106,7 +109,7 @@ extension RowPreview {
         switch self {
         case .typing: String(localized: "Typing…")
         case .waiting(let summary): summary ?? String(localized: "Waiting for you")
-        case .crashed(let reason): String(localized: "Stopped: \(reason)")
+        case .crashed(let reason): String(localized: "Stopped: \(crashReasonText(reason))")
         case .rateLimited: String(localized: "Limit reached")
         case .text(let text): text
         }

@@ -25,7 +25,9 @@ func stateText(_ s: BotState) -> String? {
     case .working(let a): activityText(a)
     case .waiting: String(localized: "Waiting for you")
     case .rateLimited: String(localized: "Limit reached")
-    case .crashed(let r, _): String(localized: "Stopped: \(r)")
+    // Past its retry time the engine is relaunching it (it checks Claude Code first, up to ~20 s): not stuck.
+    case .crashed(_, let at?) where at <= Date(): String(localized: "Starting…")
+    case .crashed(let r, _): String(localized: "Stopped: \(crashReasonText(r))")
     case .stopped: String(localized: "Stopped")
     }
 }

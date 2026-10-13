@@ -270,9 +270,10 @@ final class EngineClient {
         else { throw EngineError(message: "Unexpected reply") }
         return project
     }
-    /// Creates the bot and selects it.
+    /// Creates the bot and selects it. The first bot ends the first launch (spec §4).
     func createBot(_ bot: NewBot) async throws {
         guard case .bot(let created) = try await send(.createBot(bot)) else { throw EngineError(message: "Unexpected reply") }
+        UserDefaults.standard.set(true, forKey: OnboardingView.doneKey)
         selectedBot = created.id
     }
     func updateBot(_ bot: Bot) async throws { _ = try await send(.updateBot(bot)) }
@@ -294,4 +295,9 @@ final class EngineClient {
     func terminalInput(bot: UUID, data: Data) async throws { _ = try await send(.terminalInput(botId: bot, data: data)) }
     func resizeTerminal(bot: UUID, cols: Int, rows: Int) async throws { _ = try await send(.resizeTerminal(botId: bot, cols: cols, rows: rows)) }
     func shutdownEngine() async throws { _ = try await send(.shutdown) }
+    /// Claude Code as the engine sees it (installed, version, signed in); the engine checks again on every call.
+    func claudeStatus() async throws -> ClaudeStatus {
+        guard case .claudeStatus(let status) = try await send(.claudeStatus) else { throw EngineError(message: "Unexpected reply") }
+        return status
+    }
 }

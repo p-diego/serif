@@ -6,6 +6,7 @@ struct ChatView: View {
     let client: EngineClient
     @Binding var showPanel: Bool
     @Binding var showTerminal: Bool
+    @AppStorage(OnboardingView.doneKey) private var onboardingDone = false
 
     var body: some View {
         Group {
@@ -14,7 +15,7 @@ struct ChatView: View {
                             pending: client.chat.pending, showPanel: $showPanel, showTerminal: $showTerminal)
                     .id(summary.bot.id)    // fresh scroll and composer state per bot
             } else if client.roster.connected && client.roster.projects.isEmpty {
-                NoProjectsView(client: client)
+                if onboardingDone { NoProjectsView(client: client) } else { OnboardingView(client: client) }
             } else {
                 Text(client.roster.connected ? String(localized: "Choose a bot") : String(localized: "Connecting to the engine…"))
                     .font(.system(size: Theme.Size.body)).foregroundStyle(Theme.textSecondary)
@@ -44,6 +45,11 @@ private struct ChatContent: View {
     private var items: [ChatItem] { transcript?.items ?? [] }
     private var working: Activity? { if case .working(let a) = summary.state { a } else { nil } }
     private var isWorking: Bool { working != nil }
+    /// Stopped because Claude Code is missing or signed out: the chat shows how to fix it (spec §4).
+    private var needsClaudeHelp: Bool {
+        if case .crashed(let reason, _) = summary.state { return ClaudeProblem(rawValue: reason) != nil }
+        return false
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,8 +86,11 @@ private struct ChatContent: View {
         HStack(spacing: 10) {
             BotAvatar(summary: summary, size: 24, alive: true)
             Text(summary.bot.name).font(.system(size: 16, weight: .medium))
-            if let t = stateText(summary.state) {
-                Text(t).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+            // Redrawn when a crashed bot's retry time comes, to read "Starting…".
+            TimelineView(.explicit(summary.state.retryAt.map { [$0] } ?? [])) { _ in
+                if let t = stateText(summary.state) {
+                    Text(t).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                }
             }
             Spacer()
             Picker("", selection: $showTerminal) {
@@ -141,6 +150,9 @@ private struct ChatContent: View {
                         UserBubble(text: text, origin: .chat, pending: true, maxWidth: maxBubble)
                             .padding(.top, gap(items.last, .user(id: "", text: "", origin: .chat, at: .now)))
                     }
+                    if needsClaudeHelp {
+                        ClaudeHelpCard(client: client, botId: summary.bot.id).padding(.top, 14)
+                    }
                     if let a = working {
                         LiveStatus(summary: summary, activity: a).padding(.top, 14)
                     }
@@ -181,7 +193,7 @@ private struct ChatContent: View {
     /// Changes whenever something is added or a streaming reply grows.
     private var scrollTick: Int {
         var h = Hasher()
-        h.combine(items.count); h.combine(pending.count); h.combine(isWorking)
+        h.combine(items.count); h.combine(pending.count); h.combine(isWorking); h.combine(needsClaudeHelp)
         if case .assistant(_, let t, _, _)? = items.last { h.combine(t.utf8.count) }
         if case .steps(_, let s, _)? = items.last { h.combine(s.count) }
         return h.finalize()

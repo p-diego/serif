@@ -54,6 +54,42 @@ struct FieldGroup<Content: View>: View {
     }
 }
 
+/// Name, linked folder and the switch for its instructions: the New project sheet, the project settings and the first
+/// launch's last step.
+struct ProjectFields: View {
+    @Binding var name: String
+    @Binding var folder: String?
+    @Binding var readInstructions: Bool
+    var focusName = true
+    @FocusState private var nameFocused: Bool
+
+    var body: some View {
+        FieldGroup(label: String(localized: "Name")) {
+            TextField(String(localized: "Project name"), text: $name).textFieldStyle(.plain).font(.system(size: Theme.Size.body))
+                .focused($nameFocused).onAppear { if focusName { nameFocused = true } }
+        }
+        FieldGroup(label: String(localized: "Linked folder")) {
+            HStack {
+                Text(folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? String(localized: "None"))
+                    .foregroundStyle(folder == nil ? Theme.textTertiary : Theme.text).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Button(String(localized: "Choose…"), action: chooseFolder)
+                if folder != nil { Button(String(localized: "Remove")) { folder = nil } }
+            }
+            if folder != nil {
+                Toggle(String(localized: "Let the bots read the linked folder's instructions"), isOn: $readInstructions)
+                    .toggleStyle(.switch)
+            }
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK { folder = panel.url?.path }
+    }
+}
+
 struct NewProjectSheet: View {
     let client: EngineClient
     @State private var name = ""
@@ -61,37 +97,14 @@ struct NewProjectSheet: View {
     @State private var readInstructions = true
     @State private var busy = false
     @State private var error: String?
-    @FocusState private var nameFocused: Bool
 
     var body: some View {
         SheetFrame(title: String(localized: "New project"), primary: String(localized: "Create"),
                    canSubmit: canCreateProject(name: name), busy: busy, error: error, submit: create,
                    cancel: { client.sheet = nil }) {
-            FieldGroup(label: String(localized: "Name")) {
-                TextField(String(localized: "Project name"), text: $name).textFieldStyle(.plain).font(.system(size: Theme.Size.body))
-                    .focused($nameFocused).onAppear { nameFocused = true }
-            }
-            FieldGroup(label: String(localized: "Linked folder")) {
-                HStack {
-                    Text(folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? String(localized: "None"))
-                        .foregroundStyle(folder == nil ? Theme.textTertiary : Theme.text).lineLimit(1).truncationMode(.middle)
-                    Spacer()
-                    Button(String(localized: "Choose…"), action: chooseFolder)
-                    if folder != nil { Button(String(localized: "Remove")) { folder = nil } }
-                }
-                if folder != nil {
-                    Toggle(String(localized: "Let the bots read the linked folder's instructions"), isOn: $readInstructions)
-                        .toggleStyle(.switch)
-                }
-            }
+            ProjectFields(name: $name, folder: $folder, readInstructions: $readInstructions)
         }
         .frame(width: 460).frame(minHeight: 260, idealHeight: sheetHeight(folder == nil ? 300 : 340), maxHeight: sheetHeight(folder == nil ? 300 : 340))
-    }
-
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK { folder = panel.url?.path }
     }
 
     private func create() {

@@ -244,6 +244,8 @@ struct PreviewTerminal: NSViewRepresentable {
 extension BotState {
     /// False when there is no process to talk to.
     var hasProcess: Bool { switch self { case .stopped, .crashed: false; default: true } }
+    /// When a crashed bot is relaunched by the engine, if it is.
+    var retryAt: Date? { if case .crashed(_, let at) = self { at } else { nil } }
 }
 
 /// Dims a terminal of a bot that is not running and says why.
