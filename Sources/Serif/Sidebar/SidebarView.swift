@@ -82,6 +82,10 @@ struct SidebarView: View {
                             .font(.system(size: Theme.Size.caption, weight: .medium)).tracking(0.4)
                             .foregroundStyle(Theme.textTertiary).lineLimit(1)
                             .padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            .contextMenu {
+                                Button(String(localized: "Project settings…")) { client.showProjectSettings(section.project.id) }
+                            }
                         ForEach(section.bots, id: \.bot.id) { s in
                             BotRow(summary: s, selected: client.selectedBot == s.bot.id,
                                    request: state.requests.values.filter { $0.botId == s.bot.id }.min { $0.openedAt < $1.openedAt }, client: client).equatable()

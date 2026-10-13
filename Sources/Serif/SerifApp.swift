@@ -126,6 +126,10 @@ struct RootView: View {
             case .newBot(let projectId): BotEditorSheet(client: client, editing: nil, projectId: projectId)
             case .editBot(let id):
                 if let bot = client.roster.bots[id]?.bot { BotEditorSheet(client: client, editing: bot, projectId: nil) }
+            case .editProject(let id):
+                if let project = client.roster.projects.first(where: { $0.id == id }) {
+                    ProjectSettingsSheet(client: client, project: project)
+                }
             }
         }
         .foregroundStyle(Theme.text)

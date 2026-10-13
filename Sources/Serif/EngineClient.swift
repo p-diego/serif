@@ -50,11 +50,13 @@ final class EngineClient {
         case newProject
         case newBot(projectId: UUID?)
         case editBot(UUID)
+        case editProject(UUID)
         var id: String {
             switch self {
             case .newProject: "project"
             case .newBot: "new-bot"
             case .editBot(let id): "bot-\(id)"
+            case .editProject(let id): "project-\(id)"
             }
         }
     }
@@ -62,6 +64,7 @@ final class EngineClient {
     func showNewBot() { sheet = .newBot(projectId: nil) }
     func showNewProject() { sheet = .newProject }
     func showBotSettings(_ id: UUID) { sheet = .editBot(id) }
+    func showProjectSettings(_ id: UUID) { sheet = .editProject(id) }
 
     @ObservationIgnored private let queue = DispatchQueue(label: "serif.engine-client")
     @ObservationIgnored private var connection: LineConnection?
@@ -277,6 +280,7 @@ final class EngineClient {
         selectedBot = created.id
     }
     func updateBot(_ bot: Bot) async throws { _ = try await send(.updateBot(bot)) }
+    func updateProject(_ project: Project) async throws { _ = try await send(.updateProject(project)) }
     func restart(bot: UUID) async throws { _ = try await send(.restartBot(id: bot)) }
     func archive(bot: UUID) async throws { _ = try await send(.archiveBot(id: bot)) }
 

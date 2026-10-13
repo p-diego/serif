@@ -12,10 +12,14 @@ struct BotEditorSheet: View {
     @State private var instructions: String
     @State private var freedom: Freedom
     @State private var notifications: Bool
+    @State private var skills: [String]
+    @State private var plugins: [String]
+    @State private var connectors: Bool
+    @State private var catalog = ClaudeCatalog()          // read when the sheet opens
     @State private var busy = false
     @State private var error: String?
     @State private var confirmArchive = false
-    @State private var height = sheetHeight(820)    // measured once: never re-derived while typing
+    @State private var height = sheetHeight(1200)    // measured once: never re-derived while typing
     @FocusState private var nameFocused: Bool
 
     init(client: EngineClient, editing: Bot?, projectId: UUID?) {
@@ -30,6 +34,9 @@ struct BotEditorSheet: View {
         _instructions = State(initialValue: editing?.instructions ?? "")
         _freedom = State(initialValue: editing?.freedom ?? .ask)
         _notifications = State(initialValue: editing?.notifications ?? true)
+        _skills = State(initialValue: editing?.skills ?? [])
+        _plugins = State(initialValue: editing?.plugins ?? [])
+        _connectors = State(initialValue: editing?.connectors ?? false)
     }
 
     var body: some View {
@@ -90,6 +97,20 @@ struct BotEditorSheet: View {
                     }.buttonStyle(.plain)
                 }
             }
+            let project = client.roster.projects.first(where: { $0.id == projectId })
+            FieldGroup(label: String(localized: "Skills")) {
+                CatalogPicker(kind: .skills, items: catalog.skills, chosen: $skills, inherited: project?.skills ?? [])
+            }
+            FieldGroup(label: String(localized: "Plugins")) {
+                CatalogPicker(kind: .plugins, items: catalog.plugins, chosen: $plugins, inherited: project?.plugins ?? [])
+            }
+            FieldGroup(label: String(localized: "claude.ai connectors")) {
+                Toggle(String(localized: "Use my claude.ai connectors"), isOn: $connectors).toggleStyle(.switch)
+                // The real names need a running Claude Code: a fixed sentence (spec §6.4).
+                Text(String(localized: "The services connected to your claude.ai account (for example Gmail or Home Assistant). They are turned on all together."))
+                    .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if editing != nil {
                 Toggle(String(localized: "Notifications"), isOn: $notifications).toggleStyle(.switch)
                 Button(String(localized: "Archive bot"), role: .destructive) { confirmArchive = true }
@@ -99,6 +120,7 @@ struct BotEditorSheet: View {
             }
         }
         .frame(width: 560).frame(minHeight: 360, idealHeight: height, maxHeight: height)
+        .task { catalog = ClaudeCatalog(root: claudeConfigRoot(environment: ProcessInfo.processInfo.environment)) }
     }
 
     private func submit() {
@@ -114,10 +136,11 @@ struct BotEditorSheet: View {
                     }
                     try await client.updateBot(live.applying(BotEdits(name: trimmed, face: face, model: model.value,
                         instructions: instructions, freedom: freedom, notifications: notifications,
-                        skills: live.skills, plugins: live.plugins, connectors: live.connectors)))
+                        skills: skills, plugins: plugins, connectors: connectors)))
                 } else {
                     try await client.createBot(NewBot(projectId: projectId, name: trimmed, face: face, agent: .claude,
-                                                      model: model.value, instructions: instructions, freedom: freedom))
+                                                      model: model.value, instructions: instructions, freedom: freedom,
+                                                      skills: skills, plugins: plugins, connectors: connectors))
                 }
                 client.sheet = nil
             } catch { self.error = error.localizedDescription; busy = false }
