@@ -70,6 +70,9 @@ public final class Engine {
     /// that agent crashes (its next launch checks anew).
     var statuses: [Agent: AgentStatus] = [:]
     private var statusWaiters: [Agent: [(AgentStatus) -> Void]] = [:]
+    /// Codex's catalog (spec §6) and when it was read; the calls waiting for one being read.
+    var codexCatalogRead: (catalog: CodexCatalog, at: Date)?
+    var codexCatalogWaiters: [(CodexCatalog?) -> Void] = []
     let hookCommand: String
     let environment: [String: String]
     let store: Store

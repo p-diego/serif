@@ -32,6 +32,12 @@ extension Engine {
                 self?.send(.response(id: envelope.id, body: .agentStatus(status)), to: [connection])
             }
         }
+        if case .codexCatalog = envelope.request {
+            return codexCatalog { [weak self] catalog in
+                self?.send(.response(id: envelope.id, body: catalog.map(ResponseBody.codexCatalog) ?? .error("Codex did not answer")),
+                           to: [connection])
+            }
+        }
         let body: ResponseBody
         do { body = try respond(to: envelope.request, from: connection) } catch {
             body = .error((error as? Refusal)?.reason ?? "\(error)")
@@ -158,7 +164,7 @@ extension Engine {
             try runtime(botId).host.resize(cols: cols, rows: rows)
             return .ok
         case .agentStatus, .codexCatalog:
-            return .ok      // never reached: appLine answers it once the check is done
+            return .ok      // never reached: appLine answers them once they are ready
         case .shutdown:
             return .ok      // never reached: appLine answers it after the bots have stopped
         }

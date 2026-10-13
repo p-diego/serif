@@ -304,4 +304,10 @@ final class EngineClient {
         guard case .agentStatus(let status) = try await send(.agentStatus(agent)) else { throw EngineError(message: "Unexpected reply") }
         return status
     }
+
+    /// Codex's installed plugins and models (spec §6); the engine keeps them a few minutes.
+    func codexCatalog() async throws -> CodexCatalog {
+        guard case .codexCatalog(let catalog) = try await send(.codexCatalog) else { throw EngineError(message: "Unexpected reply") }
+        return catalog
+    }
 }

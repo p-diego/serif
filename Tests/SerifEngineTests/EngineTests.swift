@@ -113,6 +113,7 @@ final class EngineTests: XCTestCase {
     private var paths: SerifPaths { SerifPaths(root: root) }
     private var fakeLog: String { root.path + "/fake.log" }
     private var transcript: String { root.path + "/transcript.jsonl" }
+    private var codexRPC: String { root.path + "/codex-rpc.jsonl" }
     private var binDir: URL { Bundle(for: Self.self).bundleURL.deletingLastPathComponent() }
 
     // Unix socket paths must stay under 104 bytes: a short root in /tmp.
@@ -124,16 +125,16 @@ final class EngineTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private func makeEngine(_ scenario: String, env extra: [String: String] = [:],
+    private func makeEngine(_ scenario: String, codex: String = "codex-basic", env extra: [String: String] = [:],
                             locate: (@Sendable (Agent) -> String?)? = nil) throws -> Engine {
-        let scenarioPath = Bundle.module.resourceURL!.appendingPathComponent("Fixtures/scenarios/\(scenario).jsonl").path
+        let scenarios = Bundle.module.resourceURL!.appendingPathComponent("Fixtures/scenarios")
         let hook = binDir.appendingPathComponent("serif-hook").path
-        let fake = binDir.appendingPathComponent("fake-claude").path
-        let env = ["PATH": "/usr/bin:/bin", "SERIF_FAKE_SCENARIO": scenarioPath, "SERIF_HOOK_BIN": hook,
-                   "SERIF_FAKE_LOG": fakeLog, "SERIF_FAKE_TRANSCRIPT": transcript, "CLAUDECODE": "1",
-                   "CLAUDE_CONFIG_DIR": root.path + "/claude"]      // the engine's catalog: never the real ~/.claude
+        let (fake, fakeCodex) = (binDir.appendingPathComponent("fake-claude").path, binDir.appendingPathComponent("fake-codex").path)
+        let env = ["PATH": "/usr/bin:/bin", "SERIF_FAKE_SCENARIO": scenarios.appendingPathComponent("\(scenario).jsonl").path,
+                   "SERIF_HOOK_BIN": hook, "SERIF_FAKE_LOG": fakeLog, "SERIF_FAKE_TRANSCRIPT": transcript, "CLAUDECODE": "1",
+                   "CLAUDE_CONFIG_DIR": root.path + "/claude",      // the engine's catalog: never the real ~/.claude
+                   "SERIF_FAKE_CODEX_SCENARIO": scenarios.appendingPathComponent("\(codex).jsonl").path, "SERIF_FAKE_CODEX_RPC": codexRPC]
             .merging(extra) { $1 }
-        let fakeCodex = binDir.appendingPathComponent("fake-codex").path
         let engine = try Engine(paths: paths, locate: locate ?? { $0 == .claude ? fake : fakeCodex }, hookCommand: hook, environment: env)
         engines.append(engine)
         return engine
@@ -626,5 +627,43 @@ final class EngineTests: XCTestCase {
         // The running engine still answers.
         let client = try connect()
         guard case .welcome = request(client, .hello(protocolVersion: SerifProtocol.version)) else { return XCTFail("no welcome") }
+    }
+
+    // MARK: - Codex
+
+    /// The messages fake-codex received, in order (the frames as JSON).
+    private func codexMessages() -> [JSONValue] {
+        ((try? String(contentsOfFile: codexRPC, encoding: .utf8)) ?? "").split(separator: "\n").compactMap { try? JSONValue.parse(Data($0.utf8)) }
+    }
+
+    /// The params of every `method` request fake-codex received.
+    private func codexRequests(_ method: String) -> [JSONValue] {
+        codexMessages().filter { $0["method"]?.string == method }.map { $0["params"] ?? .null }
+    }
+
+    func testCodexCatalogComesFromAServerOfItsOwn() throws {
+        try makeEngine("basic").start()
+        let client = try connect()
+        guard case let .codexCatalog(catalog) = request(client, .codexCatalog) else { return XCTFail("no catalog") }
+        XCTAssertEqual(catalog.plugins.map(\.id), ["browser@openai-bundled", "visualize@openai-bundled", "work-pets@openai-curated-remote"])
+        XCTAssertEqual(catalog.remoteSkills, ["work-pets@openai-curated-remote": ["work-pets:pets"]])
+        XCTAssertEqual(catalog.models.map(\.id), ["gpt-6-luna", "gpt-5.6-terra"])
+        guard case .codexCatalog = request(client, .codexCatalog) else { return XCTFail("no catalog") }
+        XCTAssertEqual(try launches(1).filter { $0.args.first == "app-server" }.count, 1, "kept, not read again")
+    }
+
+    func testRemoteSkillsAreWaitedFor() throws {
+        try makeEngine("basic", codex: "codex-late-skills").start()
+        let client = try connect()
+        guard case let .codexCatalog(catalog) = request(client, .codexCatalog) else { return XCTFail("no catalog") }
+        XCTAssertEqual(catalog.remoteSkills, ["work-pets@openai-curated-remote": ["work-pets:pets"]])
+        XCTAssertEqual(codexRequests("skills/list").count, 2)
+    }
+
+    func testNoCodexNoCatalog() throws {
+        let fake = binDir.appendingPathComponent("fake-claude").path
+        try makeEngine("basic", locate: { $0 == .claude ? fake : nil }).start()
+        let client = try connect()
+        XCTAssertEqual(request(client, .codexCatalog), .error("Codex did not answer"))
     }
 }
