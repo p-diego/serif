@@ -11,6 +11,12 @@ public struct LaunchPlan: Equatable, Sendable {
     }
 }
 
+/// The engine's environment as Claude Code gets it, for the bots and for the engine's own check of Claude Code: no
+/// `CLAUDE*` variables and no `ANTHROPIC_API_KEY` (bots use the subscription).
+public func botEnvironment(_ base: [String: String]) -> [String: String] {
+    base.filter { !$0.key.hasPrefix("CLAUDE") && $0.key != "ANTHROPIC_API_KEY" }
+}
+
 public func claudeLaunchPlan(bot: Bot, project: Project, paths: SerifPaths, claudePath: String, resume: Bool,
                              baseEnvironment: [String: String], token: String, linkedFolderExists: Bool,
                              pluginFolders: [String] = []) -> LaunchPlan {
@@ -25,7 +31,7 @@ public func claudeLaunchPlan(bot: Bot, project: Project, paths: SerifPaths, clau
     if let model = bot.model { args += ["--model", model] }
     args += resume ? ["--resume", bot.sessionId.uuidString] : ["--session-id", bot.sessionId.uuidString]
 
-    var env = baseEnvironment.filter { !$0.key.hasPrefix("CLAUDE") && $0.key != "ANTHROPIC_API_KEY" }
+    var env = botEnvironment(baseEnvironment)
     // Never offer "resume from summary?" on --resume: that prompt blocks the bot (same fix as Gravity).
     env["CLAUDE_CODE_RESUME_THRESHOLD_MINUTES"] = "525600"
     env["CLAUDE_CODE_RESUME_TOKEN_THRESHOLD"] = "1000000000"

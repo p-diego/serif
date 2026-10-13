@@ -63,7 +63,11 @@ final class BotRuntime {
 public final class Engine {
     let queue = DispatchQueue(label: "com.serif.engine")
     let paths: SerifPaths
-    let claudePath: String?
+    /// Finds the claude executable (serifd: `ClaudeLocator.find`); asked again while Claude Code is not found.
+    let locateClaude: @Sendable () -> String?
+    /// The last check of Claude Code; nil until a launch or the app's `claudeStatus` asks for one.
+    var claudeStatus: ClaudeStatus?
+    private var claudeWaiters: [(ClaudeStatus) -> Void] = []
     let hookCommand: String
     let environment: [String: String]
     let store: Store
@@ -76,9 +80,10 @@ public final class Engine {
     private var servers: [LineServer] = []
     private var lockFD: Int32 = -1
 
-    public init(paths: SerifPaths, claudePath: String?, hookCommand: String, environment: [String: String]) throws {
+    public init(paths: SerifPaths, locateClaude: @escaping @Sendable () -> String?, hookCommand: String,
+                environment: [String: String]) throws {
         self.paths = paths
-        self.claudePath = claudePath
+        self.locateClaude = locateClaude
         self.hookCommand = hookCommand
         self.environment = environment
         store = try Store(paths: paths)
@@ -139,13 +144,20 @@ public final class Engine {
         return rt
     }
 
-    /// Writes the bot's system prompt and hook settings, then starts its Claude Code (spec §3.2).
-    func launch(_ rt: BotRuntime) {
+    /// Writes the bot's system prompt and hook settings, then starts its Claude Code (spec §3.2). Claude Code is checked
+    /// first (spec §4): once per engine run, and again after a check that found it missing or signed out, since the user may
+    /// have fixed it since; `checked` marks the launch that follows such a fresh check.
+    func launch(_ rt: BotRuntime, checked: Bool = false) {
         rt.restart = nil
         guard !stopping, rt.bot.archivedAt == nil, !rt.host.isRunning,
               let project = store.projects.first(where: { $0.id == rt.bot.projectId }) else { return }
         guard rt.bot.agent == .claude else { return crashed(rt, "Codex bots are not supported yet") }
-        guard let claudePath else { return crashed(rt, "claude not found") }
+        guard let status = claudeStatus, checked || status.problem == nil else {
+            return checkClaude { [weak self] _ in self?.launch(rt, checked: true) }
+        }
+        guard status.problem == nil, let claudePath = status.path else {
+            return crashed(rt, (status.problem ?? .notInstalled).rawValue)
+        }
 
         var isDirectory: ObjCBool = false
         let linkedExists = project.linkedFolder.map { FileManager.default.fileExists(atPath: $0, isDirectory: &isDirectory) && isDirectory.boolValue } ?? false
@@ -181,6 +193,25 @@ public final class Engine {
         rt.tracker.processStarted()
         push(.botChanged(rt.summary))
         rt.host.start(plan)
+    }
+
+    /// Checks Claude Code off the queue (`claude auth status` alone may take 10 s, spec §9) and keeps the result in
+    /// `claudeStatus`; `then` runs on the queue with it. Calls made while a check runs share it. While Claude Code has not
+    /// been found it is looked for again, so installing it needs no engine restart.
+    func checkClaude(then: @escaping (ClaudeStatus) -> Void) {
+        claudeWaiters.append(then)
+        guard claudeWaiters.count == 1 else { return }
+        let (known, locate, env) = (claudeStatus?.path, locateClaude, botEnvironment(environment))
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let status = ClaudeCheck.status(path: known ?? locate(), environment: env)
+            self?.queue.async { [weak self] in
+                guard let self else { return }
+                claudeStatus = status
+                let waiters = claudeWaiters
+                claudeWaiters = []
+                waiters.forEach { $0(status) }
+            }
+        }
     }
 
     /// `CLAUDE.md` and `AGENTS.md` of the linked folder, when present.

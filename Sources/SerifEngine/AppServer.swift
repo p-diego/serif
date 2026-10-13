@@ -26,6 +26,12 @@ extension Engine {
                 exit(0)
             }
         }
+        // Claude Code's check runs off the queue: answered once it is done.
+        if case .claudeStatus = envelope.request {
+            return checkClaude { [weak self] status in
+                self?.send(.response(id: envelope.id, body: .claudeStatus(status)), to: [connection])
+            }
+        }
         let body: ResponseBody
         do { body = try respond(to: envelope.request, from: connection) } catch {
             body = .error((error as? Refusal)?.reason ?? "\(error)")
@@ -138,6 +144,8 @@ extension Engine {
         case let .resizeTerminal(botId, cols, rows):
             try runtime(botId).host.resize(cols: cols, rows: rows)
             return .ok
+        case .claudeStatus:
+            return .ok      // never reached: appLine answers it once the check is done
         case .shutdown:
             return .ok      // never reached: appLine answers it after the bots have stopped
         }

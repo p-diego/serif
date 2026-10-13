@@ -82,6 +82,7 @@ public enum AppRequest: Codable, Equatable, Sendable {
     case detachTerminal(botId: UUID)
     case terminalInput(botId: UUID, data: Data)
     case resizeTerminal(botId: UUID, cols: Int, rows: Int)
+    case claudeStatus           // Claude Code installed and signed in? Checked again on every request (spec §4)
     case shutdown
 }
 
@@ -105,6 +106,7 @@ public enum ResponseBody: Codable, Equatable, Sendable {
     case bot(Bot)
     case history([ChatEventRecord])
     case terminal(seq: Int, data: Data)
+    case claudeStatus(ClaudeStatus)
     case error(String)
 }
 

@@ -124,14 +124,16 @@ final class EngineTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private func makeEngine(_ scenario: String) throws -> Engine {
+    private func makeEngine(_ scenario: String, env extra: [String: String] = [:],
+                            locate: (@Sendable () -> String?)? = nil) throws -> Engine {
         let scenarioPath = Bundle.module.resourceURL!.appendingPathComponent("Fixtures/scenarios/\(scenario).jsonl").path
         let hook = binDir.appendingPathComponent("serif-hook").path
+        let fake = binDir.appendingPathComponent("fake-claude").path
         let env = ["PATH": "/usr/bin:/bin", "SERIF_FAKE_SCENARIO": scenarioPath, "SERIF_HOOK_BIN": hook,
                    "SERIF_FAKE_LOG": fakeLog, "SERIF_FAKE_TRANSCRIPT": transcript, "CLAUDECODE": "1",
                    "CLAUDE_CONFIG_DIR": root.path + "/claude"]      // the engine's catalog: never the real ~/.claude
-        let engine = try Engine(paths: paths, claudePath: binDir.appendingPathComponent("fake-claude").path,
-                                hookCommand: hook, environment: env)
+            .merging(extra) { $1 }
+        let engine = try Engine(paths: paths, locateClaude: locate ?? { fake }, hookCommand: hook, environment: env)
         engines.append(engine)
         return engine
     }
@@ -239,6 +241,43 @@ final class EngineTests: XCTestCase {
                          instructions: "Help.", freedom: .ask)
         guard case let .bot(bot) = request(client, .createBot(new)) else { throw XCTSkip("createBot failed") }
         return bot
+    }
+
+    func testSignedOutClaudeCodeStopsTheBotUntilRetry() throws {
+        let flag = root.path + "/logged-out"
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_LOGGED_OUT": flag])
+        FileManager.default.createFile(atPath: flag, contents: nil)      // the data folder exists once the engine does
+        try engine.start()
+        let client = try connect()
+        let bot = try createBot(client)
+        let stopped = BotState.crashed(reason: ClaudeProblem.notSignedIn.rawValue, retryAt: nil)
+        waitFor(client, "stopped: not signed in") { $0.summaries(bot.id).contains { $0.state == stopped } }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fakeLog), "a signed-out Claude Code was launched")
+        guard case let .claudeStatus(status) = request(client, .claudeStatus) else { return XCTFail("no status") }
+        XCTAssertEqual(status.loggedIn, false)
+        XCTAssertEqual(status.version, "2.1.296")
+
+        try FileManager.default.removeItem(atPath: flag)                // the user signs in
+        XCTAssertEqual(request(client, .restartBot(id: bot.id)), .ok)
+        waitFor(client, "ready after Retry") { $0.summaries(bot.id).contains { $0.state == .ready } }
+    }
+
+    func testClaudeCodeInstalledLaterIsFoundOnRetry() throws {
+        let installed = root.path + "/installed"
+        let fake = binDir.appendingPathComponent("fake-claude").path
+        try makeEngine("basic", locate: { FileManager.default.fileExists(atPath: installed) ? fake : nil }).start()
+        let client = try connect()
+        let bot = try createBot(client)
+        let stopped = BotState.crashed(reason: ClaudeProblem.notInstalled.rawValue, retryAt: nil)
+        waitFor(client, "stopped: not installed") { $0.summaries(bot.id).contains { $0.state == stopped } }
+        guard case let .claudeStatus(missing) = request(client, .claudeStatus) else { return XCTFail("no status") }
+        XCTAssertFalse(missing.installed)
+
+        FileManager.default.createFile(atPath: installed, contents: nil) // the user installs Claude Code, then presses Retry
+        guard case let .claudeStatus(found) = request(client, .claudeStatus) else { return XCTFail("no status") }
+        XCTAssertEqual(found, ClaudeStatus(path: fake, version: "2.1.296", loggedIn: true, email: "bot@example.com"))
+        XCTAssertEqual(request(client, .restartBot(id: bot.id)), .ok)
+        waitFor(client, "ready after Retry") { $0.summaries(bot.id).contains { $0.state == .ready } }
     }
 
     func testChatEventsStateAndUnread() throws {
