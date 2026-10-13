@@ -24,12 +24,20 @@ final class CodexServerTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    /// Starts fake-codex on `scenario`; returns why it could not start, if so.
-    private func start(_ scenario: String, env extra: [String: String] = [:], token: String = codexToken()) -> CodexServer.Failure? {
+    /// How to start fake-codex on `scenario`.
+    private func launch(_ scenario: String, env extra: [String: String] = [:], token: String = codexToken()) -> CodexServer.Launch {
         let path = Bundle.module.resourceURL!.appendingPathComponent("Fixtures/scenarios/\(scenario).jsonl").path
         let env = ["SERIF_FAKE_CODEX_SCENARIO": path, "SERIF_FAKE_LOG": launches, "SERIF_FAKE_CODEX_RPC": received].merging(extra) { $1 }
-        let launch = CodexServer.Launch(executable: fake, args: { codexServerArgs(listen: "ws://127.0.0.1:\($0)", tokenHash: codexTokenHash(token)) },
-                                        environment: env, cwd: root.path, token: token, log: root.appendingPathComponent("codex.log"))
+        return CodexServer.Launch(executable: fake, args: { codexServerArgs(listen: "ws://127.0.0.1:\($0)", tokenHash: codexTokenHash(token)) },
+                                  environment: env, cwd: root.path, token: token, log: root.appendingPathComponent("codex.log"))
+    }
+
+    /// Starts fake-codex on `scenario`; returns why it could not start, if so.
+    private func start(_ scenario: String, env extra: [String: String] = [:], token: String = codexToken()) -> CodexServer.Failure? {
+        start(launch(scenario, env: extra, token: token))
+    }
+
+    private func start(_ launch: CodexServer.Launch) -> CodexServer.Failure? {
         let started = expectation(description: "started")
         var failure: CodexServer.Failure?
         queue.async { self.server.start(launch) { failure = $0; started.fulfill() } }
@@ -97,6 +105,38 @@ final class CodexServerTests: XCTestCase {
         queue.sync { server.onExit = { _ in exits += 1 }; server.stop { stopped.fulfill() } }
         wait(for: [stopped], timeout: 5)
         XCTAssertEqual(queue.sync { exits }, 0)
+        XCTAssertFalse(queue.sync { server.isRunning })
+    }
+
+    func testARefusedHandshakeIsNotRetried() {
+        // Another Codex version refusing Serif (spec §8): its message, and no new connections.
+        let failure = start("codex-refused")
+        XCTAssertEqual(failure?.message, "unsupported client")
+        XCTAssertEqual(failure?.fromCodex, true)
+        Thread.sleep(forTimeInterval: 0.6)          // a retry would have sent a second initialize by now
+        XCTAssertEqual(lines(received).filter { $0["method"] == "initialize" }.count, 1)
+    }
+
+    func testAServerThatKeepsExitingGivesUpAfterThreeSpawns() {
+        let log = launches
+        let failure = start(CodexServer.Launch(executable: "/bin/sh", args: { ["-c", "echo \($0) >> '\(log)'; exit 1"] }, environment: [:],
+                                               cwd: root.path, token: codexToken(), log: root.appendingPathComponent("codex.log")))
+        XCTAssertEqual(failure?.message, "Codex exited at start (code 1)")
+        XCTAssertEqual(failure?.fromCodex, false)
+        XCTAssertEqual(((try? String(contentsOfFile: log, encoding: .utf8)) ?? "").split(separator: "\n").count, 3)
+    }
+
+    func testStopEndsAStartInProgress() {
+        var calls = 0
+        let slow = launch("codex-server", env: ["SERIF_FAKE_CODEX_DELAY": "3"])
+        queue.async { self.server.start(slow) { _ in calls += 1 } }
+        Thread.sleep(forTimeInterval: 0.3)
+        let stopped = expectation(description: "stopped")
+        queue.async { self.server.stop { stopped.fulfill() } }
+        wait(for: [stopped], timeout: 5)
+        Thread.sleep(forTimeInterval: 0.5)          // a retry or a new launch would have come by now
+        XCTAssertEqual(queue.sync { calls }, 0)
+        XCTAssertEqual(lines(launches).count, 1)
         XCTAssertFalse(queue.sync { server.isRunning })
     }
 }

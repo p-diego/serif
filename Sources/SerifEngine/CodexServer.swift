@@ -40,7 +40,7 @@ final class CodexServer {
     var isRunning: Bool { process != nil }
 
     /// Starts the server on a free port and connects, trying again every 0.2 s until it answers `initialize`; `then` gets
-    /// nil then. A server that exits first (its port was taken meanwhile) starts again on another port, three times at
+    /// nil then, or Codex's refusal of the handshake (the server is left running for the caller to stop). A server that exits first (its port was taken meanwhile) starts again on another port, three times at
     /// most (spec §8). How long to wait is the caller's (`stop` ends the attempt).
     func start(_ launch: Launch, then: @escaping (Failure?) -> Void) {
         self.launch = launch
@@ -75,7 +75,8 @@ final class CodexServer {
     }
 
     private func connect() {
-        guard starting != nil, let launch, process != nil else { return }
+        guard starting != nil, let launch, let p = process else { return }
+        webSocket?.cancel()     // one connection at a time: an earlier attempt's socket must not stay open
         var request = URLRequest(url: URL(string: "ws://127.0.0.1:\(port)")!)
         request.setValue("Bearer \(launch.token)", forHTTPHeaderField: "Authorization")
         let task = session.webSocketTask(with: request)
@@ -87,12 +88,12 @@ final class CodexServer {
                                 "capabilities": ["experimentalApi": true]]
         self.request("initialize", hello) { [weak self] result in
             guard let self, starting != nil else { return }
-            if case .success = result {
-                notify("initialized", [:])
-                return started(nil)
+            switch result {
+            case .success: notify("initialized", [:]); started(nil)
+            case let .failure(f) where f.fromCodex: started(f)      // a Codex refusing the handshake: retrying won't help (spec §8)
+            // Not listening yet: again shortly, unless this server is gone (a new one connects by itself).
+            case .failure: queue.asyncAfter(deadline: .now() + 0.2) { [weak self] in if self?.process === p { self?.connect() } }
             }
-            // Not listening yet: again shortly.
-            queue.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.connect() }
         }
     }
 
@@ -118,7 +119,7 @@ final class CodexServer {
                     webSocket = nil
                     failWaiting("Codex closed the connection")
                     // Running and no longer reachable: stopped, so its exit is reported like a crash.
-                    if starting == nil, let process, process.isRunning { process.terminate() }
+                    if starting == nil, let process, process.isRunning { terminate(process) }
                 }
             }
         }
@@ -173,6 +174,11 @@ final class CodexServer {
         failWaiting("Codex stopped")
         guard let process else { return then() }
         stopCallbacks.append(then)
+        terminate(process)
+    }
+
+    /// SIGTERM now, SIGKILL in 3 s if it is still there (once, however often asked).
+    private func terminate(_ process: Process) {
         guard killTimer == nil else { return }
         process.terminate()
         let pid = process.processIdentifier
