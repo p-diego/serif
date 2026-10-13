@@ -262,6 +262,22 @@ final class EngineTests: XCTestCase {
         waitFor(client, "ready after Retry") { $0.summaries(bot.id).contains { $0.state == .ready } }
     }
 
+    func testCrashChecksClaudeCodeAgain() throws {
+        let flag = root.path + "/logged-out"
+        try makeEngine("crash", env: ["SERIF_FAKE_LOGGED_OUT": flag]).start()
+        let client = try connect()
+        let bot = try createBot(client)
+        _ = try launches(1)                                              // signed in: the first launch goes ahead
+        FileManager.default.createFile(atPath: flag, contents: nil)      // signed out before the 2 s crash relaunch
+        let stopped = BotState.crashed(reason: ClaudeProblem.notSignedIn.rawValue, retryAt: nil)
+        waitFor(client, "stopped: not signed in") { $0.summaries(bot.id).contains { $0.state == stopped } }
+        XCTAssertEqual(try launches(1).count, 1, "relaunched while signed out")
+
+        try FileManager.default.removeItem(atPath: flag)
+        XCTAssertEqual(request(client, .restartBot(id: bot.id)), .ok)
+        XCTAssertEqual(try launches(2).count, 2)
+    }
+
     func testClaudeCodeInstalledLaterIsFoundOnRetry() throws {
         let installed = root.path + "/installed"
         let fake = binDir.appendingPathComponent("fake-claude").path

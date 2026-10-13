@@ -261,6 +261,7 @@ public final class Engine {
         // A turn cut short (crash, restart, shutdown) would stay "in progress" forever: close it as interrupted.
         if rt.tracker.state.inTurn { handle(rt.normalizer.interrupted(at: Date()), rt) }
         guard !rt.stopping, !stopping else { return }
+        claudeStatus = nil          // a bot that falls checks Claude Code again before the next launch (spec §4)
         let reason = code.map { "Exit code \($0)" } ?? "Could not start"
         record(.system(.crashed(reason: reason)), rt)
         let newConversation = rt.resumed && ranFor < 10 && code != nil      // nil: the fork failed, claude never ran
