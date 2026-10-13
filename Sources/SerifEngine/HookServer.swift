@@ -29,12 +29,12 @@ extension Engine {
         }
         handle(rt.normalizer.ingest(envelope.payload, at: Date()), rt, hook: waits ? connection : nil)
         // Never leave a hook waiting on a request that was not opened.
-        if waits, !requests.values.contains(where: { $0.hook === connection }) { reply(connection, nil) }
+        if waits, !requests.values.contains(where: { $0.asker.isHook(connection) }) { reply(connection, nil) }
     }
 
     /// serif-hook went away (killed by Esc, or Claude Code gave up): its request is cancelled.
     private func hookClosed(_ connection: LineConnection) {
-        for (id, open) in requests where open.hook === connection { closeRequest(id, .cancelled, replied: true) }
+        for (id, open) in requests where open.asker.isHook(connection) { closeRequest(id, .cancelled, replied: true) }
     }
 
     func reply(_ connection: LineConnection, _ stdout: String?) {
@@ -52,7 +52,7 @@ extension Engine {
                 guard let hook else { continue }
                 let request = PendingRequest(botId: rt.bot.id, kind: PendingRequest.kind(forTool: toolName), toolName: toolName,
                                              input: input, toolUseId: toolUseId, promptId: promptId, suggestions: suggestions)
-                requests[request.id] = (request, hook)
+                requests[request.id] = (request, .hook(hook))
                 record(.requestOpened(request), rt)
                 push(.requestOpened(request))
             case let .toolResolved(toolUseId):
@@ -67,7 +67,18 @@ extension Engine {
                 push(.botChanged(rt.summary))
             case let .transcriptPath(path):
                 rt.transcriptPath = path
-            case .sessionEnded, .notification, .serverRequest, .serverRequestResolved:
+            case let .serverRequest(id, toolName, input, decisions, turnId, itemId):
+                let request = PendingRequest(botId: rt.bot.id, kind: PendingRequest.kind(forTool: toolName), toolName: toolName,
+                                             input: input, toolUseId: itemId, promptId: turnId, suggestions: nil, decisions: decisions)
+                requests[request.id] = (request, .codex(id))
+                record(.requestOpened(request), rt)
+                push(.requestOpened(request))
+            case let .serverRequestResolved(id):
+                // Answered in the terminal: Serif's own answers have closed their card already.
+                for (key, open) in requests where open.request.botId == rt.bot.id {
+                    if case let .codex(asked) = open.asker, asked == id { closeRequest(key, .answeredInTerminal) }
+                }
+            case .sessionEnded, .notification:
                 break
             }
         }
@@ -102,10 +113,10 @@ extension Engine {
     /// Forgets an open request, releases its serif-hook (printing nothing, unless already `replied`) and tells everyone.
     func closeRequest(_ id: UUID, _ how: RequestResolution, replied: Bool = false, answer: RequestAnswer? = nil) {
         guard let open = requests.removeValue(forKey: id), let rt = bots[open.request.botId] else { return }
-        if !replied { reply(open.hook, nil) }
+        if !replied, case let .hook(hook) = open.asker { reply(hook, nil) }
         record(.requestClosed(requestId: id, resolution: how, answer: answer), rt)
         push(.requestClosed(requestId: id, botId: rt.bot.id, resolution: how, answer: answer))
-        guard !rt.outbox.isEmpty, !hasOpenRequest(rt) else { return }
+        guard rt.bot.agent == .claude, !rt.outbox.isEmpty, !hasOpenRequest(rt) else { return }    // Codex texts never wait on cards
         // Texts held during the request. Claude Code drops its dialog only after it has read the hook's answer: typed at
         // once, the Enter could still land in it. Sent 1 s later, unless a new request opened or the bot went down (then
         // the next SessionStart delivers them).
@@ -159,4 +170,8 @@ extension Engine {
             }
         }
     }
+}
+
+extension Engine.Asker {
+    func isHook(_ connection: LineConnection) -> Bool { if case let .hook(hook) = self { hook === connection } else { false } }
 }

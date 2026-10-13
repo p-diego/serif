@@ -101,7 +101,9 @@ public final class Engine {
     let encoder = protocolEncoder()
     let decoder = protocolDecoder()
     var bots: [UUID: BotRuntime] = [:]
-    var requests: [UUID: (request: PendingRequest, hook: LineConnection)] = [:]
+    /// Who waits for a card's answer: Claude Code's serif-hook, or the Codex server's request id.
+    enum Asker { case hook(LineConnection), codex(JSONValue) }
+    var requests: [UUID: (request: PendingRequest, asker: Asker)] = [:]
     var apps: [ObjectIdentifier: (connection: LineConnection, terminals: Set<UUID>)] = [:]
     var stopping = false
     private var servers: [LineServer] = []

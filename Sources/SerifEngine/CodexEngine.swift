@@ -82,7 +82,8 @@ extension Engine {
     // MARK: - Launch
 
     /// Starts a Codex bot (spec §4): its skills linked, its own server with the switches of §6, then its thread (opened or
-    /// resumed with every setting again) and the isolation check. The whole start has `codexStartupTimeout` (spec §8).
+    /// resumed with every setting again), the isolation check, and whatever waits in its outbox. The whole start has
+    /// `codexStartupTimeout` (spec §8).
     func launchCodex(_ rt: BotRuntime, project: Project, codexPath: String, instructions: String, linkedExists: Bool) {
         guard let catalog = freshCodexCatalog else { return }
         let bot = rt.bot, workspace = paths.bot(bot.id).workspace
@@ -101,6 +102,7 @@ extension Engine {
         (rt.codex, rt.codexToken, rt.codexReady, rt.thread, rt.turnId, rt.turnStarting) = (server, token, false, nil, nil, false)
         rt.codexNormalizer = CodexNormalizer()
         rt.launchedAt = Date()
+        server.onMessage = { [weak self, weak rt] message in if let rt { self?.codexMessage(message, rt) } }
         server.onExit = { [weak self, weak rt] code in if let rt { self?.codexExited(rt, reason: "Exit code \(code)") } }
         rt.tracker.processStarted()
         push(.botChanged(rt.summary))
@@ -185,6 +187,7 @@ extension Engine {
         rt.tracker.sessionStarted()
         push(.botChanged(rt.summary))
         if resumed { record(.system(.resumed), rt) }
+        deliverCodex(rt)
     }
 
     // MARK: - Ending
@@ -221,6 +224,81 @@ extension Engine {
         server?.stop {}
         record(.system(.crashed(reason: reason)), rt)
         crashed(rt, reason)
+    }
+
+    // MARK: - Conversation
+
+    /// Sends what waits in the outbox, in order (spec §4): a new turn when none runs, added to the running one otherwise.
+    /// While a turn/start is on its way the rest waits for its id.
+    func deliverCodex(_ rt: BotRuntime) {
+        guard rt.codexReady, !rt.turnStarting, !rt.outbox.isEmpty else { return }
+        let message = rt.outbox.removeFirst()
+        rt.codexNormalizer.expectChatMessage(message.text, origin: message.origin)
+        sendTurn(message, to: rt, steering: rt.turnId)
+    }
+
+    /// A text whose request never got Codex's answer (its server is going: restarted, crashed) goes back to the front of
+    /// the outbox, for the next launch.
+    private func sendTurn(_ message: (text: String, origin: MessageOrigin), to rt: BotRuntime, steering turn: String?) {
+        guard let server = rt.codex, let thread = rt.thread else { return }
+        let input: JSONValue = [["type": "text", "text": .string(message.text)]]
+        if let turn {
+            return server.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": input]) { [weak self, weak rt] result in
+                guard let self, let rt else { return }
+                if case let .failure(f) = result {
+                    guard f.fromCodex else { return rt.outbox.insert(message, at: 0) }
+                    // The turn ended meanwhile: the text opens a new one.
+                    if rt.turnId == turn { rt.turnId = nil }
+                    return sendTurn(message, to: rt, steering: nil)
+                }
+                deliverCodex(rt)
+            }
+        }
+        rt.turnStarting = true
+        server.request("turn/start", ["threadId": .string(thread), "input": input]) { [weak self, weak rt] result in
+            guard let self, let rt else { return }
+            rt.turnStarting = false
+            switch result {
+            case let .success(answer): rt.turnId = rt.turnId ?? answer["turn"]?["id"]?.string
+            case let .failure(f) where f.fromCodex: record(.turnFailed(reason: "Codex: \(f.message)"), rt)
+            case .failure: return rt.outbox.insert(message, at: 0)
+            }
+            deliverCodex(rt)
+        }
+    }
+
+    /// One message of the bot's server, in order: the running turn and the thread kept, then the chat and the cards.
+    func codexMessage(_ message: CodexMessage, _ rt: BotRuntime) {
+        var finished = false
+        if case let .notification(method, p) = message {
+            switch method {
+            case "turn/started":
+                rt.turnId = p["turn"]?["id"]?.string
+                saveThread(rt)
+            case "turn/completed":
+                if rt.turnId == p["turn"]?["id"]?.string { rt.turnId = nil }
+                // Cards still open when a turn stops short are gone; after a normal end `record` closes them.
+                if p["turn"]?["status"]?.string != "completed" { closeRequests(of: rt, .cancelled) }
+                finished = true
+            default: break
+            }
+        }
+        let outputs = rt.codexNormalizer.ingest(message)
+        handle(outputs, rt)
+        // A request Serif shows no card for is refused, so the turn does not wait forever (spec §8).
+        if case let .request(id, method, _) = message, !outputs.contains(where: { if case .serverRequest = $0 { true } else { false } }) {
+            log("bot \(rt.bot.id): Codex asked \(method): not supported, refused")
+            rt.codex?.refuse(id, message: "Serif does not support \(method)")
+        }
+        if finished { deliverCodex(rt) }
+    }
+
+    /// A thread can be resumed, and shown in the terminal, once it has a turn (spec §3.5): saved then, never before.
+    private func saveThread(_ rt: BotRuntime) {
+        guard let thread = rt.thread, rt.bot.threadId != thread else { return }
+        rt.bot.threadId = thread
+        do { try store.save(bot: rt.bot) } catch { log("cannot save the thread of \(rt.bot.id): \(error)") }
+        push(.botChanged(rt.summary))
     }
 
     /// The Codex servers an engine that died (SIGKILL, a crash) left running, from their pid files: stopped like any other

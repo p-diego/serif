@@ -1006,4 +1006,172 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(other.isRunning, "another program's Codex server is left alone")
         XCTAssertFalse(files.contains { FileManager.default.fileExists(atPath: $0.path) })
     }
+
+    func testCodexBotIntroducesItselfInItsFirstTurn() throws {
+        try makeEngine("basic").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        XCTAssertEqual(client.all.chatEvents(bot.id).map(label), ["system(botCreated)", "userMessage", "assistantText", "turnEnded"])
+        let intro = try XCTUnwrap(introduction(client.all.chatEvents(bot.id)))
+        XCTAssertEqual(codexRequests("turn/start").first?["input"], [["type": "text", "text": .string(intro)]])
+        // The thread is kept once it has a turn: from now on it resumes, and its terminal can open.
+        XCTAssertEqual(client.all.summaries(bot.id).last?.bot.threadId, "thr-1")
+    }
+
+    func testCodexResumesItsThreadWithEverySettingAgain() throws {
+        try makeEngine("basic").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        XCTAssertEqual(request(client, .restartBot(id: bot.id)), .ok)
+        waitFor(client, "resumed") { $0.chatEvents(bot.id).contains(.system(.resumed)) }
+        let resume = try XCTUnwrap(codexRequests("thread/resume").first)
+        XCTAssertEqual(resume["threadId"], "thr-1")
+        XCTAssertEqual(resume["sandbox"], "read-only")                     // Codex forgets it on resume (spec §3.5)
+        XCTAssertEqual(resume["approvalPolicy"], "on-request")
+        XCTAssertNotNil(resume["config"]?["sandbox_workspace_write"])
+        XCTAssertEqual(codexRequests("thread/start").count, 1)
+    }
+
+    func testMessageSentWhileRestartingReachesTheNextLaunch() throws {
+        // The old server is going (no connection) but still counted as ready: the text waits for the new one.
+        try makeEngine("basic").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        let ((restarted, _), (sent, _)) = (client.send(.restartBot(id: bot.id)), client.send(.send(botId: bot.id, text: "Ancora?")))
+        wait(for: [restarted, sent], timeout: timeout)
+        waitFor(client, "delivered") { $0.chatEvents(bot.id).contains(.userMessage(text: "Ancora?", promptId: "turn-1", origin: .chat)) }
+    }
+
+    func testAThreadCodexLostStartsANewConversation() throws {
+        try makeEngine("basic", codex: "codex-lost-thread").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        XCTAssertEqual(request(client, .restartBot(id: bot.id)), .ok)          // the thread was archived in the ChatGPT app
+        waitFor(client, "new conversation") { $0.chatEvents(bot.id).contains(.system(.newConversation)) }
+        waitFor(client, "ready") { $0.summaries(bot.id).last?.state == .ready }
+        XCTAssertEqual(codexRequests("thread/start").count, 2)
+    }
+
+    func testMessageDuringATurnSteersIt() throws {
+        try makeEngine("basic", codex: "codex-steer").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "turn running") { $0.chatEvents(bot.id).contains { label($0) == "userMessage" } }
+        XCTAssertEqual(request(client, .send(botId: bot.id, text: "Aggiungi BANANA")), .ok)
+        waitFor(client, "turn ended") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        XCTAssertEqual(codexRequests("turn/steer"), [["threadId": "thr-1", "expectedTurnId": "turn-1", "input": [["type": "text", "text": "Aggiungi BANANA"]]]])
+        XCTAssertEqual(codexRequests("turn/start").count, 1)
+        XCTAssertTrue(client.all.chatEvents(bot.id).contains(.userMessage(text: "Aggiungi BANANA", promptId: "turn-1", origin: .chat)))
+    }
+
+    func testApprovalAnsweredInTheChatClosesOnce() throws {
+        // Review Focus 4: Codex then tells every client the request is resolved; the card does not close twice.
+        try makeEngine("basic", codex: "codex-approval").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "card") { !$0.openedRequests.isEmpty }
+        let card = try XCTUnwrap(client.all.openedRequests.first)
+        XCTAssertEqual(card.kind, .permission)
+        XCTAssertEqual(card.toolName, "Bash")
+        XCTAssertEqual(card.input["command"], "touch a.txt")
+        XCTAssertEqual(card.toolUseId, "exec-1")
+        XCTAssertEqual(card.decisions, ["accept", "acceptForSession", "decline", "cancel"])
+        XCTAssertEqual(request(client, .answer(requestId: card.id, answer: .allowSession)), .ok)
+        waitFor(client, "turn ended") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        XCTAssertTrue(codexMessages().contains(["id": 0, "result": ["decision": "acceptForSession"]]))
+        let closes = client.all.pushes.filter { if case let .requestClosed(id, _, _, _) = $0 { id == card.id } else { false } }
+        XCTAssertEqual(closes, [.requestClosed(requestId: card.id, botId: bot.id, resolution: .answeredInApp, answer: .allowSession)])
+    }
+
+    func testApprovalAnsweredInTheTerminalRefusesTheChat() throws {
+        // Review Focus 4: the terminal answered first; the chat's late answer is refused and never reaches Codex.
+        try makeEngine("basic", codex: "codex-terminal-answer").start()
+        let client = try connect()
+        _ = try createBot(client, agent: .codex)
+        waitFor(client, "card closed") { m in m.openedRequests.first.map { m.closed($0.id) != nil } ?? false }
+        let card = try XCTUnwrap(client.all.openedRequests.first)
+        XCTAssertEqual(client.all.closed(card.id), .answeredInTerminal)
+        XCTAssertEqual(request(client, .answer(requestId: card.id, answer: .allow)), .error("The request is already closed"))
+        XCTAssertFalse(codexMessages().contains { $0["result"]?["decision"] != nil })
+    }
+
+    func testAnswerThatDoesNotFitIsRefusedAndTheCardStays() throws {
+        // An answer Codex did not offer is never sent: refused, the card waits for one that fits.
+        try makeEngine("basic", codex: "codex-approval").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "card") { !$0.openedRequests.isEmpty }
+        let card = try XCTUnwrap(client.all.openedRequests.first)
+        XCTAssertEqual(request(client, .answer(requestId: card.id, answer: .approvePlan)), .error("This answer does not fit the request"))
+        XCTAssertNil(client.all.closed(card.id))
+        XCTAssertEqual(request(client, .answer(requestId: card.id, answer: .deny(message: nil))), .ok)
+        waitFor(client, "turn ended") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        XCTAssertEqual(codexMessages().filter { $0["id"] == 0 && $0["method"] == nil }, [["id": 0, "result": ["decision": "decline"]]])
+    }
+
+    func testInterruptStopsTheTurn() throws {
+        try makeEngine("basic", codex: "codex-interrupt").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "turn running") { $0.chatEvents(bot.id).contains { label($0) == "userMessage" } }
+        XCTAssertEqual(request(client, .interrupt(botId: bot.id)), .ok)
+        waitFor(client, "interrupted") { $0.chatEvents(bot.id).contains(.turnInterrupted) }
+        XCTAssertEqual(codexRequests("turn/interrupt"), [["threadId": "thr-1", "turnId": "turn-1"]])
+        waitFor(client, "ready") { $0.summaries(bot.id).last?.state == .ready }
+    }
+
+    func testUsageLimitShowsOnTheBot() throws {
+        try makeEngine("basic", codex: "codex-limit").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "limited") { $0.summaries(bot.id).contains { $0.state == .rateLimited(until: nil) } }
+        XCTAssertTrue(client.all.chatEvents(bot.id).contains(.turnFailed(reason: "You've hit your usage limit.")))
+    }
+
+    func testRequestSerifCannotShowIsRefused() throws {
+        // Review Focus 2: a request a newer Codex makes that Serif has no card for: refused, the turn does not hang.
+        try makeEngine("basic", codex: "codex-unknown-request").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "turn running") { $0.chatEvents(bot.id).contains { label($0) == "userMessage" } }
+        let refused = expectation(description: "refused")
+        let poll = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [unowned self] t in
+            if codexMessages().contains(where: { $0["id"] == 7 && $0["error"] != nil }) { t.invalidate(); refused.fulfill() }
+        }
+        wait(for: [refused], timeout: timeout)
+        poll.invalidate()
+        XCTAssertEqual(client.all.summaries(bot.id).last?.state, .working(.thinking))      // the bot goes on
+    }
+
+    func testCodexCrashMidTurnClosesTheTurnAndResumes() throws {
+        try makeEngine("basic", codex: "codex-crash").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "resumed") { $0.chatEvents(bot.id).contains(.system(.resumed)) }
+        XCTAssertEqual(client.all.chatEvents(bot.id).map(label),
+                       ["system(botCreated)", "userMessage", "turnInterrupted", "system(crashed(reason: \"Exit code 3\"))", "system(resumed)"])
+        XCTAssertEqual(codexRequests("thread/resume").first?["threadId"], "thr-1")
+    }
+
+    func testCodexBotRestartsForCodexPluginsOnly() throws {
+        // The other half of testEachAgentRestartsForItsOwnPlugins: Claude Code's list leaves a Codex bot alone.
+        try makeEngine("basic").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        guard case let .snapshot(snapshot) = request(client, .snapshot), var project = snapshot.projects.first
+        else { return XCTFail("no project") }
+        project.plugins = ["some-plugin@claude-marketplace"]
+        guard case .project = request(client, .updateProject(project)) else { return XCTFail("project update refused") }
+        Thread.sleep(forTimeInterval: 1.5)       // a relaunch would have started a second server by now
+        XCTAssertEqual(try codexServers(bot).count, 1, "Claude Code plugins restarted a Codex bot")
+        project.codexPlugins = ["browser@openai-bundled"]
+        guard case .project = request(client, .updateProject(project)) else { return XCTFail("project update refused") }
+        waitUntil("relaunched") { [unowned self] in (try? codexServers(bot).count) ?? 0 >= 2 }
+        XCTAssertTrue(try XCTUnwrap(codexServers(bot).last).args.contains("plugins.browser@openai-bundled.enabled=true"))
+    }
 }

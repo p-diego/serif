@@ -1,0 +1,2 @@
+{"after": "turn/start", "send": [{"method": "turn/started", "params": {"threadId": "$THREAD", "turn": {"id": "$TURN", "status": "inProgress"}}}, {"method": "item/completed", "params": {"threadId": "$THREAD", "turnId": "$TURN", "item": {"type": "userMessage", "id": "u-$TURN", "content": [{"type": "text", "text": "$INPUT"}]}}}]}
+{"after": "turn/interrupt", "send": [{"method": "turn/completed", "params": {"threadId": "$THREAD", "turn": {"id": "$TURN", "status": "interrupted"}}}]}

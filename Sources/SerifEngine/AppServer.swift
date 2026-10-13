@@ -128,6 +128,13 @@ extension Engine {
             return .history(try store.history(bot: botId, beforeSeq: beforeSeq, limit: limit))
         case let .send(botId, text):
             let rt = try runtime(botId)
+            if rt.bot.agent == .codex {
+                if case .stopped = rt.tracker.state { throw Refusal("The bot is archived") }
+                // A new turn, or added to the running one; while its server starts, once it is ready (spec §4).
+                rt.outbox.append((text, .chat))
+                deliverCodex(rt)
+                return .ok
+            }
             if rt.stopping { rt.outbox.append((text, .chat)); return .ok }  // restart window: the relaunch's SessionStart delivers it
             switch rt.tracker.state {
             case .starting, .crashed: rt.outbox.append((text, .chat))       // delivered on the next SessionStart
@@ -139,7 +146,11 @@ extension Engine {
             }
             return .ok
         case let .interrupt(botId):
-            try runtime(botId).host.pressEscape()
+            let rt = try runtime(botId)
+            guard rt.bot.agent == .codex else { rt.host.pressEscape(); return .ok }
+            if let server = rt.codex, let thread = rt.thread, let turn = rt.turnId {
+                server.request("turn/interrupt", ["threadId": .string(thread), "turnId": .string(turn)]) { _ in }
+            }
             return .ok
         case let .answer(requestId, answer):
             return try self.answer(requestId, answer)
@@ -178,17 +189,24 @@ extension Engine {
     /// The first answer wins: from the app here, or from the terminal (the request is then already closed).
     private func answer(_ requestId: UUID, _ answer: RequestAnswer) throws -> ResponseBody {
         guard let open = requests[requestId], let rt = bots[open.request.botId] else { throw Refusal("The request is already closed") }
-        switch hookOutcome(for: answer, request: open.request) {
-        case let .reply(json):
-            reply(open.hook, json)
-        case .silent:
-            throw Refusal("This answer does not fit the request")
-        case let .typeInTerminal(keys):
-            // Plan approval does not go through the hook: release it, then press the key. Without the plan question
-            // on screen the key would land in the prompt, so the request stays open for the terminal.
-            guard screenSignals(in: rt.host.screenText).contains(.planApproval) else { throw Refusal("Answer in the terminal") }
-            reply(open.hook, nil)
-            rt.host.write(Array(keys.utf8))
+        switch open.asker {
+        case let .codex(id):
+            guard let result = codexReply(for: answer, request: open.request) else { throw Refusal("This answer does not fit the request") }
+            guard let server = rt.codex else { throw Refusal("The bot is not running") }
+            server.respond(to: id, result: result)
+        case let .hook(hook):
+            switch hookOutcome(for: answer, request: open.request) {
+            case let .reply(json):
+                reply(hook, json)
+            case .silent:
+                throw Refusal("This answer does not fit the request")
+            case let .typeInTerminal(keys):
+                // Plan approval does not go through the hook: release it, then press the key. Without the plan question
+                // on screen the key would land in the prompt, so the request stays open for the terminal.
+                guard screenSignals(in: rt.host.screenText).contains(.planApproval) else { throw Refusal("Answer in the terminal") }
+                reply(hook, nil)
+                rt.host.write(Array(keys.utf8))
+            }
         }
         closeRequest(requestId, .answeredInApp, replied: true, answer: answer)
         return .ok
