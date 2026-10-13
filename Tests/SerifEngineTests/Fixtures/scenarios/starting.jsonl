@@ -1,0 +1,7 @@
+{"print": "READY"}
+{"sleep": 1.0}
+{"drain": "EARLY-INPUT"}
+{"hook": {"hook_event_name": "SessionStart", "source": "startup"}}
+{"waitInput": "\u001b[200~hello\u001b[201~\r"}
+{"print": "GOT-PASTE"}
+{"hook": {"hook_event_name": "UserPromptSubmit", "prompt": "hello", "prompt_id": "p1"}}

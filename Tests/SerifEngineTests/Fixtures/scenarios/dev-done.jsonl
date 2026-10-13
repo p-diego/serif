@@ -1,0 +1,5 @@
+{"print": "ready"}
+{"hook": {"hook_event_name": "SessionStart", "source": "startup"}}
+{"hook": {"hook_event_name": "UserPromptSubmit", "prompt": "status?", "prompt_id": "p1"}}
+{"hook": {"hook_event_name": "MessageDisplay", "message_id": "m1", "index": 0, "delta": "booked the venue and sent the confirmation around.", "final": true, "prompt_id": "p1"}}
+{"hook": {"hook_event_name": "Stop", "prompt_id": "p1", "last_assistant_message": "booked the venue and sent the confirmation around."}}

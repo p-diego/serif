@@ -1,0 +1,5 @@
+{"print": "READY"}
+{"hook": {"hook_event_name": "SessionStart", "source": "startup"}}
+{"hook": {"hook_event_name": "UserPromptSubmit", "prompt": "go", "prompt_id": "p1"}}
+{"hook": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_use_id": "toolu_1", "tool_input": {"command": "ls"}, "prompt_id": "p1"}}
+{"exit": 3}

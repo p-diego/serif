@@ -1,0 +1,8 @@
+{"print": "\u001b[2J\u001b[HIs this a project you created or one you trust?\r\n❯ No, exit\r\n  Yes, I trust this folder\r\n"}
+{"waitInput": "\u001b[B"}
+{"print": "\u001b[2J\u001b[HIs this a project you created or one you trust?\r\n❯ No, exit\r\n  Yes, I trust this folder\r\n"}
+{"waitInput": "\u001b[B"}
+{"print": "\u001b[2J\u001b[HIs this a project you created or one you trust?\r\n  No, exit\r\n❯ Yes, I trust this folder\r\n"}
+{"waitInput": "\r"}
+{"print": "\u001b[2J\u001b[HREADY"}
+{"hook": {"hook_event_name": "SessionStart", "source": "startup"}}

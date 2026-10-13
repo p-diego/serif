@@ -1,0 +1,3 @@
+{"print": "READY"}
+{"waitInput": "\u001b[200~a\nb\u001b[201~\r"}
+{"print": "GOT-PASTE"}

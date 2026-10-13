@@ -1,0 +1,39 @@
+
+⟦t=0.5⟧
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Accessingworkspace:
+/Users/me/bot
+Quicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyourowncode,awell-knownopensource
+project,orworkfromyourteam).Ifnot,takeamomenttoreviewwhat'sinthisfolderfirst.
+ClaudeCode'llbeabletoread,edit,andexecutefileshere.
+Securityguide
+❯No,exit
+Yes,Itrustthisfolder
+Entertoconfirm·Esctocancel
+
+⟦t=10.9⟧
+
+ No, exit
+❯Yes, I trust this folder
+
+⟦t=11.5⟧
+
+ ▐▛███▛█ClaudeCodev2.1.296
+▝▜██████▀Haiku5.5·ClaudeAPI
+ ▝▝▝▝/Users/me/bot
+IntroducingOpus5.5
+GettofinishedworksoonerwithOpus5.5.Switchanytimewith/model.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Try"fixtypecheckerrors"
+�
+⟦t=12.0⟧
+��───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏵⏵automodeon (shift+tabtocycle)·←foragents◐medium·/effort
+
+⟦t=21.9⟧
+
+
+⟦t=37.8⟧
+
+

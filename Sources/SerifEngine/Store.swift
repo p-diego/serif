@@ -1,0 +1,125 @@
+import Foundation
+import SerifCore
+
+/// Per-bot counters persisted in `meta.json`.
+public struct BotMeta: Codable, Equatable, Sendable {
+    public var lastReadSeq: Int = 0
+    public var lastSeq: Int = 0
+    public var crashCount: Int = 0
+    /// True after the first SessionStart (the next launch uses --resume).
+    public var hasStarted: Bool = false
+    public init() {}
+}
+
+/// Persists projects, bots and every chat event under the Serif data folder.
+/// Not thread-safe: the engine calls it from one serial queue.
+public final class Store {
+    private struct State: Codable { var projects: [Project]; var bots: [Bot] }
+
+    private let paths: SerifPaths
+    private let encoder = protocolEncoder()
+    private let decoder = protocolDecoder()
+    private var metas: [UUID: BotMeta] = [:]
+    public private(set) var projects: [Project] = []
+    public private(set) var bots: [Bot] = []
+
+    public init(paths: SerifPaths) throws {
+        self.paths = paths
+        try FileManager.default.createDirectory(at: paths.root, withIntermediateDirectories: true)
+        // Only a missing file means "empty"; any other read error must not lead to overwriting real state.
+        if FileManager.default.fileExists(atPath: paths.stateFile.path) {
+            let data = try Data(contentsOf: paths.stateFile)
+            let state = try decoder.decode(State.self, from: data)
+            projects = state.projects
+            bots = state.bots
+        }
+    }
+
+    public func save(project: Project) throws {
+        if let i = projects.firstIndex(where: { $0.id == project.id }) { projects[i] = project } else { projects.append(project) }
+        try writeState()
+    }
+
+    public func save(bot: Bot) throws {
+        if let i = bots.firstIndex(where: { $0.id == bot.id }) { bots[i] = bot } else { bots.append(bot) }
+        try writeState()
+    }
+
+    public func meta(_ bot: UUID) -> BotMeta {
+        if let cached = metas[bot] { return cached }
+        var meta = (try? Data(contentsOf: paths.bot(bot).meta)).flatMap { try? decoder.decode(BotMeta.self, from: $0) } ?? BotMeta()
+        // Meta missing or behind the event file (crash between the two writes): trust the file.
+        if let top = (try? readAll(bot))?.last?.seq, top > meta.lastSeq { meta.lastSeq = top }
+        metas[bot] = meta
+        return meta
+    }
+
+    public func setMeta(_ meta: BotMeta, for bot: UUID) throws {
+        metas[bot] = meta
+        try writeAtomically(try encoder.encode(meta), to: paths.bot(bot).meta)
+    }
+
+    public func append(_ event: ChatEvent, bot: UUID, at: Date) throws -> ChatEventRecord {
+        var meta = self.meta(bot)
+        let record = ChatEventRecord(seq: meta.lastSeq + 1, at: at, event: event)
+        let url = paths.bot(bot).events
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
+        let handle = try FileHandle(forUpdating: url)
+        defer { try? handle.close() }
+        let size = try handle.seekToEnd()
+        var line = try encoder.encode(record) + Data("\n".utf8)
+        // A crash can leave a last line without newline: start a fresh line so the new record stays readable.
+        if size > 0 {
+            try handle.seek(toOffset: size - 1)
+            if try handle.read(upToCount: 1)?.first != UInt8(ascii: "\n") { line.insert(UInt8(ascii: "\n"), at: 0) }
+            try handle.seekToEnd()
+        }
+        try handle.write(contentsOf: line)
+        meta.lastSeq = record.seq
+        try setMeta(meta, for: bot)
+        return record
+    }
+
+    /// Ascending; the newest `limit` records with seq < `beforeSeq` (all when nil).
+    public func history(bot: UUID, beforeSeq: Int?, limit: Int) throws -> [ChatEventRecord] {
+        let all = try readAll(bot).filter { beforeSeq == nil || $0.seq < beforeSeq! }
+        return Array(all.suffix(max(limit, 0)))
+    }
+
+    public func records(bot: UUID, afterSeq: Int) throws -> [ChatEventRecord] {
+        try readAll(bot).filter { $0.seq > afterSeq }
+    }
+
+    public func prepareFolders(for bot: Bot) throws {
+        try FileManager.default.createDirectory(at: paths.bot(bot.id).workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: paths.shared(bot.projectId), withIntermediateDirectories: true)
+    }
+
+    // ponytail: every read parses the whole file; add a seq index or tail-seek if chats get huge.
+    private func readAll(_ bot: UUID) throws -> [ChatEventRecord] {
+        guard let data = try? Data(contentsOf: paths.bot(bot).events) else { return [] }
+        // Truncated or corrupt lines (crash mid-write) are skipped.
+        return data.split(separator: UInt8(ascii: "\n")).compactMap { try? decoder.decode(ChatEventRecord.self, from: Data($0)) }
+    }
+
+    private func writeState() throws {
+        try writeAtomically(try encoder.encode(State(projects: projects, bots: bots)), to: paths.stateFile)
+    }
+
+    /// Temp file in the same folder, then rename over the target.
+    private func writeAtomically(_ data: Data, to url: URL) throws {
+        let dir = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tmp = dir.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        do { try data.write(to: tmp) } catch {
+            try? FileManager.default.removeItem(at: tmp)
+            throw error
+        }
+        if rename(tmp.path, url.path) != 0 {
+            let code = errno
+            try? FileManager.default.removeItem(at: tmp)
+            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+        }
+    }
+}

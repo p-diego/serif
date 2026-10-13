@@ -1,0 +1,3 @@
+{"print": "READY"}
+{"hook": {"hook_event_name": "SessionStart", "source": "startup", "session_id": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"}}
+{"exit": 3}

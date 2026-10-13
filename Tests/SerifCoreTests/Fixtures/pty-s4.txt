@@ -1,0 +1,409 @@
+
+⟦t=0.5⟧
+ ▐▛███▛█ClaudeCodev2.1.296
+▝▜██████▀Haiku5.5·ClaudeAPI
+ ▝▝▝▝/Users/me/bot
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Try"fixlinterrors"
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·?forshortcuts·←foragents◐medium·/effort
+ 
+
+⟦NOTE 4a-esc-durante-strumento⟧
+
+⟦t=4.5⟧
+
+ 
+Esegui con Bash esattamente:sleep30
+                                 
+ 
+
+❯ Esegui con Bash esattamente: sleep 30                                                                                 
+✢ Sublimating… (running UserPromptSubmit hook · 0s)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·esctointerrupt·←foragents◐medium·/effort
+ 
+
+ 
+ 
+
+✳b
+ 
+
+✶
+ 
+
+✻u
+ 
+
+✽S
+ 
+
+⟦t=5.5⟧
+
+✻
+ 
+
+✶
+ 
+
+ 
+Frosting… 
+ 
+
+✳
+ 
+
+✢
+ 
+
+⟦t=6.0⟧
+
+·
+ 
+
+⏺Bash(sleep30)
+  ⎿  Error: Blocked: standalone sleep 30. To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; 
+     do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to 
+  work around this block.
+·Frosting… (runningPostTolBatch hook·1s)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·esctointerrupt·←foragents◐medium·/effort
+ 
+
+ 
+ 
+
+ 
+(1s · ↓25 tokens)
+ 
+
+ 
+Frosting…44
+ 
+
+✢59
+ 
+
+⟦t=6.6⟧
+
+✳266
+ 
+
+ 
+7
+ 
+
+✶9
+ 
+
+✻71
+ 
+
+ 
+Frosting… · thinking)
+ 
+
+✽3thinking
+ 
+
+⟦t=7.1⟧
+
+ 
+4
+ 
+
+ 
+6thinking
+ 
+
+ 
+8
+ 
+
+✻9thinking
+ 
+
+✶381
+ 
+
+⟦t=7.7⟧
+
+✳2
+ 
+
+✢
+ 
+
+·…thinking
+ 
+
+⟦t=8.3⟧
+
+ 
+gthinking
+ 
+
+✢n107 tokens · thinking)
+ 
+
+✳i…432
+ 
+
+✶57
+ 
+
+⟦t=8.8⟧
+
+ 
+tg95
+ 
+
+ 
+ought for 1s)
+ 
+
+✻220
+ 
+
+⏺Il comando sleep 30 è stato bloccato dall'harness:leattesefisseconsleepinprimopianononsonoconsentitee
+suggerisceMonitorconunciclountilorun_in_background.Nonhoaggiratoilbloccoconaltrisleepnéconuna
+  variante in background, perché sarebbe un modo per eludere la restrizione.
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·esctointerrupt·←foragents◐medium·/effort
+ 
+
+✽ Frosting… (4s · ↓ 538 tokens)
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·esctointerrupt·←foragents◐medium·/effort
+ 
+
+ 
+Frosting…running Stop hook · 4s · ↓538 tokens)
+ 
+
+ Se ti serve davvero la pausa, puoi eseguirla tu direttamentenelpromptcon! sleep 30:l'outputfinirànella
+conversazione.
+✻ Cogitated for 4s · done 10:58 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·?forshortcuts·←foragents◐medium·/effort
+ 
+
+⟦t=10.6⟧
+
+ 
+ 
+
+⟦NOTE ESC-1⟧
+
+⟦t=67.8⟧
+
+⟦NOTE 4b-esc-durante-testo⟧
+
+⟦t=78.5⟧
+
+ 
+Scriviunastoriadicirca500parolesuunfaro,initaliano.
+ 
+
+❯ Scrivi una storia di circa 500 parole su un faro, in italiano.                                                        
+✢ Cooking… (running UserPromptSubmit hook · 0s)
+  ⎿ Tip: Use ctrl+v to paste images from your clipboard
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·esctointerrupt·←foragents
+ 
+
+ 
+ 
+
+✳
+ 
+
+✶
+ 
+
+✻
+ 
+
+⟦t=79.0⟧
+
+✽
+ 
+
+ 
+(0s · thinking)
+ 
+
+✻thinking
+ 
+
+⟦t=79.6⟧
+
+✶1
+ 
+
+✳↓ 25 tokens · thinking)
+ 
+
+✢50
+ 
+
+⏺La luce di Capo Vento
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · esc to interrupt · ← for agents
+
+⟦NOTE ESC-2⟧
+
+  ⎿  Interrupted · What should Claude do instead?
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·?forshortcuts·←foragents
+ 
+
+⟦NOTE 4c-esc-durante-permesso-con-hook-in-attesa⟧
+
+⟦t=90.7⟧
+
+ 
+EseguiconBashesattamente:touchd.txt
+ 
+
+❯ Esegui con Bash esattamente: touch d.txt                                                                              
+✳ Recombobulating… (running UserPromptSubmit hook · 0s)
+  ⎿ Tip: Use Pla Mode to prepare for a complex request before making changes. Press shift+tab twice to enable.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·esctointerrupt·←foragents
+ 
+
+✶mb
+ 
+
+✻
+ 
+
+✽oo
+ 
+
+ 
+cb
+ 
+
+⟦t=91.5⟧
+
+✻em
+ 
+
+✶
+ 
+
+✳Ro
+ 
+
+ 
+(0s · thinking)
+ 
+
+ 
+c1
+ 
+
+✢
+ 
+
+⟦t=92.0⟧
+
+·ethinking
+ 
+
+ 
+Rthinking
+ 
+
+⏺Bash(touch d.txt)
+Waiting…
+· Recombobulating… (running PreToolUse hook · 1s · thinking)
+  ⎿  Tip: Use Plan Mode to prepare for a complex request before making changes. Press shift+tab twice to enable.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·esctointerrupt·←foragents
+ 
+
+ 
+Recombobulating…
+ 
+
+✢↓ 25 tokens · thinking)
+ 
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+Tip: auto mode handles these prompts for you — choose "switch to auto mode" below
+ Create empty file d.txt in working directory
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ touch d.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+Doyouwanttoproceed?
+❯1.Yes
+2.Yes,andalwaysallowaccessto
+/Users/me/botfrom
+thisproject
+3.Yes,andswitchtoautomode ·automodehandlesthesepromptsforyou
+4.No
+Esctocancel·Tabtoamend
+ 
+
+⟦NOTE ESC-3⟧
+
+⟦t=94.8⟧
+
+ ▐▛███▛█ClaudeCodev2.1.296
+▝▜██████▀Haiku5.5·ClaudeAPI
+ ▝▝▝▝/Users/me/bot
+❯ Esegui con Bash esattamente: sleep 30                                                                                 
+⏺Bash(sleep30)
+ ⎿ Error:Blocked:standalonesleep30.Towaitforacondition,useMonitorwithanuntil-loop(e.g.`until<check>;
+dosleep2;done`).Towaitforacommandyoustarted,userun_in_background:true.Donotchainshortersleepsto
+workaroundthisblock.
+⏺Ilcomandosleep30èstatobloccatodall'harness:leattesefisseconsleepinprimopianononsonoconsentitee
+suggerisceMonitorconunciclountilorun_in_background.Nonhoaggiratoilbloccoconaltrisleepnéconuna
+varianteinbackground,perchésarebbeunmodopereluderelarestrizione.
+Setiservedavverolapausa,puoieseguirlatudirettamentenelpromptcon!sleep30:l'outputfinirànella
+conversazione.
+✻Cogitatedfor4s·done10:58PM
+❯ Scrivi una storia di circa 500 parole su un faro, in italiano.                                                        
+⏺LalucediCapoVento
+ ⎿ Interrupted·WhatshouldClaudedoinstead?
+❯ Esegui con Bash esattamente: touch d.txt                                                                              
+⏺Bash(touchd.txt)
+ ⎿ Interrupted·WhatshouldClaudedoinstead?
+✻Cookedfor1s·done11:00PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏸manualmodeon·?forshortcuts·←foragents◐medium·/effort
+ 
+
+⟦t=104.8⟧
+
+ 
+ 
+
+
+Resume this session with:
+claude --resume 4b6d8f0a-2c4e-4f6a-8b0d-9c1e3f5a7b29

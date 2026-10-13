@@ -1,0 +1,4 @@
+{"hook": {"hook_event_name": "SessionStart", "source": "resume"}}
+{"print": "⎿  Interrupted · What should Claude do instead?\r\n"}
+{"sleep": 0.5}
+{"print": "READY"}
