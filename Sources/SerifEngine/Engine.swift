@@ -31,7 +31,8 @@ final class BotRuntime {
     var codexReady = false                    // thread open and isolation checked: messages go out
     var thread: String?                       // the thread open on the running server
     var turnId: String?                       // the turn running there: messages steer it
-    var turnStarting = false                  // a turn/start is on its way: texts wait for its id
+    var sending = false                       // a text is on its way (turn/start or turn/steer): the next waits for its answer
+    var interruptPending = false              // Stop pressed while a turn/start was on its way: sent once its turn has an id
     var turnPolicies: [String: JSONValue] = [:]   // the approval and sandbox every turn/start passes again (spec §5)
     var launchedAt = Date()
     var startup: DispatchWorkItem?            // gives up on a server that is not ready in time (spec §8)
@@ -149,10 +150,12 @@ public final class Engine {
             servers.forEach { $0.close() }
             servers = []
             let group = DispatchGroup()
-            if let server = codexCatalogServer {        // a catalog being read: its waiters get nil, its process goes
+            // A catalog being read: its waiters get nil, even while Codex is still being checked; its process goes.
+            let catalogServer = codexCatalogServer
+            codexCatalogFinish?(nil)
+            if let catalogServer {
                 group.enter()
-                codexCatalogFinish?(nil)
-                server.stop { group.leave() }
+                catalogServer.stop { group.leave() }
             }
             for rt in bots.values {
                 group.enter()
@@ -193,8 +196,12 @@ public final class Engine {
             return checkAgent(rt.bot.agent) { [weak self] _ in self?.launch(rt, checked: true) }
         }
         if let problem = status.problem { return crashed(rt, problem.rawValue) }
-        guard let agentPath = status.path else { return }       // no problem: it was found
-        if rt.bot.agent == .codex, freshCodexCatalog == nil {
+        // Never: no path is a problem ("not installed"). Stopped as such all the same, never left starting.
+        guard let agentPath = status.path else {
+            return crashed(rt, (rt.bot.agent == .claude ? AgentProblem.claudeNotInstalled : .codexNotInstalled).rawValue)
+        }
+        let catalog = rt.bot.agent == .codex ? freshCodexCatalog : nil      // the one this launch uses, however old it gets
+        if rt.bot.agent == .codex, catalog == nil {
             rt.waitingForCatalog = true
             return codexCatalog { [weak self] catalog in
                 rt.waitingForCatalog = false
@@ -223,8 +230,8 @@ public final class Engine {
         } catch {
             return crashed(rt, "Cannot prepare the bot's folder: \(error.localizedDescription)")
         }
-        if rt.bot.agent == .codex {
-            return launchCodex(rt, project: project, codexPath: agentPath, instructions: prompt, linkedExists: linkedExists)
+        if let catalog {        // a Codex bot (it always has one here)
+            return launchCodex(rt, project: project, codexPath: agentPath, catalog: catalog, instructions: prompt, linkedExists: linkedExists)
         }
         // Skills arrive as links in the bot's folder and in the project's shared one, which every bot gets with --add-dir
         // (spec §6.2); one that cannot be linked is left out and logged, the bot starts anyway (spec §9).
@@ -447,8 +454,9 @@ extension Engine: BotHostDelegate {
     public func botHostStarted(_ host: BotHost) {}
 
     public func botHost(_ host: BotHost, exited code: Int32?, ranFor: TimeInterval) {
+        guard let rt = bots[host.botId] else { return }
         // A Codex terminal that closes is not the bot: its server goes on (spec §4).
-        guard let rt = bots[host.botId], rt.bot.agent == .claude else { return }
+        guard rt.bot.agent == .claude else { return log("bot \(rt.bot.id): Codex terminal exited (\(code.map { "code \($0)" } ?? "did not start"))") }
         exited(rt, ranFor: ranFor, code: code)
     }
 }

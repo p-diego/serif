@@ -1074,10 +1074,13 @@ final class EngineTests: XCTestCase {
         let ((restarted, _), (sent, _)) = (client.send(.restartBot(id: bot.id)), client.send(.send(botId: bot.id, text: "Ancora?")))
         wait(for: [restarted, sent], timeout: timeout)
         waitFor(client, "delivered") { $0.chatEvents(bot.id).contains(.userMessage(text: "Ancora?", promptId: "turn-1", origin: .chat)) }
+        // Never written to the old server: sent once, to the new one.
+        XCTAssertEqual(codexRequests("turn/start").filter { $0["input"]?.array?.first?["text"] == "Ancora?" }.count, 1)
     }
 
     func testAThreadCodexLostStartsANewConversation() throws {
-        try makeEngine("basic", codex: "codex-lost-thread").start()
+        let engine = try makeEngine("basic", codex: "codex-lost-thread")
+        try engine.start()
         let client = try connect()
         let bot = try createBot(client, agent: .codex)
         waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
@@ -1085,6 +1088,9 @@ final class EngineTests: XCTestCase {
         waitFor(client, "new conversation") { $0.chatEvents(bot.id).contains(.system(.newConversation)) }
         waitFor(client, "ready") { $0.summaries(bot.id).last?.state == .ready }
         XCTAssertEqual(codexRequests("thread/start").count, 2)
+        // The lost thread is forgotten: the new one is kept at its first turn, as any new thread.
+        XCTAssertNil(client.all.summaries(bot.id).last?.bot.threadId)
+        XCTAssertNil(engine.queue.sync { engine.store.bots.first { $0.id == bot.id }?.threadId })
     }
 
     func testMessageDuringATurnSteersIt() throws {
@@ -1188,6 +1194,113 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(codexRequests("thread/resume").first?["threadId"], "thr-1")
     }
 
+    func testCodexCrashMidReplyKeepsWhatStreamed() throws {
+        // The reply being written when the server died stays in the chat, its unfinished line too.
+        try makeEngine("basic", codex: "codex-crash-mid-reply").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "interrupted") { $0.chatEvents(bot.id).contains(.turnInterrupted) }
+        let events = client.all.chatEvents(bot.id)
+        let text = events.compactMap { if case let .assistantText(_, _, delta, _, _) = $0 { delta } else { nil } }.joined()
+        XCTAssertEqual(text, "Prima riga\nmezza ri")
+        XCTAssertEqual(events.map(label).prefix(5), ["system(botCreated)", "userMessage", "assistantText", "assistantText", "turnInterrupted"])
+    }
+
+    /// The text of each `method` request fake-codex received, with the turn it named (a steer's).
+    private func codexTexts(_ method: String) -> [String] {
+        codexRequests(method).map { p in
+            [p["input"]?.array?.first?["text"]?.string, p["expectedTurnId"]?.string].compactMap { $0 }.joined(separator: "@")
+        }
+    }
+
+    func testRefusedSteerOpensANewTurn() throws {
+        // The turn ended before Codex got the steer: the text opens a turn of its own.
+        try makeEngine("basic", codex: "codex-steer-refused").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "turn running") { $0.chatEvents(bot.id).contains { label($0) == "userMessage" } }
+        XCTAssertEqual(request(client, .send(botId: bot.id, text: "uno")), .ok)
+        waitFor(client, "a new turn") { $0.chatEvents(bot.id).contains(.userMessage(text: "uno", promptId: "turn-2", origin: .chat)) }
+        XCTAssertEqual(codexTexts("turn/steer"), ["uno@turn-1"])
+        XCTAssertEqual(codexTexts("turn/start").last, "uno")
+    }
+
+    func testOneTextAtATimeKeepsTheOrderThroughARefusedSteer() throws {
+        // A second text waits for the first one's answer, steer included: the refused steer goes first, as a new turn, and
+        // the second steers that turn; nothing lost, nothing out of order.
+        try makeEngine("basic", codex: "codex-steer-refused").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "turn running") { $0.chatEvents(bot.id).contains { label($0) == "userMessage" } }
+        let ((first, _), (second, _)) = (client.send(.send(botId: bot.id, text: "uno")), client.send(.send(botId: bot.id, text: "due")))
+        wait(for: [first, second], timeout: timeout)
+        waitFor(client, "turn ended") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        let rpc = codexMessages().compactMap { m -> String? in
+            guard let method = m["method"]?.string, method.hasPrefix("turn/") else { return nil }
+            return method + " " + [m["params"]?["input"]?.array?.first?["text"]?.string, m["params"]?["expectedTurnId"]?.string].compactMap { $0 }.joined(separator: "@")
+        }
+        XCTAssertEqual(rpc.dropFirst(), ["turn/steer uno@turn-1", "turn/start uno", "turn/steer due@turn-2"])
+        let said = client.all.chatEvents(bot.id).compactMap { if case let .userMessage(text, _, .chat) = $0 { text } else { nil } }
+        XCTAssertEqual(said, ["uno", "due"])
+    }
+
+    func testMessageLostWithItsServerIsNotSentAgain() throws {
+        // Sent, then the server died before answering: Codex may have taken it, so it is not sent again (a duplicate in the
+        // thread); the chat says it may not have arrived, with the text.
+        try makeEngine("basic", codex: "codex-lost-turn").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        XCTAssertEqual(request(client, .send(botId: bot.id, text: "Ancora?")), .ok)
+        waitFor(client, "noted") { $0.chatEvents(bot.id).contains(.system(.messageMayNotHaveArrived(text: "Ancora?"))) }
+        waitFor(client, "resumed") { $0.chatEvents(bot.id).contains(.system(.resumed)) }
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertEqual(codexTexts("turn/start").filter { $0 == "Ancora?" }.count, 1)
+    }
+
+    func testStopWhileATurnStartsInterruptsItOnceItHasAnId() throws {
+        // Stop pressed before Codex answered turn/start: the turn is interrupted as soon as its id arrives.
+        try makeEngine("basic", codex: "codex-interrupt-early").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitUntil("turn starting") { [unowned self] in codexRequests("turn/start").count == 1 }
+        XCTAssertEqual(request(client, .interrupt(botId: bot.id)), .ok)
+        waitFor(client, "interrupted") { $0.chatEvents(bot.id).contains(.turnInterrupted) }
+        XCTAssertEqual(codexRequests("turn/interrupt"), [["threadId": "thr-1", "turnId": "turn-1"]])
+    }
+
+    func testRefusedInterruptIsLogged() throws {
+        try makeEngine("basic", codex: "codex-interrupt-refused").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "turn running") { $0.chatEvents(bot.id).contains { label($0) == "userMessage" } }
+        XCTAssertEqual(request(client, .interrupt(botId: bot.id)), .ok)
+        waitUntil("logged") { [unowned self] in
+            ((try? String(contentsOf: paths.log, encoding: .utf8)) ?? "").contains("turn/interrupt refused: no active turn to interrupt")
+        }
+    }
+
+    func testShutdownDuringCodexsCheckAnswersTheCatalogAndStartsNoServer() throws {
+        // The catalog's reading waits for Codex's check: a shutdown meanwhile answers its waiters at once, and the check's
+        // end starts no server.
+        let (fake, fakeCodex) = (binDir.appendingPathComponent("fake-claude").path, binDir.appendingPathComponent("fake-codex").path)
+        let engine = try makeEngine("basic", locate: { agent in
+            if agent == .codex { Thread.sleep(forTimeInterval: 1) }         // a slow check
+            return agent == .claude ? fake : fakeCodex
+        })
+        try engine.start()
+        var answers: [CodexCatalog?] = []
+        let answered = expectation(description: "answered")
+        engine.queue.async { engine.codexCatalog { answers.append($0); answered.fulfill() } }
+        shutdown(engine)
+        wait(for: [answered], timeout: 0.5)
+        XCTAssertEqual(answers.count, 1)
+        XCTAssertNil(answers.first ?? nil)
+        Thread.sleep(forTimeInterval: 1.5)          // the check has ended meanwhile
+        XCTAssertNil(engine.queue.sync { engine.codexCatalogServer })
+        XCTAssertFalse(((try? String(contentsOfFile: fakeLog, encoding: .utf8)) ?? "").contains("app-server"))
+    }
+
     func testCodexBotRestartsForCodexPluginsOnly() throws {
         // The other half of testEachAgentRestartsForItsOwnPlugins: Claude Code's list leaves a Codex bot alone.
         try makeEngine("basic").start()
@@ -1254,6 +1367,28 @@ final class EngineTests: XCTestCase {
         let poll2 = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { t in if !running() { t.invalidate(); gone.fulfill() } }
         wait(for: [gone], timeout: timeout)
         poll2.invalidate()
+    }
+
+    func testCodexTerminalSharedByTwoApps() throws {
+        // Two apps showing it share one terminal; it stays while one of them still shows it, and its exit is logged.
+        let engine = try makeEngine("basic")
+        try engine.start()
+        let (a, b) = (try connect(), try connect())
+        let bot = try createBot(a, agent: .codex)
+        waitFor(a, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        let running = { engine.queue.sync { engine.bots[bot.id]?.host.isRunning ?? false } }
+        guard case .terminal = request(a, .attachTerminal(botId: bot.id)), case .terminal = request(b, .attachTerminal(botId: bot.id))
+        else { return XCTFail("terminal refused") }
+        waitFor(b, "terminal") { $0.terminalText.contains("CODEX-TUI thr-1") }
+        XCTAssertEqual(request(a, .detachTerminal(botId: bot.id)), .ok)
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(running(), "closed while another app shows it")
+        XCTAssertEqual(try launches(3).filter { $0.args.first == "resume" }.count, 1)      // the catalog's server, the bot's, one terminal
+        XCTAssertEqual(request(b, .detachTerminal(botId: bot.id)), .ok)
+        waitUntil("terminal stopped") { !running() }
+        waitUntil("exit logged") { [unowned self] in
+            ((try? String(contentsOf: paths.log, encoding: .utf8)) ?? "").contains("Codex terminal exited")
+        }
     }
 
     func testCodexTerminalShownAgainWhileClosingStartsAgain() throws {

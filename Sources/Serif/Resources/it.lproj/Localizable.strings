@@ -242,3 +242,4 @@
 "More permissions" = "Più permessi";
 "Deny and stop" = "Nega e ferma";
 "The terminal opens after the first message" = "Il terminale si apre dopo il primo messaggio";
+"This message may not have reached Codex: %@" = "Questo messaggio potrebbe non essere arrivato a Codex: %@";

@@ -152,9 +152,7 @@ extension Engine {
         case let .interrupt(botId):
             let rt = try runtime(botId)
             guard rt.bot.agent == .codex else { rt.host.pressEscape(); return .ok }
-            if let server = rt.codex, let thread = rt.thread, let turn = rt.turnId {
-                server.request("turn/interrupt", ["threadId": .string(thread), "turnId": .string(turn)]) { _ in }
-            }
+            interruptCodex(rt)
             return .ok
         case let .answer(requestId, answer):
             return try self.answer(requestId, answer)

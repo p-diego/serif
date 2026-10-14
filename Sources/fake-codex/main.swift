@@ -67,7 +67,8 @@ if let busy = env["SERIF_FAKE_CODEX_BUSY"], FileManager.default.fileExists(atPat
 }
 if let delay = env["SERIF_FAKE_CODEX_DELAY"].flatMap(Double.init) { usleep(UInt32(delay * 1_000_000)) }
 
-// The scenario: lines {"reply": method, "result"|"error": …} answer that method's next request instead of the default;
+// The scenario: lines {"reply": method, "result"|"error": …} answer that method's next request instead of the default,
+// "delay" seconds later if given (that request's "after" too), or with "exit": code never (the server exits at once);
 // {"after": method|"answer", "send": [messages], "exit": code} act once after the next such request (or answer to a
 // server request). In what is sent, "$THREAD", "$TURN" and "$INPUT" are the thread, the last turn and the last text sent.
 var replies: [(method: String, line: JSONValue)] = []
@@ -140,16 +141,21 @@ func received(_ data: Data) {
     if let text = p["input"]?.array?.first?["text"]?.string { input = text }
     if method == nil, v["id"] != nil { return act(after: "answer") }        // the answer to one of our requests
     guard let method, let id = v["id"] else { return }                        // notifications (initialized) need nothing
+    let answer: String
+    var delay = 0.0
     if let i = replies.firstIndex(where: { $0.method == method }) {
         let line = replies.remove(at: i).line
-        if let error = line["error"]?.string { send(codexErrorResponse(id: id, message: error)) }
-        else { _ = defaultResult(method, p); send(codexResponse(id: id, result: line["result"] ?? [:])) }
+        if let code = line["exit"]?.int { exit(Int32(code)) }
+        delay = line["delay"]?.double ?? 0
+        if let error = line["error"]?.string { answer = codexErrorResponse(id: id, message: error) }
+        else { _ = defaultResult(method, p); answer = codexResponse(id: id, result: line["result"] ?? [:]) }
     } else if let result = defaultResult(method, p) {
-        send(codexResponse(id: id, result: result))
+        answer = codexResponse(id: id, result: result)
     } else {
-        send(codexErrorResponse(id: id, message: "unknown method \(method)"))
+        answer = codexErrorResponse(id: id, message: "unknown method \(method)")
     }
-    act(after: method)
+    let reply = { send(answer); act(after: method) }
+    if delay > 0 { queue.asyncAfter(deadline: .now() + delay, execute: reply) } else { reply() }
 }
 
 func act(after method: String) {

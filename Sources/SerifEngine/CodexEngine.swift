@@ -36,7 +36,7 @@ extension Engine {
         codexCatalogFinish = finish
         let read = { [weak self] (status: AgentStatus) in
             guard let self, !done else { return }
-            guard status.problem == nil, let path = status.path else { return finish(nil) }
+            guard !stopping, status.problem == nil, let path = status.path else { return finish(nil) }
             let server = CodexServer(queue: queue)
             codexCatalogServer = server
             let token = codexToken()
@@ -84,8 +84,8 @@ extension Engine {
     /// Starts a Codex bot (spec §4): its skills linked, its own server with the switches of §6, then its thread (opened or
     /// resumed with every setting again), the isolation check, and whatever waits in its outbox. The whole start has
     /// `codexStartupTimeout` (spec §8).
-    func launchCodex(_ rt: BotRuntime, project: Project, codexPath: String, instructions: String, linkedExists: Bool) {
-        guard let catalog = freshCodexCatalog else { return }
+    func launchCodex(_ rt: BotRuntime, project: Project, codexPath: String, catalog: CodexCatalog, instructions: String,
+                     linkedExists: Bool) {
         let bot = rt.bot, workspace = paths.bot(bot.id).workspace
         // Codex does not read the project's folder for skills: the project's go into the bot's folder too (spec §6), once
         // when both chose one.
@@ -99,7 +99,8 @@ extension Engine {
         let hidden = catalog.remotePlugins.filter { !chosen.contains($0) }.flatMap { catalog.remoteSkills[$0] ?? [] }
         let token = codexToken()
         let server = CodexServer(queue: queue)          // a new one at every start: nothing of an earlier one carries over
-        (rt.codex, rt.codexToken, rt.codexReady, rt.thread, rt.turnId, rt.turnStarting) = (server, token, false, nil, nil, false)
+        (rt.codex, rt.codexToken, rt.codexReady, rt.thread, rt.turnId) = (server, token, false, nil, nil)
+        (rt.sending, rt.interruptPending) = (false, false)
         rt.codexNormalizer = CodexNormalizer()
         rt.launchedAt = Date()
         server.onMessage = { [weak self, weak rt] message in if let rt { self?.codexMessage(message, rt) } }
@@ -197,11 +198,16 @@ extension Engine {
     /// The server is gone (it exited, or was stopped): its terminal goes too; a turn cut short closes as interrupted and
     /// its cards as cancelled, as for Claude Code.
     func codexEnded(_ rt: BotRuntime) {
+        let turn = rt.turnId
         rt.startup?.cancel()
-        (rt.codex, rt.codexReady, rt.thread, rt.turnId, rt.turnStarting, rt.startup) = (nil, false, nil, nil, false, nil)
+        (rt.codex, rt.codexReady, rt.thread, rt.turnId, rt.startup) = (nil, false, nil, nil, nil)
+        (rt.sending, rt.interruptPending) = (false, false)
         stopTerminal(rt)
         closeRequests(of: rt, .cancelled)
-        if rt.tracker.state.inTurn { record(.turnInterrupted, rt) }
+        // Closed as Codex closes one it interrupts: what had streamed of the reply stays in the chat.
+        guard rt.tracker.state.inTurn else { return }
+        let end: JSONValue = ["turn": ["id": turn.map(JSONValue.string) ?? .null, "status": "interrupted"]]
+        handle(rt.codexNormalizer.ingest(.notification(method: "turn/completed", params: end)), rt)
     }
 
     /// A crash (spec §8): the server exited by itself, or did not start or get ready in time. The bot starts again after
@@ -231,42 +237,54 @@ extension Engine {
     // MARK: - Conversation
 
     /// Sends what waits in the outbox, in order (spec §4): a new turn when none runs, added to the running one otherwise.
-    /// While a turn/start is on its way the rest waits for its id.
+    /// One text at a time: the next waits for the answer to the one on its way (a new turn's id, or the steer's).
     func deliverCodex(_ rt: BotRuntime) {
-        guard rt.codexReady, !rt.turnStarting, !rt.outbox.isEmpty else { return }
+        guard rt.codexReady, !rt.sending, !rt.outbox.isEmpty else { return }
         let message = rt.outbox.removeFirst()
         rt.codexNormalizer.expectChatMessage(message.text, origin: message.origin)
         sendTurn(message, to: rt, steering: rt.turnId)
     }
 
-    /// A text whose request never got Codex's answer (its server is going: restarted, crashed) goes back to the front of
-    /// the outbox, for the next launch.
+    /// A text whose request never left (its server is going: restarted, crashed) goes back to the front of the outbox, for
+    /// the next launch. One that left and got no answer is not sent again, Codex may have taken it: the chat says so.
     private func sendTurn(_ message: (text: String, origin: MessageOrigin), to rt: BotRuntime, steering turn: String?) {
-        guard let server = rt.codex, let thread = rt.thread else { return }
+        guard let server = rt.codex, let thread = rt.thread else { return rt.outbox.insert(message, at: 0) }
         let input: JSONValue = [["type": "text", "text": .string(message.text)]]
-        if let turn {
-            return server.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": input]) { [weak self, weak rt] result in
-                guard let self, let rt else { return }
-                if case let .failure(f) = result {
-                    guard f.fromCodex else { return rt.outbox.insert(message, at: 0) }
-                    // The turn ended meanwhile: the text opens a new one.
-                    if rt.turnId == turn { rt.turnId = nil }
-                    return sendTurn(message, to: rt, steering: nil)
-                }
-                deliverCodex(rt)
-            }
-        }
-        rt.turnStarting = true
-        let params = rt.turnPolicies.merging(["threadId": .string(thread), "input": input]) { $1 }
-        server.request("turn/start", .object(params)) { [weak self, weak rt] result in
+        let params: [String: JSONValue] = turn.map { ["threadId": .string(thread), "expectedTurnId": .string($0), "input": input] }
+            ?? rt.turnPolicies.merging(["threadId": .string(thread), "input": input]) { $1 }
+        rt.sending = true
+        server.request(turn == nil ? "turn/start" : "turn/steer", .object(params)) { [weak self, weak rt] result in
             guard let self, let rt else { return }
-            rt.turnStarting = false
+            rt.sending = false
             switch result {
-            case let .success(answer): rt.turnId = rt.turnId ?? answer["turn"]?["id"]?.string
-            case let .failure(f) where f.fromCodex: record(.turnFailed(reason: "Codex: \(f.message)"), rt)
-            case .failure: return rt.outbox.insert(message, at: 0)
+            case let .success(answer):
+                if turn == nil { rt.turnId = rt.turnId ?? answer["turn"]?["id"]?.string }
+            case let .failure(f) where f.fromCodex && turn != nil:
+                // The turn ended before the steer: the text opens a new one, still ahead of the others.
+                if rt.turnId == turn { rt.turnId = nil }
+                rt.outbox.insert(message, at: 0)
+            case let .failure(f) where f.fromCodex:
+                record(.turnFailed(reason: "Codex: \(f.message)"), rt)
+            case let .failure(f) where f.neverSent:
+                return rt.outbox.insert(message, at: 0)
+            case .failure:
+                return record(.system(.messageMayNotHaveArrived(text: message.text)), rt)
             }
+            if rt.interruptPending { interruptCodex(rt) }
             deliverCodex(rt)
+        }
+    }
+
+    /// Stop (spec §4): the running turn is interrupted; one whose turn/start is still on its way, as soon as it has an id.
+    func interruptCodex(_ rt: BotRuntime) {
+        guard let server = rt.codex, let thread = rt.thread, let turn = rt.turnId else {
+            rt.interruptPending = rt.sending && rt.turnId == nil
+            return
+        }
+        rt.interruptPending = false
+        server.request("turn/interrupt", ["threadId": .string(thread), "turnId": .string(turn)]) { [weak self, weak rt] result in
+            guard let self, let rt, case let .failure(f) = result, f.fromCodex else { return }
+            log("bot \(rt.bot.id): turn/interrupt refused: \(f.message)")
         }
     }
 
@@ -285,6 +303,7 @@ extension Engine {
             case "turn/started":
                 rt.turnId = p["turn"]?["id"]?.string
                 saveThread(rt)
+                if rt.interruptPending { interruptCodex(rt) }
             case "turn/completed":
                 if rt.turnId == p["turn"]?["id"]?.string { rt.turnId = nil }
                 // Cards still open when a turn stops short are gone; after a normal end `record` closes them.
@@ -322,6 +341,8 @@ extension Engine {
     func terminalViewersChanged(_ rt: BotRuntime) {
         guard rt.bot.agent == .codex else { return }
         guard apps.values.contains(where: { $0.terminals.contains(rt.bot.id) }) else {
+            // Only a running one: `stopTerminal` looks again here once it has gone, and a host already stopped calls back at
+            // once, so without this check the two would call each other forever.
             if rt.host.isRunning { stopTerminal(rt) }
             return
         }

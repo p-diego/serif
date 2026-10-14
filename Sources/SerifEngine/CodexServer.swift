@@ -4,8 +4,9 @@ import SerifCore
 /// A Codex app-server of Serif's (spec §4): the `codex app-server` process, the WebSocket to it with its secret, and
 /// JSON-RPC over it. Every callback and method runs on `queue`.
 final class CodexServer {
-    /// Why a request failed: Codex answered with an error (`fromCodex`), or the server went away.
-    struct Failure: Error { let message: String; let fromCodex: Bool }
+    /// Why a request failed: Codex answered with an error (`fromCodex`), or the server went away; `neverSent` when the
+    /// request never left (Codex cannot have taken it).
+    struct Failure: Error { let message: String; let fromCodex: Bool; var neverSent = false }
 
     /// How to start it: `args` gets the port, which can change if one was taken.
     struct Launch {
@@ -143,14 +144,14 @@ final class CodexServer {
     }
 
     func request(_ method: String, _ params: JSONValue, then: @escaping (Result<JSONValue, Failure>) -> Void) {
-        guard let webSocket else { return then(.failure(Failure(message: "Codex is not connected", fromCodex: false))) }
+        guard let webSocket else { return then(.failure(Failure(message: "Codex is not connected", fromCodex: false, neverSent: true))) }
         let id = nextId
         nextId += 1
         waiting[id] = then
         webSocket.send(.string(codexRequest(id: id, method: method, params: params))) { [weak self] error in
             guard error != nil else { return }
             self?.queue.async { [weak self] in
-                self?.waiting.removeValue(forKey: id)?(.failure(Failure(message: "Codex is not reachable", fromCodex: false)))
+                self?.waiting.removeValue(forKey: id)?(.failure(Failure(message: "Codex is not reachable", fromCodex: false, neverSent: true)))
             }
         }
     }

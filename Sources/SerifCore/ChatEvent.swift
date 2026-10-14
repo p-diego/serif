@@ -10,6 +10,7 @@ public enum SystemNote: Codable, Equatable, Sendable {
     case botCreated, resumed, newConversation, compacted, interrupted, introductionRequested
     case linkedFolderMissing(path: String)
     case crashed(reason: String)
+    case messageMayNotHaveArrived(text: String)     // sent to Codex, whose server went before answering: not sent again
 }
 
 /// What a working bot is doing right now, shown next to its name.

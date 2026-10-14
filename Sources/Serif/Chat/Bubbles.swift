@@ -83,6 +83,7 @@ struct SystemLine: View {
         case .introductionRequested: String(localized: "Serif asked \(botName) to introduce itself")
         case .linkedFolderMissing(let p): String(localized: "The linked folder is missing: \(p)")
         case .crashed(let r): String(localized: "Stopped: \(crashReasonText(r))")
+        case .messageMayNotHaveArrived(let t): String(localized: "This message may not have reached Codex: \(t)")
         }
     }
 }
