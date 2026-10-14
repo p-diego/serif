@@ -73,7 +73,19 @@ private struct PanelContent: View {
         }
     }
 
-    private var preview: some View {
+    @ViewBuilder private var preview: some View {
+        if bot.agent == .codex {
+            // A Codex bot's terminal is a real Codex on its thread: started for the Terminal view only, never for a preview.
+            Button(String(localized: "Open the terminal"), action: openTerminal)
+                .frame(maxWidth: .infinity, minHeight: 160)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.pane))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border, lineWidth: 1))
+        } else {
+            claudePreview
+        }
+    }
+
+    private var claudePreview: some View {
         PreviewTerminal(session: client.terminal(for: bot.id))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay { StoppedOverlay(state: summary.state, radius: 12) }
