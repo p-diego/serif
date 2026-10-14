@@ -59,6 +59,17 @@ final class CodexLaunchTests: XCTestCase {
         XCTAssertNil(resume["model"])
     }
 
+    func testEveryTurnPassesTheFreedomAgain() {
+        // Codex keeps a turn's approval and sandbox for the turns after it: a turn typed in the terminal would leave its own.
+        let roots: JSONValue = ["/w", "/s"]
+        XCTAssertEqual(codexTurnPolicies(freedom: .ask, writableRoots: ["/w", "/s"]),
+                       ["approvalPolicy": "on-request", "sandboxPolicy": ["type": "readOnly"]])
+        XCTAssertEqual(codexTurnPolicies(freedom: .edits, writableRoots: ["/w", "/s"]),
+                       ["approvalPolicy": "on-request", "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": roots]])
+        XCTAssertEqual(codexTurnPolicies(freedom: .auto, writableRoots: ["/w", "/s"]),
+                       ["approvalPolicy": "never", "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": roots]])
+    }
+
     func testTerminalPlanAndEnvironment() {
         let plan = codexTerminalPlan(codexPath: "/bin/codex", threadId: "thr-1", port: 4000, token: "secret", cwd: "/w",
                                      baseEnvironment: ["PATH": "/bin", "CLAUDECODE": "1", "CODEX_THREAD_ID": "old", "CODEX_HOME": "/h"])

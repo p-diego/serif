@@ -55,6 +55,14 @@ public func codexThreadParams(resume threadId: String?, cwd: String, model: Stri
     return .object(p)
 }
 
+/// The approval and sandbox every `turn/start` passes again (spec §5), the sandbox with the thread's writable folders.
+/// Codex keeps a turn's for the turns after it: a turn typed in the bot's terminal would leave the terminal's to the chat.
+public func codexTurnPolicies(freedom: Freedom, writableRoots: [String]) -> [String: JSONValue] {
+    ["approvalPolicy": .string(freedom.codexApproval),
+     "sandboxPolicy": freedom == .ask ? ["type": "readOnly"]
+                                      : ["type": "workspaceWrite", "writableRoots": .array(writableRoots.map(JSONValue.string))]]
+}
+
 /// The engine's environment as Codex gets it: the bots' (no `CLAUDE*`, no `ANTHROPIC_API_KEY`) without a
 /// `CODEX_THREAD_ID` a Codex session may have left (Gravity drops it too).
 public func codexEnvironment(_ base: [String: String]) -> [String: String] {

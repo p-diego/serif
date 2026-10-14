@@ -237,7 +237,7 @@ final class EngineTests: XCTestCase {
 
     /// A bot in `projectId`, or in a new project "P"; returns the bot as the engine created it.
     private func createBot(_ client: TestClient, in projectId: UUID? = nil, agent: Agent = .claude, connectors: Bool = false,
-                           skills: [String] = [], plugins: [String] = []) throws -> Bot {
+                           skills: [String] = [], plugins: [String] = [], freedom: Freedom = .ask) throws -> Bot {
         let project: UUID
         if let projectId { project = projectId } else {
             guard case let .project(p) = request(client, .createProject(name: "P", linkedFolder: nil, readLinkedInstructions: true))
@@ -245,7 +245,7 @@ final class EngineTests: XCTestCase {
             project = p.id
         }
         let new = NewBot(projectId: project, name: "Bob", face: randomFace(existing: []), agent: agent, model: nil,
-                         instructions: "Help.", freedom: .ask, skills: skills, plugins: plugins, connectors: connectors)
+                         instructions: "Help.", freedom: freedom, skills: skills, plugins: plugins, connectors: connectors)
         guard case let .bot(bot) = request(client, .createBot(new)) else { throw XCTSkip("createBot failed") }
         return bot
     }
@@ -751,6 +751,37 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(codexRequests("mcpServerStatus/list").first?["threadId"], "thr-1")
         let link = paths.bot(bot.id).workspace.appendingPathComponent(".agents/skills/tidy").path
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link), skill.path)
+    }
+
+    func testEveryTurnPassesTheBotsFreedomAgain() throws {
+        // SAFETY: Codex keeps a turn's approval and sandbox for the turns after it, so a turn typed in the terminal would leave
+        // its own to the chat's next turns: every turn/start of Serif's passes the bot's again.
+        try makeEngine("basic").start()
+        let client = try connect()
+        guard case let .project(p) = request(client, .createProject(name: "P", linkedFolder: nil, readLinkedInstructions: true))
+        else { return XCTFail("no project") }
+        let expected: [(Freedom, JSONValue, Bool)] = [(.ask, "on-request", false), (.edits, "on-request", true), (.auto, "never", true)]
+        for (freedom, approval, writes) in expected {
+            let bot = try createBot(client, in: p.id, agent: .codex, freedom: freedom)
+            waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+            let start = try XCTUnwrap(codexRequests("turn/start").last)
+            let roots: JSONValue = [.string(paths.bot(bot.id).workspace.path), .string(paths.shared(p.id).path)]
+            XCTAssertEqual(start["approvalPolicy"], approval, "\(freedom)")
+            XCTAssertEqual(start["sandboxPolicy"], writes ? ["type": "workspaceWrite", "writableRoots": roots] : ["type": "readOnly"], "\(freedom)")
+        }
+    }
+
+    func testThreadSettingsChangedCheckTheIsolationAgain() throws {
+        // SAFETY backstop: the terminal can change the thread's settings; the isolation is checked again then, and a bot that
+        // no longer shows it stops.
+        try makeEngine("basic", codex: "codex-settings-hooks-on").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        let stopped = BotState.crashed(reason: CodexText.isolation, retryAt: nil)
+        waitFor(client, "stopped: isolation") { $0.summaries(bot.id).contains { $0.state == stopped } }
+        XCTAssertEqual(codexRequests("experimentalFeature/list").count, 2)
+        XCTAssertEqual(codexRequests("mcpServerStatus/list").count, 2)
+        XCTAssertTrue(client.all.chatEvents(bot.id).contains(.system(.crashed(reason: CodexText.isolation))))
     }
 
     func testLinkedFolderIsWritableOnlyWhenItExists() throws {

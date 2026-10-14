@@ -32,6 +32,7 @@ final class BotRuntime {
     var thread: String?                       // the thread open on the running server
     var turnId: String?                       // the turn running there: messages steer it
     var turnStarting = false                  // a turn/start is on its way: texts wait for its id
+    var turnPolicies: [String: JSONValue] = [:]   // the approval and sandbox every turn/start passes again (spec §5)
     var launchedAt = Date()
     var startup: DispatchWorkItem?            // gives up on a server that is not ready in time (spec §8)
     var waitingForCatalog = false             // its launch waits for Codex's catalog: launched again, it waits once

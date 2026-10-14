@@ -113,6 +113,7 @@ extension Engine {
         rt.startup = watchdog
         queue.asyncAfter(deadline: .now() + codexStartupTimeout, execute: watchdog)
         let roots = [workspace.path, paths.shared(project.id).path] + (linkedExists ? [project.linkedFolder!] : [])
+        rt.turnPolicies = codexTurnPolicies(freedom: bot.freedom, writableRoots: roots)
         // "Default" is Codex's default model: a thread that ran on another one goes back to it.
         let model = bot.model ?? catalog.models.first(where: \.isDefault)?.id
         let params = { (resume: String?) in
@@ -149,26 +150,26 @@ extension Engine {
             case let .success(answer):
                 guard let thread = answer["thread"]?["id"]?.string else { return codexStopped(rt, reason: "Codex: no thread") }
                 rt.thread = thread
-                checkIsolation(rt, server, thread: thread, resumed: resume != nil)
+                checkIsolation(rt, server, thread: thread) { [weak self, weak rt] in if let rt { self?.codexReady(rt, resumed: resume != nil) } }
             }
         }
     }
 
     /// The thread must report Siigil's hooks off and, with the bot's connectors off, no `codex_apps` (spec §4, §8); a bot
-    /// that cannot show it never runs.
-    private func checkIsolation(_ rt: BotRuntime, _ server: CodexServer, thread: String, resumed: Bool) {
+    /// that cannot show it never runs, and stops if it no longer does. `then` runs once it has shown it.
+    private func checkIsolation(_ rt: BotRuntime, _ server: CodexServer, thread: String, then: @escaping () -> Void) {
         server.request("experimentalFeature/list", ["threadId": .string(thread), "limit": 500]) { [weak self, weak rt] features in
             guard let self, let rt else { return }
-            if rt.bot.connectors { return isolationChecked(rt, server, features: features, mcp: nil, resumed: resumed) }
+            if rt.bot.connectors { return isolationChecked(rt, server, features: features, mcp: nil, then: then) }
             server.request("mcpServerStatus/list", ["threadId": .string(thread), "detail": "toolsAndAuthOnly", "limit": 500]) { [weak self, weak rt] mcp in
                 guard let self, let rt else { return }
-                isolationChecked(rt, server, features: features, mcp: mcp, resumed: resumed)
+                isolationChecked(rt, server, features: features, mcp: mcp, then: then)
             }
         }
     }
 
     private func isolationChecked(_ rt: BotRuntime, _ server: CodexServer, features: Result<JSONValue, CodexServer.Failure>,
-                                  mcp: Result<JSONValue, CodexServer.Failure>?, resumed: Bool) {
+                                  mcp: Result<JSONValue, CodexServer.Failure>?, then: () -> Void) {
         guard rt.codex === server else { return }
         // Lost on the way: the server's exit, or the start's time limit, decides.
         if case let .failure(f) = features, !f.fromCodex { return }
@@ -177,7 +178,7 @@ extension Engine {
             log("bot \(rt.bot.id): \(CodexText.isolation): \(problem)")
             return codexStopped(rt, reason: CodexText.isolation)
         }
-        codexReady(rt, resumed: resumed)
+        then()
     }
 
     private func codexReady(_ rt: BotRuntime, resumed: Bool) {
@@ -256,7 +257,8 @@ extension Engine {
             }
         }
         rt.turnStarting = true
-        server.request("turn/start", ["threadId": .string(thread), "input": input]) { [weak self, weak rt] result in
+        let params = rt.turnPolicies.merging(["threadId": .string(thread), "input": input]) { $1 }
+        server.request("turn/start", .object(params)) { [weak self, weak rt] result in
             guard let self, let rt else { return }
             rt.turnStarting = false
             switch result {
@@ -288,6 +290,9 @@ extension Engine {
                 // Cards still open when a turn stops short are gone; after a normal end `record` closes them.
                 if p["turn"]?["status"]?.string != "completed" { closeRequests(of: rt, .cancelled) }
                 finished = true
+            case "thread/settings/updated":
+                // The terminal can change the thread's settings: whatever changed, the isolation must still show.
+                if let server = rt.codex, let thread = rt.thread { checkIsolation(rt, server, thread: thread) {} }
             default: break
             }
         }
