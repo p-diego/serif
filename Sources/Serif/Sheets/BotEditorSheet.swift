@@ -224,7 +224,7 @@ struct BotEditorSheet: View {
         let givenPlugins = (agent == .claude ? given?.plugins : given?.codexPlugins) ?? []
         skills = suggested?.skills.filter { !(given?.skills.contains($0) ?? false) } ?? []
         plugins = suggested?.plugins.filter { !givenPlugins.contains($0) } ?? []
-        connectors = t == .researcher && agent == .codex
+        if agent == .codex { connectors = t == .researcher }       // a Claude Code bot's stay as they are (0.3.1)
     }
 
     private func submit() {

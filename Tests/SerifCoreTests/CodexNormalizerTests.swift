@@ -174,4 +174,12 @@ final class CodexNormalizerTests: XCTestCase {
         XCTAssertEqual(n.ingest(.request(id: 5, method: "item/tool/call", params: [:])), [])
         XCTAssertEqual(n.ingest(notification("item/completed", ["item": ["type": "somethingNew", "id": "s"]])), [])
     }
+
+    func testACardAlwaysHasAnswers() {
+        // Only the permanent rule offered: the card still gets accept, decline and cancel, which Codex takes even when not
+        // listed (spike prova 3), so it can be answered and Esc works.
+        let amendment: JSONValue = ["acceptWithExecpolicyAmendment": ["execpolicy_amendment": ["touch"]]]
+        XCTAssertEqual(CodexNormalizer.decisions(["availableDecisions": [amendment]]), ["accept", "decline", "cancel"])
+        XCTAssertEqual(CodexNormalizer.decisions(["availableDecisions": ["accept", amendment]]), ["accept"])
+    }
 }

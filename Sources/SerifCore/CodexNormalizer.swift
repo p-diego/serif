@@ -132,11 +132,13 @@ public struct CodexNormalizer {
     }
 
     /// The decisions a card offers, in Codex's order (spec §4): those it sent among accept, acceptForSession, decline and
-    /// cancel; the permanent rule (acceptWithExecpolicyAmendment) is the terminal's. Without a list, all four.
+    /// cancel; the permanent rule (acceptWithExecpolicyAmendment) is the terminal's. Without a list, all four; with none of
+    /// them, accept, decline and cancel, which Codex takes even unlisted (spike prova 3): a card can always be answered.
     static func decisions(_ p: JSONValue) -> [String] {
         let known = ["accept", "acceptForSession", "decline", "cancel"]
         guard let offered = p["availableDecisions"]?.array else { return known }
-        return offered.compactMap(\.string).filter(known.contains)
+        let usable = offered.compactMap(\.string).filter(known.contains)
+        return usable.isEmpty ? ["accept", "decline", "cancel"] : usable
     }
 
     /// The command as typed ("echo ciao"), not the shell wrapper Codex runs it in ("/bin/zsh -lc 'echo ciao'").
