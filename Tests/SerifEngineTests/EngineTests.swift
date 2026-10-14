@@ -742,8 +742,8 @@ final class EngineTests: XCTestCase {
         let workspace = paths.bot(bot.id).workspace.path
         let start = try XCTUnwrap(codexRequests("thread/start").first)
         XCTAssertEqual(start["cwd"]?.string, workspace)
-        XCTAssertEqual(start["sandbox"], "read-only")
-        XCTAssertEqual(start["approvalPolicy"], "on-request")
+        XCTAssertEqual(start["sandbox"], "workspace-write")
+        XCTAssertEqual(start["approvalPolicy"], "untrusted")
         XCTAssertEqual(start["model"], "gpt-6-luna")                        // "Default" is Codex's default model
         XCTAssertTrue(start["developerInstructions"]?.string?.contains("AGENTS.md") ?? false)
         XCTAssertEqual(start["config"], ["sandbox_workspace_write": ["writable_roots": [.string(workspace), .string(paths.shared(bot.projectId).path)]]])
@@ -760,14 +760,14 @@ final class EngineTests: XCTestCase {
         let client = try connect()
         guard case let .project(p) = request(client, .createProject(name: "P", linkedFolder: nil, readLinkedInstructions: true))
         else { return XCTFail("no project") }
-        let expected: [(Freedom, JSONValue, Bool)] = [(.ask, "on-request", false), (.edits, "on-request", true), (.auto, "never", true)]
-        for (freedom, approval, writes) in expected {
+        let expected: [(Freedom, JSONValue)] = [(.ask, "untrusted"), (.edits, "on-request"), (.auto, "never")]
+        for (freedom, approval) in expected {
             let bot = try createBot(client, in: p.id, agent: .codex, freedom: freedom)
             waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
             let start = try XCTUnwrap(codexRequests("turn/start").last)
             let roots: JSONValue = [.string(paths.bot(bot.id).workspace.path), .string(paths.shared(p.id).path)]
             XCTAssertEqual(start["approvalPolicy"], approval, "\(freedom)")
-            XCTAssertEqual(start["sandboxPolicy"], writes ? ["type": "workspaceWrite", "writableRoots": roots] : ["type": "readOnly"], "\(freedom)")
+            XCTAssertEqual(start["sandboxPolicy"], ["type": "workspaceWrite", "writableRoots": roots], "\(freedom)")
         }
     }
 
@@ -1059,8 +1059,8 @@ final class EngineTests: XCTestCase {
         waitFor(client, "resumed") { $0.chatEvents(bot.id).contains(.system(.resumed)) }
         let resume = try XCTUnwrap(codexRequests("thread/resume").first)
         XCTAssertEqual(resume["threadId"], "thr-1")
-        XCTAssertEqual(resume["sandbox"], "read-only")                     // Codex forgets it on resume (spec §3.5)
-        XCTAssertEqual(resume["approvalPolicy"], "on-request")
+        XCTAssertEqual(resume["sandbox"], "workspace-write")               // Codex forgets it on resume (spec §3.5)
+        XCTAssertEqual(resume["approvalPolicy"], "untrusted")
         XCTAssertNotNil(resume["config"]?["sandbox_workspace_write"])
         XCTAssertEqual(codexRequests("thread/start").count, 1)
     }

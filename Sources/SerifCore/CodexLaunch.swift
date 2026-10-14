@@ -2,10 +2,13 @@ import Foundation
 import CryptoKit
 
 extension Freedom {
-    /// Codex's approval policy for this freedom (spec §5): only Automatic never asks.
-    public var codexApproval: String { self == .auto ? "never" : "on-request" }
-    /// Codex's sandbox (spec §5): Asks permission reads only; the others write in the bot's folders without asking.
-    public var codexSandbox: String { self == .ask ? "read-only" : "workspace-write" }
+    /// Codex's approval policy for this freedom (spec §5). Asks permission is `untrusted`: Codex itself stops every command
+    /// it doesn't know as harmless (some reads too) and the chat shows the card. With `on-request` the model decides, and
+    /// live on 14/10 it never asked: a write simply failed in a read-only sandbox. Every freedom writes only in the bot's
+    /// folders (workspace-write).
+    public var codexApproval: String {
+        switch self { case .ask: "untrusted"; case .edits: "on-request"; case .auto: "never" }
+    }
 }
 
 /// A new secret for one launch of a Codex server: 32 random bytes as hex. It stays in the engine and the bot's terminal.
@@ -47,7 +50,7 @@ public func codexThreadParams(resume threadId: String?, cwd: String, model: Stri
         "cwd": .string(cwd),
         "developerInstructions": .string(instructions),
         "approvalPolicy": .string(freedom.codexApproval),
-        "sandbox": .string(freedom.codexSandbox),
+        "sandbox": "workspace-write",
         "config": ["sandbox_workspace_write": ["writable_roots": .array(writableRoots.map(JSONValue.string))]],
     ]
     if let model { p["model"] = .string(model) }
@@ -59,8 +62,7 @@ public func codexThreadParams(resume threadId: String?, cwd: String, model: Stri
 /// Codex keeps a turn's for the turns after it: a turn typed in the bot's terminal would leave the terminal's to the chat.
 public func codexTurnPolicies(freedom: Freedom, writableRoots: [String]) -> [String: JSONValue] {
     ["approvalPolicy": .string(freedom.codexApproval),
-     "sandboxPolicy": freedom == .ask ? ["type": "readOnly"]
-                                      : ["type": "workspaceWrite", "writableRoots": .array(writableRoots.map(JSONValue.string))]]
+     "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": .array(writableRoots.map(JSONValue.string))]]
 }
 
 /// The engine's environment as Codex gets it: the bots' (no `CLAUDE*`, no `ANTHROPIC_API_KEY`) without a

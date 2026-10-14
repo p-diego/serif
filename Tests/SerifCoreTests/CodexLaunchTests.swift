@@ -4,8 +4,7 @@ import XCTest
 final class CodexLaunchTests: XCTestCase {
     func testFreedomToCodex() {
         // Spec §5: approval and sandbox for each freedom.
-        XCTAssertEqual(Freedom.allCases.map(\.codexApproval), ["on-request", "on-request", "never"])
-        XCTAssertEqual(Freedom.allCases.map(\.codexSandbox), ["read-only", "workspace-write", "workspace-write"])
+        XCTAssertEqual(Freedom.allCases.map(\.codexApproval), ["untrusted", "on-request", "never"])
     }
 
     func testTokenAndItsHash() {
@@ -63,7 +62,7 @@ final class CodexLaunchTests: XCTestCase {
         // Codex keeps a turn's approval and sandbox for the turns after it: a turn typed in the terminal would leave its own.
         let roots: JSONValue = ["/w", "/s"]
         XCTAssertEqual(codexTurnPolicies(freedom: .ask, writableRoots: ["/w", "/s"]),
-                       ["approvalPolicy": "on-request", "sandboxPolicy": ["type": "readOnly"]])
+                       ["approvalPolicy": "untrusted", "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": roots]])
         XCTAssertEqual(codexTurnPolicies(freedom: .edits, writableRoots: ["/w", "/s"]),
                        ["approvalPolicy": "on-request", "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": roots]])
         XCTAssertEqual(codexTurnPolicies(freedom: .auto, writableRoots: ["/w", "/s"]),
