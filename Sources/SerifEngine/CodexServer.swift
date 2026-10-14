@@ -44,9 +44,10 @@ final class CodexServer {
 
     var isRunning: Bool { process != nil }
 
-    /// Starts the server on a free port and connects, trying again every 0.2 s until it answers `initialize`; `then` gets
-    /// nil then, or Codex's refusal of the handshake (the server is left running for the caller to stop). A server that exits first (its port was taken meanwhile) starts again on another port, three times at
-    /// most (spec §8). How long to wait is the caller's (`stop` ends the attempt).
+    /// Starts the server on a free port and connects, trying again every 0.2 s until it answers `initialize`; `then`
+    /// gets nil then, or Codex's refusal of the handshake (the server is left running for the caller to stop). A server
+    /// that exits first (its port was taken meanwhile) starts again on another port, three times at most (spec §8). How
+    /// long to wait is the caller's (`stop` ends the attempt).
     func start(_ launch: Launch, then: @escaping (Failure?) -> Void) {
         self.launch = launch
         starting = then

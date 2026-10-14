@@ -1,8 +1,9 @@
 import Foundation
 
-/// Links the chosen skills into `<folder>/<subfolder>/<skill folder name>`, where the agent finds them: `.claude/skills`
-/// for Claude Code (spec §6.2 of 0.3), `.agents/skills` for Codex (spec §6); and drops the links of skills no longer chosen.
-/// Serif owns only the symbolic links there: anything else (a skill the bot wrote itself) is never touched. Returns one line per skill left out, for the engine log; the bot starts without it.
+/// Links the chosen skills into `<folder>/<subfolder>/<skill folder name>`, where the agent finds them:
+/// `.claude/skills` for Claude Code (spec §6.2 of 0.3), `.agents/skills` for Codex (spec §6); and drops the links of
+/// skills no longer chosen. Serif owns only the symbolic links there: anything else (a skill the bot wrote itself) is
+/// never touched. Returns one line per skill left out, for the engine log; the bot starts without it.
 func linkSkills(_ skills: [String], into folder: URL, under subfolder: String = ".claude/skills") -> [String] {
     let fm = FileManager.default
     let dir = folder.appendingPathComponent(subfolder)

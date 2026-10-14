@@ -9,18 +9,20 @@ Three programs live in one bundle, `Serif.app/Contents/MacOS`:
 |---|---|
 | `Serif` | The window. Talks to the engine; registers itself and the engine as login items. |
 | `serifd` | The engine (launchd agent `com.serif.engine`). Keeps every bot's agent alive — Claude Code in its own terminal, Codex on a server of its own —, stores the chats, answers the app. Keeps running when the app is closed. |
-| `serif-hook` | Run by Claude Code for every hook; relays it to the engine and, for permissions, waits for the answer. |
+| `serif-hook` | For Claude Code bots: run by Claude Code for every hook; relays it to the engine and, for permissions, waits for the answer. |
 
 ## Install on another Mac
 
-Needs macOS 26 on Apple Silicon, and Claude Code installed and signed in (run `claude` once in Terminal). Codex bots also need Codex, signed in: the ChatGPT app (it carries the Codex CLI) or the Codex CLI, then `codex login` once in Terminal.
+Needs macOS 26 on Apple Silicon, and Claude Code installed and signed in (run `claude` once in Terminal). Codex bots
+also need Codex, signed in: the ChatGPT app (it carries the Codex CLI) or the Codex CLI, then `codex login` once in
+Terminal.
 
 1. Download `Serif-<version>.dmg` from the [latest release](https://github.com/p-diego/serif/releases/latest).
 2. Open it and drag Serif into Applications.
 3. Open Serif. The build is signed but not notarized, so the first time macOS refuses it: open System Settings ›
    Privacy & Security and choose Open Anyway.
-4. Allow the background item (the engine) when macOS asks. The first time, Serif checks that Claude Code is installed and
-   signed in, explains notifications and helps you create your first project and bot.
+4. Allow the background item (the engine) when macOS asks. The first time, Serif checks that Claude Code is installed
+   and signed in (and Codex, optional), explains notifications and helps you create your first project and bot.
 
 If the bots stay offline after that, macOS is still holding the engine in quarantine: run
 `xattr -dr com.apple.quarantine /Applications/Serif.app` and open Serif again.
@@ -32,10 +34,10 @@ conversations) and reopens Serif; if some bots are working it asks first, since 
 
 ## First launch
 
-With no project yet, Serif opens on four steps: a welcome; the agents, checked by the engine: Claude Code (`claude --version`,
-`claude auth status`), required, with the install command or the sign-in hint when something is missing, and Codex (`codex --version`,
-`codex login status`), optional, with where to get it; Retry checks again; notifications; the first project, after which the
-New bot sheet opens. The steps end once the first bot is created.
+With no project yet, Serif opens on four steps: a welcome; the agents, checked by the engine: Claude Code
+(`claude --version`, `claude auth status`), required, with the install command or the sign-in hint when something is
+missing, and Codex (`codex --version`, `codex login status`), optional, with where to get it; Retry checks again;
+notifications; the first project, after which the New bot sheet opens. The steps end once the first bot is created.
 
 A new bot introduces itself, in the Mac's language, in its first turn (the chat shows "Serif asked <bot> to introduce
 itself", not a message from you); the first bot of a project also gives a short tour. If a bot's agent is later missing or
