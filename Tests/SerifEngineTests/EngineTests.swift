@@ -784,6 +784,28 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(client.all.chatEvents(bot.id).contains(.system(.crashed(reason: CodexText.isolation))))
     }
 
+    func testThreadSettingsChangedGoBackToTheBots() throws {
+        // SAFETY: a turn typed in the terminal leaves its settings to the thread; the bot's go back at once.
+        try makeEngine("basic", codex: "codex-settings-drift").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "restored") { _ in !self.codexRequests("thread/settings/update").isEmpty }
+        let update = try XCTUnwrap(codexRequests("thread/settings/update").first)
+        let roots: JSONValue = [.string(paths.bot(bot.id).workspace.path), .string(paths.shared(bot.projectId).path)]
+        XCTAssertEqual(update, ["threadId": "thr-1", "approvalPolicy": "untrusted",
+                                "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": roots]])
+        XCTAssertFalse(client.all.summaries(bot.id).contains { if case .crashed = $0.state { true } else { false } })
+    }
+
+    func testThreadSettingsThatStayChangedStopTheBot() throws {
+        try makeEngine("basic", codex: "codex-settings-drift-stays").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        let stopped = BotState.crashed(reason: CodexText.isolation, retryAt: nil)
+        waitFor(client, "stopped") { $0.summaries(bot.id).contains { $0.state == stopped } }
+        XCTAssertEqual(codexRequests("thread/settings/update").count, 1)
+    }
+
     func testLinkedFolderIsWritableOnlyWhenItExists() throws {
         try makeEngine("basic").start()
         let linked = root.appendingPathComponent("linked")
@@ -1334,8 +1356,10 @@ final class EngineTests: XCTestCase {
         waitFor(client, "terminal") { $0.terminalText.contains("CODEX-TUI thr-1 token") }
         let tui = try XCTUnwrap(launches(1).first { $0.args.first == "resume" })
         let server = try XCTUnwrap(codexServers(bot).last)
-        XCTAssertEqual(tui.args, ["resume", "--remote", "ws://127.0.0.1:\(server.args[2].split(separator: ":").last!)",
-                                  "--remote-auth-token-env", "SERIF_CODEX_TOKEN", "--no-alt-screen", "thr-1"])
+        XCTAssertEqual(Array(tui.args.prefix(6)), ["resume", "--remote", "ws://127.0.0.1:\(server.args[2].split(separator: ":").last!)",
+                                                   "--remote-auth-token-env", "SERIF_CODEX_TOKEN", "--no-alt-screen"])
+        XCTAssertEqual(tui.args[7], #"approval_policy="untrusted""#)          // the bot's settings, never the user's
+        XCTAssertEqual(tui.args.last, "thr-1")
         // The terminal holds the server's own secret.
         XCTAssertEqual(codexTokenHash(try XCTUnwrap(tui.env["SERIF_CODEX_TOKEN"])), server.args[server.args.firstIndex(of: "--ws-token-sha256")! + 1])
     }

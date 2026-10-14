@@ -34,6 +34,7 @@ final class BotRuntime {
     var sending = false                       // a text is on its way (turn/start or turn/steer): the next waits for its answer
     var interruptPending = false              // Stop pressed while a turn/start was on its way: sent once its turn has an id
     var turnPolicies: [String: JSONValue] = [:]   // the approval and sandbox every turn/start passes again (spec §5)
+    var settingsRestored = false                  // the thread's settings were put back to the bot's, not yet seen so
     var launchedAt = Date()
     var startup: DispatchWorkItem?            // gives up on a server that is not ready in time (spec §8)
     var waitingForCatalog = false             // its launch waits for Codex's catalog: launched again, it waits once

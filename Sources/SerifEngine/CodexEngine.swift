@@ -100,7 +100,7 @@ extension Engine {
         let token = codexToken()
         let server = CodexServer(queue: queue)          // a new one at every start: nothing of an earlier one carries over
         (rt.codex, rt.codexToken, rt.codexReady, rt.thread, rt.turnId) = (server, token, false, nil, nil)
-        (rt.sending, rt.interruptPending) = (false, false)
+        (rt.sending, rt.interruptPending, rt.settingsRestored) = (false, false, false)
         rt.codexNormalizer = CodexNormalizer()
         rt.launchedAt = Date()
         server.onMessage = { [weak self, weak rt] message in if let rt { self?.codexMessage(message, rt) } }
@@ -201,7 +201,7 @@ extension Engine {
         let turn = rt.turnId
         rt.startup?.cancel()
         (rt.codex, rt.codexReady, rt.thread, rt.turnId, rt.startup) = (nil, false, nil, nil, nil)
-        (rt.sending, rt.interruptPending) = (false, false)
+        (rt.sending, rt.interruptPending, rt.settingsRestored) = (false, false, false)
         stopTerminal(rt)
         closeRequests(of: rt, .cancelled)
         // Closed as Codex closes one it interrupts: what had streamed of the reply stays in the chat.
@@ -310,8 +310,22 @@ extension Engine {
                 if p["turn"]?["status"]?.string != "completed" { closeRequests(of: rt, .cancelled) }
                 finished = true
             case "thread/settings/updated":
-                // The terminal can change the thread's settings: whatever changed, the isolation must still show.
-                if let server = rt.codex, let thread = rt.thread { checkIsolation(rt, server, thread: thread) {} }
+                // The terminal can change the thread's settings: whatever changed, the isolation must still show, and the
+                // bot's approval and sandbox go back (spec §5). Still not the bot's right after that: the bot stops.
+                guard let server = rt.codex, let thread = rt.thread else { break }
+                checkIsolation(rt, server, thread: thread) {}
+                guard codexSettingsDrift(p["threadSettings"], policies: rt.turnPolicies) else { rt.settingsRestored = false; break }
+                let reported = ["approvalPolicy", "sandboxPolicy"].map { p["threadSettings"]?[$0]?.compactText ?? "-" }
+                if rt.settingsRestored {
+                    log("bot \(rt.bot.id): settings still not the bot's after restoring them: \(reported)")
+                    codexStopped(rt, reason: CodexText.isolation)
+                    return
+                }
+                log("bot \(rt.bot.id): settings changed to \(reported): the bot's again")
+                rt.settingsRestored = true
+                server.request("thread/settings/update", .object(rt.turnPolicies.merging(["threadId": .string(thread)]) { $1 })) { [weak self, weak rt] in
+                    if case let .failure(f) = $0, let rt { self?.log("bot \(rt.bot.id): settings not restored: \(f.message)") }
+                }
             default: break
             }
         }
@@ -351,7 +365,8 @@ extension Engine {
         guard !rt.host.isRunning, !rt.stopping, rt.codexReady, let thread = rt.bot.threadId, let server = rt.codex,
               let path = server.launch?.executable else { return }
         rt.host.start(codexTerminalPlan(codexPath: path, threadId: thread, port: server.port, token: rt.codexToken,
-                                        cwd: paths.bot(rt.bot.id).workspace.path, baseEnvironment: environment))
+                                        cwd: paths.bot(rt.bot.id).workspace.path, policies: rt.turnPolicies,
+                                        baseEnvironment: environment))
     }
 
     /// Stops the terminal, and looks again once it has gone: shown again meanwhile, or its server relaunched and ready

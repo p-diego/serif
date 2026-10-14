@@ -71,14 +71,35 @@ final class CodexLaunchTests: XCTestCase {
 
     func testTerminalPlanAndEnvironment() {
         let plan = codexTerminalPlan(codexPath: "/bin/codex", threadId: "thr-1", port: 4000, token: "secret", cwd: "/w",
+                                     policies: codexTurnPolicies(freedom: .ask, writableRoots: ["/w", "/s"]),
                                      baseEnvironment: ["PATH": "/bin", "CLAUDECODE": "1", "CODEX_THREAD_ID": "old", "CODEX_HOME": "/h"])
+        // SAFETY: a turn typed in the terminal carries the terminal's settings: they are the bot's, never the user's.
         XCTAssertEqual(plan.args, ["resume", "--remote", "ws://127.0.0.1:4000", "--remote-auth-token-env", "SERIF_CODEX_TOKEN",
-                                   "--no-alt-screen", "thr-1"])
+                                   "--no-alt-screen", "-c", #"approval_policy="untrusted""#, "-c", #"sandbox_mode="workspace-write""#,
+                                   "-c", #"sandbox_workspace_write.writable_roots=["/w","/s"]"#, "thr-1"])
         XCTAssertEqual(plan.environment["SERIF_CODEX_TOKEN"], "secret")         // the secret never in the arguments
         XCTAssertNil(plan.environment["CLAUDECODE"])
         XCTAssertNil(plan.environment["CODEX_THREAD_ID"])
         XCTAssertEqual(plan.environment["CODEX_HOME"], "/h")                    // the user's Codex, never another home
         XCTAssertEqual(plan.cwd, "/w")
+    }
+
+    func testSettingsDriftIsAnythingBeyondTheBotsFreedom() {
+        let policies = codexTurnPolicies(freedom: .ask, writableRoots: ["/w", "/s"])
+        let same: JSONValue = .object(policies)
+        XCTAssertFalse(codexSettingsDrift(same, policies: policies))
+        XCTAssertFalse(codexSettingsDrift(["approvalPolicy": "untrusted",                  // fewer folders: still within it
+                                           "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": ["/w"], "networkAccess": false]],
+                                          policies: policies))
+        for drift: JSONValue in [
+            ["approvalPolicy": "on-request", "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": ["/w", "/s"]]],
+            ["approvalPolicy": "untrusted", "sandboxPolicy": ["type": "dangerFullAccess"]],
+            ["approvalPolicy": "untrusted", "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": ["/w", "/Users/me"]]],
+            ["approvalPolicy": "untrusted", "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": ["/w"], "networkAccess": true]],
+            ["approvalPolicy": "untrusted"],
+        ] {
+            XCTAssertTrue(codexSettingsDrift(drift, policies: policies), "\(drift)")
+        }
     }
 
     func testCodexMemoryIsAgentsMD() {
