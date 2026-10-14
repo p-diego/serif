@@ -56,6 +56,31 @@ case "mark-read" where args.count >= 2:
 case "pin" where args.count >= 2:
     guard var bot = snapshot().bots.first(where: { $0.bot.id == uuid(args[1]) })?.bot else { fail("unknown bot") }
     bot.pinned.toggle(); _ = call(.updateBot(bot)); print("pinned=\(bot.pinned)")
+case "terminal" where args.count >= 2:
+    // Shows the bot's terminal without the app: steps are seconds to wait, or text typed (ENTER, ESC: those keys; text
+    // gets Enter). Writes everything the terminal shows to stdout, raw.
+    let bot = uuid(args[1]), queue = DispatchQueue(label: "serifctl")
+    guard let connection = LineClient.connect(path: socket, queue: queue) else { fail("no answer from serifd at \(socket)") }
+    connection.onLine = { data in
+        switch try? decoder.decode(EngineMessage.self, from: data) {
+        case .response(_, .terminal(_, let d))?: FileHandle.standardOutput.write(d)
+        case .response(_, .error(let m))?: fail("error: \(m)")
+        case .push(.terminalOutput(bot, _, let d))?: FileHandle.standardOutput.write(d)
+        default: break
+        }
+    }
+    var id = 0
+    let send = { (r: AppRequest) in id += 1; if let line = try? encoder.encode(RequestEnvelope(id: id, request: r)) { connection.send(line) } }
+    send(.resizeTerminal(botId: bot, cols: 120, rows: 40))
+    send(.attachTerminal(botId: bot))
+    for step in args.dropFirst(2) {
+        if let seconds = Double(step) { Thread.sleep(forTimeInterval: seconds); continue }
+        let keys = ["ENTER": "\r", "ESC": "\u{1b}"][step] ?? step + "\r"
+        send(.terminalInput(botId: bot, data: Data(keys.utf8)))
+    }
+    send(.detachTerminal(botId: bot))
+    Thread.sleep(forTimeInterval: 0.5)
+    queue.sync { connection.close() }
 default:
-    fail("usage: serifctl snapshot | create-project <name> | create-bot <projectId> <name> [model] | send <botId> <text> | answer-allow <requestId> | mark-read <botId> | pin <botId>")
+    fail("usage: serifctl snapshot | create-project <name> | create-bot <projectId> <name> [model] | send <botId> <text> | answer-allow <requestId> | mark-read <botId> | pin <botId> | terminal <botId> [seconds | text | ENTER | ESC]...")
 }

@@ -59,7 +59,7 @@ public func codexThreadParams(resume threadId: String?, cwd: String, model: Stri
 }
 
 /// The approval and sandbox every `turn/start` passes again (spec §5), the sandbox with the thread's writable folders.
-/// Codex keeps a turn's for the turns after it: a turn typed in the bot's terminal would leave the terminal's to the chat.
+/// Codex keeps a turn's for the turns after it: settings changed in the bot's terminal (/permissions) never reach the chat.
 public func codexTurnPolicies(freedom: Freedom, writableRoots: [String]) -> [String: JSONValue] {
     ["approvalPolicy": .string(freedom.codexApproval),
      "sandboxPolicy": ["type": "workspaceWrite", "writableRoots": .array(writableRoots.map(JSONValue.string))]]
@@ -74,8 +74,8 @@ public func codexEnvironment(_ base: [String: String]) -> [String: String] {
 }
 
 /// Whether a thread's settings (`thread/settings/updated`) leave the bot's freedom (spec §5): another approval policy,
-/// another sandbox, network, or a folder to write in that isn't one of the bot's. A turn typed in the terminal sends the
-/// terminal's settings, and Codex keeps them for the turns after it.
+/// another sandbox, network, or a folder to write in that isn't one of the bot's. The terminal's /permissions changes them
+/// (live 14/10), and Codex keeps them for the turns after it.
 public func codexSettingsDrift(_ settings: JSONValue?, policies: [String: JSONValue]) -> Bool {
     let sandbox = settings?["sandboxPolicy"]
     let roots = Set(policies["sandboxPolicy"]?["writableRoots"]?.array?.compactMap(\.string) ?? [])
@@ -85,19 +85,14 @@ public func codexSettingsDrift(_ settings: JSONValue?, policies: [String: JSONVa
 }
 
 /// The bot's real Codex terminal (spec §4): `codex resume` attached to its thread on its server, the secret in the
-/// environment (never in the arguments), and the bot's approval and sandbox (`policies`, its turns') as the terminal's
-/// own config: the terminal sends its settings with each turn typed there, else the user's. `-c`, since `-a` refuses
-/// `untrusted`.
+/// environment (never in the arguments). No approval or sandbox of its own: resuming a remote thread Codex refuses them
+/// (live 14/10), and its turns run with the thread's, the bot's (`codexSettingsDrift` watches them).
 public func codexTerminalPlan(codexPath: String, threadId: String, port: Int, token: String, cwd: String,
-                              policies: [String: JSONValue], baseEnvironment: [String: String]) -> LaunchPlan {
+                              baseEnvironment: [String: String]) -> LaunchPlan {
     var env = codexEnvironment(baseEnvironment)
     env["SERIF_CODEX_TOKEN"] = token
     env["TERM"] = "xterm-256color"
-    let approval = policies["approvalPolicy"]?.compactText ?? "\"untrusted\""
-    let roots = policies["sandboxPolicy"]?["writableRoots"]?.compactText ?? "[]"
     return LaunchPlan(executable: codexPath, args: ["resume", "--remote", "ws://127.0.0.1:\(port)", "--remote-auth-token-env",
-                                                    "SERIF_CODEX_TOKEN", "--no-alt-screen",
-                                                    "-c", "approval_policy=\(approval)", "-c", #"sandbox_mode="workspace-write""#,
-                                                    "-c", "sandbox_workspace_write.writable_roots=\(roots)", threadId],
+                                                    "SERIF_CODEX_TOKEN", "--no-alt-screen", threadId],
                       environment: env, cwd: cwd)
 }

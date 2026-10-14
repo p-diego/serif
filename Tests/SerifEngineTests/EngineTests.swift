@@ -1356,10 +1356,8 @@ final class EngineTests: XCTestCase {
         waitFor(client, "terminal") { $0.terminalText.contains("CODEX-TUI thr-1 token") }
         let tui = try XCTUnwrap(launches(1).first { $0.args.first == "resume" })
         let server = try XCTUnwrap(codexServers(bot).last)
-        XCTAssertEqual(Array(tui.args.prefix(6)), ["resume", "--remote", "ws://127.0.0.1:\(server.args[2].split(separator: ":").last!)",
-                                                   "--remote-auth-token-env", "SERIF_CODEX_TOKEN", "--no-alt-screen"])
-        XCTAssertEqual(tui.args[7], #"approval_policy="untrusted""#)          // the bot's settings, never the user's
-        XCTAssertEqual(tui.args.last, "thr-1")
+        XCTAssertEqual(tui.args, ["resume", "--remote", "ws://127.0.0.1:\(server.args[2].split(separator: ":").last!)",
+                                  "--remote-auth-token-env", "SERIF_CODEX_TOKEN", "--no-alt-screen", "thr-1"])
         // The terminal holds the server's own secret.
         XCTAssertEqual(codexTokenHash(try XCTUnwrap(tui.env["SERIF_CODEX_TOKEN"])), server.args[server.args.firstIndex(of: "--ws-token-sha256")! + 1])
     }

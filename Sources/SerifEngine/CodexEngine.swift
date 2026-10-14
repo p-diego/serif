@@ -365,8 +365,7 @@ extension Engine {
         guard !rt.host.isRunning, !rt.stopping, rt.codexReady, let thread = rt.bot.threadId, let server = rt.codex,
               let path = server.launch?.executable else { return }
         rt.host.start(codexTerminalPlan(codexPath: path, threadId: thread, port: server.port, token: rt.codexToken,
-                                        cwd: paths.bot(rt.bot.id).workspace.path, policies: rt.turnPolicies,
-                                        baseEnvironment: environment))
+                                        cwd: paths.bot(rt.bot.id).workspace.path, baseEnvironment: environment))
     }
 
     /// Stops the terminal, and looks again once it has gone: shown again meanwhile, or its server relaunched and ready
