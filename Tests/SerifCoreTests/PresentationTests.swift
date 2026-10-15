@@ -51,6 +51,11 @@ final class PresentationTests: XCTestCase {
         XCTAssertEqual(rowPreview(s(.ready, "Done.")), .text("Done."))
         XCTAssertEqual(rowPreview(s(.ready, nil)), .text(""))
         XCTAssertEqual(rowPreview(s(.ready, "**Il faro**\n\nI. `echo` _ciao_")), .text("Il faro\n\nI. echo ciao"))
+        // The last thing that happened was mail: the row says so (spec §6).
+        let note = MailNote(messageId: UUID(), kind: .note, from: "Cody", to: "A", direction: .received, text: "hi")
+        let mailed = BotSummary(bot: bot, state: .ready, unread: false,
+                                lastEvent: ChatEventRecord(seq: 3, at: Date(), event: .mail(note)), preview: "older reply")
+        XCTAssertEqual(rowPreview(mailed), .mail(note))
     }
 
     private func step(_ name: String, _ input: [String: JSONValue] = [:]) -> Step { Step(id: UUID().uuidString, name: name, input: .object(input)) }

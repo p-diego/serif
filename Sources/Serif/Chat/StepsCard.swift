@@ -43,9 +43,19 @@ struct StepsCard: View {
         case .search: String(localized: "Steps.search")
         case .web: String(localized: "Web")
         case .mixed(let name):
-            // "mcp__server__tool" reads as "tool".
-            name.isEmpty ? String(localized: "Steps") : (name.components(separatedBy: "__").last.flatMap { $0.isEmpty ? nil : $0 } ?? name)
+            // Serif's own tools read as what they did (spec §9 of 0.5); "mcp__server__tool" as "tool".
+            if let step = steps.first(where: { $0.name == name }),
+               let call = SerifToolCall(toolName: name, input: step.input) {
+                serifStepTitle(call)
+            } else {
+                name.isEmpty ? String(localized: "Steps")
+                    : (name.components(separatedBy: "__").last.flatMap { $0.isEmpty ? nil : $0 } ?? name)
+            }
         }
+    }
+
+    private func title(_ step: Step) -> String {
+        SerifToolCall(toolName: step.name, input: step.input).map(serifStepTitle) ?? step.title
     }
 
     private var summary: String {
@@ -66,6 +76,7 @@ struct StepsCard: View {
         case "Edit", "Write", "MultiEdit", "NotebookEdit": "pencil"
         case "Grep", "Glob": "magnifyingglass"
         case "WebSearch", "WebFetch": "globe"
+        case _ where name.hasPrefix("mcp__serif__"): "envelope"
         default: "wrench.and.screwdriver"
         }
     }
@@ -74,7 +85,7 @@ struct StepsCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: icon(step.name)).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).frame(width: 16)
-                Text(step.title)
+                Text(title(step))
                     .font(step.name == "Bash" ? .system(size: 12, design: .monospaced) : .system(size: Theme.Size.small))
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)

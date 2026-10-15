@@ -38,6 +38,7 @@ public enum RowPreview: Equatable, Sendable {
     case crashed(String)
     case rateLimited
     case text(String)
+    case mail(MailNote)      // the last thing that happened was mail (spec §6)
 }
 
 public func rowPreview(_ summary: BotSummary) -> RowPreview {
@@ -46,7 +47,9 @@ public func rowPreview(_ summary: BotSummary) -> RowPreview {
     case .waiting: .waiting(summary.preview)
     case .crashed(let reason, _): .crashed(reason)
     case .rateLimited: .rateLimited
-    default: .text(plainText(markdown: summary.preview ?? ""))
+    default:
+        if case let .mail(note)? = summary.lastEvent?.event { .mail(note) }
+        else { .text(plainText(markdown: summary.preview ?? "")) }
     }
 }
 

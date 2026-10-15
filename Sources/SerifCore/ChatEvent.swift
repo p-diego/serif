@@ -25,9 +25,11 @@ public enum Activity: Codable, Equatable, Sendable {
     case browsing                        // WebSearch / WebFetch
     case delegating                      // Task / Agent subagent
     case tool(String)                    // any other tool name
+    case serif(SerifToolCall)            // one of Serif's own tools (spec §9 of 0.5)
 
     /// Maps a tool call from the transcript or hook payload to an activity.
     public static func from(toolName: String, input: JSONValue) -> Activity {
+        if let call = SerifToolCall(toolName: toolName, input: input) { return .serif(call) }
         func lastComponent(_ path: String) -> String {
             path.split(separator: "/").last.map(String.init) ?? path
         }
@@ -50,6 +52,35 @@ public enum Activity: Codable, Equatable, Sendable {
             break
         }
         return .tool(toolName)
+    }
+}
+
+/// A call of one of Serif's own tools, read from its step (spec §9): the app gives it a title and a live status.
+public enum SerifToolCall: Codable, Equatable, Sendable {
+    case message(to: String)
+    case completeTask(Int)
+    case cancelTask(Int)
+    case inbox, colleagues
+    case createBot(String)
+    case updateInstructions(bot: String?)
+    case archiveBot(String)
+
+    /// Nil for a tool that is not Serif's ("mcp__serif__…", as both agents name it).
+    public init?(toolName: String, input: JSONValue) {
+        guard toolName.hasPrefix("mcp__serif__") else { return nil }
+        let id = input["task_id"]
+        let task = id?.int ?? id?.string.flatMap { Int($0.trimmingCharacters(in: .init(charactersIn: "# "))) } ?? 0
+        switch toolName.dropFirst("mcp__serif__".count) {
+        case "send_message": self = .message(to: input["to"]?.string ?? "")
+        case "complete_task": self = .completeTask(task)
+        case "cancel_task": self = .cancelTask(task)
+        case "check_inbox": self = .inbox
+        case "list_bots": self = .colleagues
+        case "create_bot": self = .createBot(input["name"]?.string ?? "")
+        case "update_instructions": self = .updateInstructions(bot: input["bot"]?.string)
+        case "archive_bot": self = .archiveBot(input["name"]?.string ?? "")
+        default: return nil
+        }
     }
 }
 

@@ -14,6 +14,36 @@ func activityText(_ a: Activity) -> String {
     case .browsing: String(localized: "Browsing the web…")
     case .delegating: String(localized: "Delegating to a sub-agent…")
     case .tool(let t): String(localized: "Using \(t)…")
+    case .serif(let call): serifStatusText(call)
+    }
+}
+
+/// What one of Serif's tools is doing, live (spec §9).
+func serifStatusText(_ call: SerifToolCall) -> String {
+    switch call {
+    case .message(let to): String(localized: "Writing to \(to)…")
+    case .completeTask(let n): String(localized: "Closing task #\(n)…")
+    case .cancelTask(let n): String(localized: "Cancelling task #\(n)…")
+    case .inbox: String(localized: "Checking its mail…")
+    case .colleagues: String(localized: "Looking at its colleagues…")
+    case .createBot(let name): String(localized: "Creating \(name)…")
+    case .updateInstructions: String(localized: "Updating instructions…")
+    case .archiveBot(let name): String(localized: "Archiving \(name)…")
+    }
+}
+
+/// A step of Serif's tools in its group (spec §9): "Message to Milo", "Task #17 closed", "Colleagues", "Bot created:
+/// Milo".
+func serifStepTitle(_ call: SerifToolCall) -> String {
+    switch call {
+    case .message(let to): String(localized: "Message to \(to)")
+    case .completeTask(let n): String(localized: "Task #\(n) closed")
+    case .cancelTask(let n): String(localized: "Task #\(n) cancelled")
+    case .inbox: String(localized: "Steps.inbox")
+    case .colleagues: String(localized: "Colleagues")
+    case .createBot(let name): String(localized: "Bot created: \(name)")
+    case .updateInstructions: String(localized: "Instructions updated")
+    case .archiveBot(let name): String(localized: "Bot archived: \(name)")
     }
 }
 

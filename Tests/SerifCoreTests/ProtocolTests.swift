@@ -36,6 +36,19 @@ final class ProtocolTests: XCTestCase {
 
     // MARK: Activity and requests
 
+    func testSerifsToolsAreReadFromTheirSteps() {
+        // Both agents name them "mcp__serif__<tool>" (spec §9).
+        XCTAssertEqual(Activity.from(toolName: "mcp__serif__send_message", input: ["to": "Milo", "body": "x"]), .serif(.message(to: "Milo")))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__complete_task", input: ["task_id": "#17"]), .completeTask(17))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__cancel_task", input: ["task_id": 3]), .cancelTask(3))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__list_bots", input: [:]), .colleagues)
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__create_bot", input: ["name": "Milo"]), .createBot("Milo"))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__update_instructions", input: [:]), .updateInstructions(bot: nil))
+        XCTAssertNil(SerifToolCall(toolName: "mcp__other__send_message", input: [:]))
+        XCTAssertNil(SerifToolCall(toolName: "mcp__serif__make_coffee", input: [:]))
+        XCTAssertEqual(Activity.from(toolName: "mcp__figma__get", input: [:]), .tool("mcp__figma__get"))
+    }
+
     func testActivityFromTools() {
         XCTAssertEqual(Activity.from(toolName: "Bash", input: .object(["command": .string("ls"), "description": .string("List files")])), .runningCommand("List files"))
         XCTAssertEqual(Activity.from(toolName: "Bash", input: .object(["command": .string("ls")])), .runningCommand("ls"))
@@ -140,6 +153,7 @@ final class ProtocolTests: XCTestCase {
     func testBotStatesRoundTrip() throws {
         let states: [BotState] = [
             .starting, .ready, .working(.runningCommand(nil)), .working(.tool("mcp__x")),
+            .working(.serif(.message(to: "Milo"))), .working(.serif(.updateInstructions(bot: nil))),
             .waiting(kind: .question, requestId: requestId), .rateLimited(until: at), .rateLimited(until: nil),
             .crashed(reason: "x", retryAt: at), .stopped,
         ]

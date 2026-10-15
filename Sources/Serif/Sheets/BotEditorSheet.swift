@@ -77,6 +77,11 @@ struct BotEditorSheet: View {
                 TextField(String(localized: "Bot name"), text: $name).textFieldStyle(.plain).font(.system(size: Theme.Size.body))
                     .focused($nameFocused)
                     .task { if editing == nil { try? await Task.sleep(for: .milliseconds(150)); nameFocused = true } }
+                // Made by another bot with its tools (spec §7): who, read only.
+                if let creator = editing?.createdBy.flatMap({ client.roster.bots[$0]?.bot.name }) {
+                    Text(String(localized: "Created by \(creator)")).font(.system(size: Theme.Size.label))
+                        .foregroundStyle(Theme.textSecondary)
+                }
             }
             FieldGroup(label: String(localized: "Face")) {
                 FacePicker(face: $face, existing: client.roster.bots.values.map(\.bot.face))
