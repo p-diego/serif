@@ -23,6 +23,7 @@ struct BotEditorSheet: View {
     @State private var codexCatalog: CodexCatalog?        // asked of the engine when the sheet opens (spec §6)
     @State private var codexStatus: AgentStatus?          // Codex can be chosen once the engine finds it ready (spec §7)
     @State private var codexChecked = false               // the check answered or failed
+    @State private var changes: [BotChange] = []          // the bot's history, newest last (spec §5 of 0.7)
     @State private var busy = false
     @State private var error: String?
     @State private var confirmArchive = false
@@ -165,6 +166,16 @@ struct BotEditorSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let bot = editing {
+                // Every change made to the bot (spec §5 of 0.7), newest first, each with Restore.
+                FieldGroup(label: String(localized: "History")) {
+                    if changes.isEmpty {
+                        Text(String(localized: "No changes yet")).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary)
+                    }
+                    ForEach(Array(changes.reversed().enumerated()), id: \.offset) { i, change in
+                        ChangeRow(change: change, author: authorName(change.by)) { restore(change, bot) }
+                        if i < changes.count - 1 { Divider().overlay(Theme.borderTertiary) }
+                    }
+                }
                 // The bot's routines (spec §4 of 0.6): the live list, changed by the engine as runs go.
                 FieldGroup(label: String(localized: "Routines")) {
                     let routines = client.roster.routines(of: bot.id)
@@ -202,6 +213,7 @@ struct BotEditorSheet: View {
             codexChecked = true
             if codexStatus?.problem == nil { codexCatalog = try? await client.codexCatalog() }
         }
+        .task { if let id = editing?.id { changes = (try? await client.changes(bot: id)) ?? [] } }
         .onChange(of: agent) {
             // The two agents' models and plugins differ: what was picked for the other one goes; a template suggests anew.
             model = .standard; codexModel = nil
@@ -217,6 +229,48 @@ struct BotEditorSheet: View {
         return codexStatus?.problem == .codexNotSignedIn
             ? String(localized: "Codex is not signed in: type `codex login` in Terminal.")
             : String(localized: "Codex is not installed: install the ChatGPT app or the Codex CLI.")
+    }
+
+    /// The confirmation of an agent switch (spec §7): true to go on.
+    private func confirmAgentChange(_ bot: Bot, to agent: Agent) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Change the agent of \(bot.name)?")
+        alert.informativeText = String(localized: "\(bot.name) will start again with \(agentName(agent)) in a new conversation. The chat stays, the plugins are reset.")
+        alert.addButton(withTitle: String(localized: "Change agent"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func authorName(_ by: ChangeAuthor) -> String {
+        switch by {
+        case .user: String(localized: "You")
+        case .bot(let id, let name): client.roster.bots[id]?.bot.name ?? name
+        }
+    }
+
+    /// "Restore" (spec §5): the old value saved as a new change of yours, at once; the agent with the same confirmation
+    /// and effects as the picker, the rest through the sheet's own save, so the fields here follow.
+    private func restore(_ change: BotChange, _ bot: Bot) {
+        guard let live = client.roster.bots[bot.id]?.bot, let restored = restoring(change, into: live) else {
+            error = String(localized: "This value can no longer be restored"); return
+        }
+        error = nil
+        Task {
+            do {
+                if change.field == .agent {
+                    guard confirmAgentChange(live, to: restored.agent) else { return }
+                    try await client.changeAgent(bot: bot.id, to: restored.agent)
+                    agent = restored.agent
+                } else {
+                    try await client.updateBot(restored)
+                    (name, face, instructions, freedom, notifications) =
+                        (restored.name, restored.face, restored.instructions, restored.freedom, restored.notifications)
+                    (skills, plugins, connectors) = (restored.skills, restored.plugins, restored.connectors)
+                    if restored.agent == .codex { codexModel = restored.model } else { model = BotModel(value: restored.model) }
+                }
+                changes = (try? await client.changes(bot: bot.id)) ?? changes
+            } catch { self.error = error.localizedDescription }
+        }
     }
 
     private func templateCard(_ t: BotTemplate?) -> some View {
@@ -342,5 +396,80 @@ private extension Freedom {
         case (.edits, .codex): String(localized: "Writes in its folders without asking, asks for the rest")
         case (.auto, .codex): String(localized: "Never asks, and stays in its folders")
         }
+    }
+}
+
+/// One change in the history (spec §5): when, who, which field, the old and the new value, and Restore. Instructions
+/// show their first lines and open whole with a click.
+private struct ChangeRow: View {
+    let change: BotChange
+    let author: String
+    let restore: () -> Void
+    @State private var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("\(change.at.formatted(date: .numeric, time: .shortened)) · \(author) · \(fieldLabel(change.field))")
+                    .font(.system(size: Theme.Size.small, weight: .medium))
+                Spacer(minLength: 8)
+                CardButton(title: String(localized: "Restore"), style: .ghost, action: restore)
+            }
+            HStack(alignment: .top, spacing: 6) {
+                value(change.old)
+                Text("→").foregroundStyle(Theme.textTertiary)
+                value(change.new)
+            }
+            .font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } }
+    }
+
+    @ViewBuilder private func value(_ v: JSONValue) -> some View {
+        if change.field == .face, let data = try? v.encoded(), let face = try? JSONDecoder().decode(BotFace.self, from: data) {
+            MascotImage(face: face, mood: .watch, size: 22)
+        } else {
+            Text(valueText(v)).lineLimit(open ? nil : 3).textSelection(.enabled)
+        }
+    }
+
+    private func valueText(_ v: JSONValue) -> String {
+        switch v {
+        case .null: String(localized: "Default")
+        case .bool(let b): b ? String(localized: "on") : String(localized: "off")
+        case .string(let s):
+            switch change.field {
+            case .freedom: Freedom(rawValue: s).map(freedomLabel) ?? s
+            case .agent: Agent(rawValue: s).map(agentName) ?? s
+            default: s.isEmpty ? "—" : s
+            }
+        case .array(let list): list.isEmpty ? "—" : list.compactMap(\.string).map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
+        default: v.compactText
+        }
+    }
+}
+
+func fieldLabel(_ field: BotField) -> String {
+    switch field {
+    case .name: String(localized: "Name")
+    case .face: String(localized: "Face")
+    case .instructions: String(localized: "Instructions")
+    case .model: String(localized: "Model")
+    case .freedom: String(localized: "Freedom")
+    case .skills: String(localized: "Skills")
+    case .plugins: String(localized: "Plugins")
+    case .connectors: String(localized: "Connectors")
+    case .agent: String(localized: "Agent")
+    case .notifications: String(localized: "Notifications")
+    }
+}
+
+func freedomLabel(_ f: Freedom) -> String {
+    switch f {
+    case .ask: String(localized: "Asks permission")
+    case .edits: String(localized: "Edits files on its own")
+    case .auto: String(localized: "Automatic")
     }
 }

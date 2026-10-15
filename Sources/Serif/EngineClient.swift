@@ -302,6 +302,13 @@ final class EngineClient {
             throw error
         }
     }
+    /// The bot's history, newest last (spec §5 of 0.7).
+    func changes(bot: UUID) async throws -> [BotChange] {
+        guard case .changes(let list) = try await send(.changes(botId: bot)) else { throw EngineError(message: "Unexpected reply") }
+        return list
+    }
+    /// Claude Code ↔ Codex (spec §7 of 0.7): refused with the agent's problem when it is missing or signed out.
+    func changeAgent(bot: UUID, to agent: Agent) async throws { _ = try await send(.changeAgent(botId: bot, agent: agent)) }
     func interrupt(bot: UUID) async throws { _ = try await send(.interrupt(botId: bot)) }
     func answer(request: UUID, _ answer: RequestAnswer) async throws { _ = try await send(.answer(requestId: request, answer: answer)) }
     func cancelTask(project: UUID, number: Int) async throws {

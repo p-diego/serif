@@ -372,3 +372,14 @@
 "At most %lld files per message" = "Al massimo %lld file per messaggio";
 "A file is larger than 16 MB: %@" = "Un file supera i 16 MB: %@";
 "file no longer available" = "file non più disponibile";
+"History" = "Storia";
+"No changes yet" = "Nessuna modifica";
+"Restore" = "Ripristina";
+"You" = "Tu";
+"Connectors" = "Connettori";
+"on" = "acceso";
+"off" = "spento";
+"This value can no longer be restored" = "Questo valore non si può più ripristinare";
+"Change the agent of %@?" = "Cambiare l'agente di %@?";
+"%@ will start again with %@ in a new conversation. The chat stays, the plugins are reset." = "%1$@ ripartirà con %2$@ in una conversazione nuova. La chat resta, i plugin si azzerano.";
+"Change agent" = "Cambia agente";
