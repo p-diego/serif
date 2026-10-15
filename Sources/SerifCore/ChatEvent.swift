@@ -64,6 +64,16 @@ public enum SerifToolCall: Codable, Equatable, Sendable {
     case createBot(String)
     case updateInstructions(bot: String?)
     case archiveBot(String)
+    // Routines, signals and decisions (spec §4–6 of 0.6)
+    case createRoutine(String)
+    case listRoutines
+    case setRoutineEnabled(name: String, enabled: Bool)
+    case deleteRoutine(String)
+    case runRoutine(String)
+    case emitSignal(String)
+    case raiseDecision
+    case listDecisions
+    case withdrawDecision(Int)
 
     /// Nil for a tool that is not Serif's ("mcp__serif__…", as both agents name it).
     public init?(toolName: String, input: JSONValue) {
@@ -79,6 +89,18 @@ public enum SerifToolCall: Codable, Equatable, Sendable {
         case "create_bot": self = .createBot(input["name"]?.string ?? "")
         case "update_instructions": self = .updateInstructions(bot: input["bot"]?.string)
         case "archive_bot": self = .archiveBot(input["name"]?.string ?? "")
+        case "create_routine": self = .createRoutine(input["name"]?.string ?? "")
+        case "list_routines": self = .listRoutines
+        case "set_routine_enabled":
+            self = .setRoutineEnabled(name: input["name"]?.string ?? "", enabled: input["enabled"]?.bool ?? true)
+        case "delete_routine": self = .deleteRoutine(input["name"]?.string ?? "")
+        case "run_routine": self = .runRoutine(input["name"]?.string ?? "")
+        case "emit_signal": self = .emitSignal(input["name"]?.string ?? "")
+        case "raise_decision": self = .raiseDecision
+        case "list_decisions": self = .listDecisions
+        case "withdraw_decision":
+            let n = input["number"]
+            self = .withdrawDecision(n?.int ?? n?.string.flatMap { Int($0.trimmingCharacters(in: .init(charactersIn: "# "))) } ?? 0)
         default: return nil
         }
     }

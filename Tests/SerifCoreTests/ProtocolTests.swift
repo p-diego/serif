@@ -55,6 +55,18 @@ final class ProtocolTests: XCTestCase {
         XCTAssertNil(SerifToolCall(toolName: "mcp__other__send_message", input: [:]))
         XCTAssertNil(SerifToolCall(toolName: "mcp__serif__make_coffee", input: [:]))
         XCTAssertEqual(Activity.from(toolName: "mcp__figma__get", input: [:]), .tool("mcp__figma__get"))
+        // Routines, signals and decisions (spec §4–6 of 0.6).
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__create_routine", input: ["name": "Tidy", "every_minutes": 30]), .createRoutine("Tidy"))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__list_routines", input: [:]), .listRoutines)
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__set_routine_enabled", input: ["name": "Tidy", "enabled": false]),
+                       .setRoutineEnabled(name: "Tidy", enabled: false))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__delete_routine", input: ["name": "Tidy"]), .deleteRoutine("Tidy"))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__run_routine", input: ["name": "Tidy"]), .runRoutine("Tidy"))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__emit_signal", input: ["name": "build-done"]), .emitSignal("build-done"))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__raise_decision", input: ["question": "Ship?"]), .raiseDecision)
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__list_decisions", input: [:]), .listDecisions)
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__withdraw_decision", input: ["number": "#5"]), .withdrawDecision(5))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__withdraw_decision", input: [:]), .withdrawDecision(0))
     }
 
     func testActivityFromTools() {

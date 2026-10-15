@@ -843,6 +843,63 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(try Store(paths: paths).routines(bob.projectId).first?.lastOutcome, .failed)
     }
 
+    func testTheRoutineToolsFollowTheRules() throws {
+        let turns = [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "Deployed.")
+        let (client, bob, ada) = try twoBots(bob: turns, ada: turns)
+        let engine = engines[0]
+        func create(_ args: JSONValue) -> ToolResult { callTool(engine, as: bob, "create_routine", args) }
+        XCTAssertEqual(create(["name": "Tidy", "prompt": "x"]),
+                       ToolResult("give exactly one of every_minutes, daily_at, weekdays_at, signal or cron", isError: true))
+        XCTAssertEqual(create(["name": "Tidy", "prompt": "x", "every_minutes": 30, "signal": "go"]),
+                       ToolResult("give exactly one of every_minutes, daily_at, weekdays_at, signal or cron", isError: true))
+        XCTAssertEqual(create(["name": "Tidy", "prompt": "x", "daily_at": "9"]), ToolResult("daily_at must be HH:MM", isError: true))
+        XCTAssertEqual(create(["name": "Tidy", "prompt": "x", "every_minutes": 4]), ToolResult("every_minutes must be at least 5", isError: true))
+        XCTAssertEqual(create(["name": "Tidy", "prompt": "x", "weekdays_at": ["days": [0], "time": "09:00"]]),
+                       ToolResult("days must be between 1 (Monday) and 7 (Sunday)", isError: true))
+        XCTAssertEqual(create(["name": "Tidy", "prompt": "x", "cron": "* * *"]),
+                       ToolResult("cron must have five fields: minute hour day month weekday", isError: true))
+        XCTAssertEqual(create(["name": "Tidy", "prompt": "x", "every_minutes": 30, "max_minutes": 500]),
+                       ToolResult("max_minutes must be between 1 and 480", isError: true))
+        let made = create(["name": " Tidy ", "prompt": "Tidy up", "every_minutes": 30, "max_minutes": 10, "notify": false])
+        XCTAssertTrue(made.text.hasPrefix("Routine «Tidy» created, next run "), made.text)
+        XCTAssertEqual(create(["name": "tidy", "prompt": "x", "daily_at": "09:00"]),
+                       ToolResult("you already have a routine called tidy", isError: true))
+        XCTAssertEqual(create(["name": "Deploy", "prompt": "Deploy it", "signal": "build-done"]),
+                       ToolResult("Routine «Deploy» created, runs on the signal «build-done»"))
+        XCTAssertFalse(create(["name": "Weekly", "prompt": "x", "weekdays_at": ["days": [1, 5], "time": "18:30"]]).isError)
+        XCTAssertFalse(create(["name": "Nightly", "prompt": "x", "cron": "0 3 * * *"]).isError)
+        let tidy = try XCTUnwrap(routines(client.all, bob.projectId).first { $0.name == "Tidy" })
+        XCTAssertEqual([tidy.maxMinutes, tidy.notifies ? 1 : 0, tidy.createdBy == .bot ? 1 : 0], [10, 0, 1])
+        XCTAssertEqual(tidy.trigger, .every(minutes: 30))
+        let list = callTool(engine, as: bob, "list_routines").text
+        XCTAssertTrue(list.hasPrefix("Your routines:\n- «Tidy» (every 30 minutes, on, up to 10 min): next run "), list)
+        XCTAssertTrue(list.contains("- «Deploy» (on the signal «build-done», on, up to 30 min): never ran"))
+        XCTAssertTrue(list.contains("- «Weekly» (on Mon, Fri at 18:30, on, up to 30 min): next run"))
+        XCTAssertEqual(callTool(engine, as: ada, "list_routines"), ToolResult("You have no routines."))
+        // Another bot's routine is not hers (spec §9).
+        XCTAssertEqual(callTool(engine, as: ada, "set_routine_enabled", ["name": "Tidy", "enabled": false]),
+                       ToolResult("not your routine", isError: true))
+        XCTAssertEqual(callTool(engine, as: ada, "delete_routine", ["name": "Nope"]), ToolResult("you have no routine called Nope", isError: true))
+        XCTAssertEqual(callTool(engine, as: bob, "set_routine_enabled", ["name": "tidy", "enabled": false]), ToolResult("Routine «Tidy» is now off"))
+        XCTAssertEqual(routines(client.all, bob.projectId).first { $0.name == "Tidy" }?.enabled, false)
+        XCTAssertEqual(callTool(engine, as: bob, "delete_routine", ["name": "Tidy"]), ToolResult("Routine «Tidy» deleted"))
+        XCTAssertEqual(callTool(engine, as: bob, "delete_routine", ["name": "Tidy"]), ToolResult("you have no routine called Tidy", isError: true))
+        // run_routine: a run as soon as the bot is free; it is free now (the call came from outside a turn).
+        XCTAssertEqual(callTool(engine, as: bob, "run_routine", ["name": "Deploy"]), ToolResult("Routine «Deploy» will run as soon as you are free"))
+        waitFor(client, "the run") { self.turnsEnded($0, bob) == 2 }
+        XCTAssertTrue(try XCTUnwrap(runText(client.all, bob)).hasPrefix("Routine «Deploy» (run of "))
+        XCTAssertTrue(try XCTUnwrap(runText(client.all, bob)).hasSuffix("this is run #1). Stay within this job and finish within 30 minutes.\n\nDeploy it"))
+        // Twenty at most for a bot (spec §4); the sheet has no limit.
+        for n in (1...17) { XCTAssertFalse(create(["name": .string("R\(n)"), "prompt": "x", "every_minutes": 60]).isError, "R\(n)") }
+        XCTAssertEqual(create(["name": "R18", "prompt": "x", "every_minutes": 60]),
+                       ToolResult("you already have 20 routines: delete one first", isError: true))
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "R18", .every(minutes: 60)))), .ok)
+        // The sheet's own rules come back as its error.
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "R18", .every(minutes: 60)))), .error("you already have a routine called R18"))
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "", .every(minutes: 60)))), .error("the routine needs a name"))
+        XCTAssertEqual(request(client, .deleteRoutine(id: UUID())), .error("Unknown routine"))
+    }
+
     func testRunNowFromTheSheetStartsARunOnceTheBotIsFree() throws {
         try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "GO"]] + stop("p1") + prompt("p2") + stop("p2"))
         try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()

@@ -18,10 +18,21 @@ final class SerifToolsTests: XCTestCase {
         XCTAssertEqual(newer?["result"]?["protocolVersion"], "2025-06-18")
     }
 
-    func testEightTools() {
+    func testSeventeenTools() {
         let tools = reply(#"{"jsonrpc":"2.0","id":"a","method":"tools/list"}"#)?["result"]?["tools"]?.array ?? []
         XCTAssertEqual(tools.compactMap { $0["name"]?.string }, ["send_message", "complete_task", "cancel_task", "check_inbox",
-                                                                 "list_bots", "create_bot", "update_instructions", "archive_bot"])
+                                                                 "list_bots", "create_bot", "update_instructions", "archive_bot",
+                                                                 "create_routine", "list_routines", "set_routine_enabled",
+                                                                 "delete_routine", "run_routine", "emit_signal",
+                                                                 "raise_decision", "list_decisions", "withdraw_decision"])
+        // The new tools' shapes (spec §4–6 of 0.6).
+        let create = tools[8]["inputSchema"]
+        XCTAssertEqual(create?["required"], ["name", "prompt"])
+        XCTAssertEqual(create?["properties"]?["every_minutes"]?["minimum"], 5)
+        XCTAssertEqual(create?["properties"]?["weekdays_at"]?["required"], ["days", "time"])
+        XCTAssertEqual(create?["properties"]?["max_minutes"]?["maximum"], 480)
+        XCTAssertEqual(tools[14]["inputSchema"]?["properties"]?["options"]?["maxItems"], 6)
+        XCTAssertEqual(tools[14]["inputSchema"]?["required"], ["question", "options"])
         let send = tools[0]["inputSchema"]
         XCTAssertEqual(send?["required"], ["to", "body", "kind"])
         XCTAssertEqual(send?["properties"]?["kind"]?["enum"], ["task", "reply", "note"])

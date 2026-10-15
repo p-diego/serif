@@ -14,7 +14,8 @@ public struct ToolResult: Codable, Equatable, Sendable {
     public static let unreachable = ToolResult("Serif is not reachable", isError: true)
 }
 
-/// The eight tools as `tools/list` gives them (spec §4); names and fields in English, like the system prompt.
+/// The seventeen tools as `tools/list` gives them (spec §4 of 0.5, §4–6 of 0.6); names and fields in English, like the
+/// system prompt.
 public let serifTools: [JSONValue] = [
     tool("send_message", "Send a message to another bot of this project: a task to do (its answer comes later as a new "
          + "message), a reply about an open task, or a note.",
@@ -43,6 +44,46 @@ public let serifTools: [JSONValue] = [
          required: ["instructions"]),
     tool("archive_bot", "Archive a bot you created; its open tasks are cancelled.",
          ["name": text("The bot's name")], required: ["name"]),
+    // Routines, signals and decisions (spec §4–6 of 0.6)
+    tool("create_routine", "Create a routine of yours: a prompt that runs as a turn of yours on a schedule, or when a "
+         + "signal comes. Give exactly one of every_minutes, daily_at, weekdays_at, signal or cron.",
+         ["name": text("A short name no routine of yours has"),
+          "every_minutes": ["type": "integer", "minimum": 5, "description": "Run every N minutes, at least 5"],
+          "daily_at": text("Run every day at this local time, \"HH:MM\""),
+          "weekdays_at": ["type": "object", "description": "Run on these weekdays at this local time",
+                          "properties": ["days": ["type": "array", "items": ["type": "integer", "minimum": 1, "maximum": 7],
+                                                  "description": "1 = Monday … 7 = Sunday"],
+                                         "time": text("\"HH:MM\"")],
+                          "required": ["days", "time"]],
+          "signal": text("Run when a bot of this project emits this signal (1–64 characters, no spaces)"),
+          "cron": text("A five-field cron expression: minute hour day month weekday"),
+          "prompt": text("What to do in each run; the whole job, as it runs alone"),
+          "max_minutes": ["type": "integer", "minimum": 1, "maximum": 480,
+                          "description": "A run longer than this is stopped; 30 when left out"],
+          "notify": ["type": "boolean", "description": "Tell the user when a run finishes; true when left out"]],
+         required: ["name", "prompt"]),
+    tool("list_routines", "Your routines: when each runs, whether it is on, its next run and its last outcome.",
+         [:], required: []),
+    tool("set_routine_enabled", "Turn a routine of yours on or off.",
+         ["name": text("The routine's name"), "enabled": ["type": "boolean"]], required: ["name", "enabled"]),
+    tool("delete_routine", "Delete a routine of yours.", ["name": text("The routine's name")], required: ["name"]),
+    tool("run_routine", "Run a routine of yours once, as soon as this turn ends.",
+         ["name": text("The routine's name")], required: ["name"]),
+    tool("emit_signal", "Announce an event: every routine of this project waiting for this signal runs, yours included.",
+         ["name": text("The signal's name, 1–64 characters, no spaces"),
+          "text": text("What happened, for the routines that run; 4 KB at most")], required: ["name"]),
+    tool("raise_decision", "Ask the user to choose, when the choice is theirs: a question and 2–6 short options. Go on "
+         + "with the rest of your work: the answer comes later as a message.",
+         ["question": text("What they must decide"),
+          "options": ["type": "array", "items": ["type": "string"], "minItems": 2, "maxItems": 6,
+                      "description": "2 to 6 options, each up to 200 characters"],
+          "recommendation": ["type": "integer", "minimum": 1, "maximum": 6,
+                             "description": "The number of the option you recommend, 1 for the first"],
+          "context": text("Why it matters and what you found; 4 KB at most")],
+         required: ["question", "options"]),
+    tool("list_decisions", "The decisions of this project, open and answered, with their answers.", [:], required: []),
+    tool("withdraw_decision", "Take back an open decision you raised.",
+         ["number": number("The decision's number"), "reason": text("Why, for the user")], required: ["number"]),
 ]
 
 private func tool(_ name: String, _ description: String, _ properties: [String: JSONValue],

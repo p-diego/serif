@@ -161,4 +161,89 @@ extension Engine {
         }
         throw Refusal("Unknown routine")
     }
+
+    // MARK: - Tools (spec §4–5)
+
+    /// `create_routine`: one trigger among the five forms, the bot's own name space, at most 20.
+    func createRoutine(_ a: JSONValue, from rt: BotRuntime) throws -> String {
+        guard let name = a["name"]?.string, let prompt = a["prompt"]?.string else {
+            throw MailError("create_routine needs name and prompt")
+        }
+        var routines = store.routines(rt.bot.projectId)
+        if let full = routineLimitError(count: routines.filter { $0.botId == rt.bot.id }.count) { throw MailError(full) }
+        let routine = Routine(botId: rt.bot.id, name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                              trigger: try trigger(in: a), prompt: prompt,
+                              maxMinutes: try number(a["max_minutes"], "max_minutes") ?? 30,
+                              notifies: a["notify"]?.bool ?? true, createdBy: .bot, createdAt: now())
+        if let problem = routineProblem(routine, among: routines) { throw MailError(problem) }
+        routines.append(routine)
+        try store.save(routines, project: rt.bot.projectId)
+        push(.routinesChanged(projectId: rt.bot.projectId, routines: routines))
+        if case let .signal(signal) = routine.trigger { return "Routine «\(routine.name)» created, runs on the signal «\(signal)»" }
+        let next = nextRun(of: routine, notBefore: routineFloor).map { mailDate($0) } ?? "never"
+        return "Routine «\(routine.name)» created, next run \(next)"
+    }
+
+    /// The one trigger of a `create_routine` call (spec §4): every_minutes, daily_at, weekdays_at, signal or cron.
+    private func trigger(in a: JSONValue) throws -> RoutineTrigger {
+        var found: [RoutineTrigger] = []
+        if let m = try number(a["every_minutes"], "every_minutes") { found.append(.every(minutes: m)) }
+        if let t = a["daily_at"]?.string {
+            guard let (h, m) = clockTime(t) else { throw MailError("daily_at must be HH:MM") }
+            found.append(.dailyAt(hour: h, minute: m))
+        }
+        if let w = a["weekdays_at"], w != .null {
+            guard let days = w["days"]?.array?.compactMap(\.int), let t = w["time"]?.string, let (h, m) = clockTime(t) else {
+                throw MailError("weekdays_at needs days (1 = Monday … 7 = Sunday) and time \"HH:MM\"")
+            }
+            found.append(.weekdaysAt(days: Set(days), hour: h, minute: m))
+        }
+        if let s = a["signal"]?.string { found.append(.signal(name: s)) }
+        if let c = a["cron"]?.string { found.append(.cron(expression: c)) }
+        guard found.count == 1 else { throw MailError("give exactly one of every_minutes, daily_at, weekdays_at, signal or cron") }
+        return found[0]
+    }
+
+    func listRoutines(for rt: BotRuntime) -> String {
+        routinesText(store.routines(rt.bot.projectId).filter { $0.botId == rt.bot.id }) { nextRun(of: $0, notBefore: routineFloor) }
+    }
+
+    func setRoutineEnabled(_ a: JSONValue, from rt: BotRuntime) throws -> String {
+        guard let enabled = a["enabled"]?.bool else { throw MailError("set_routine_enabled needs name and enabled") }
+        var routines = store.routines(rt.bot.projectId)
+        let i = try own(a["name"], in: routines, rt)
+        routines[i].enabled = enabled
+        if !enabled { routines[i].pending = nil }          // a routine turned off runs no more (spec §4)
+        try store.save(routines, project: rt.bot.projectId)
+        push(.routinesChanged(projectId: rt.bot.projectId, routines: routines))
+        return "Routine «\(routines[i].name)» is now \(enabled ? "on" : "off")"
+    }
+
+    func deleteRoutine(_ a: JSONValue, from rt: BotRuntime) throws -> String {
+        var routines = store.routines(rt.bot.projectId)
+        let gone = routines.remove(at: try own(a["name"], in: routines, rt))
+        try store.save(routines, project: rt.bot.projectId)
+        push(.routinesChanged(projectId: rt.bot.projectId, routines: routines))
+        return "Routine «\(gone.name)» deleted"
+    }
+
+    /// `run_routine`: a run once this turn ends (the bot calling is not free).
+    func runRoutine(_ a: JSONValue, from rt: BotRuntime) throws -> String {
+        let routines = store.routines(rt.bot.projectId)
+        let routine = routines[try own(a["name"], in: routines, rt)]
+        queueRun(routine.id, in: rt.bot.projectId)
+        return "Routine «\(routine.name)» will run as soon as you are free"
+    }
+
+    /// The caller's routine called `name`: another bot's is "not your routine" (spec §9).
+    private func own(_ name: JSONValue?, in routines: [Routine], _ rt: BotRuntime) throws -> Int {
+        guard let name = name?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+            throw MailError("which routine? give its name")
+        }
+        let same = routines.indices.filter { routines[$0].name.caseInsensitiveCompare(name) == .orderedSame }
+        guard let i = same.first(where: { routines[$0].botId == rt.bot.id }) else {
+            throw MailError(same.isEmpty ? "you have no routine called \(name)" : "not your routine")
+        }
+        return i
+    }
 }

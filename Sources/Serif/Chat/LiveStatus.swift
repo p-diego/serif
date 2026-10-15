@@ -29,6 +29,16 @@ func serifStatusText(_ call: SerifToolCall) -> String {
     case .createBot(let name): String(localized: "Creating \(name)…")
     case .updateInstructions: String(localized: "Updating instructions…")
     case .archiveBot(let name): String(localized: "Archiving \(name)…")
+    case .createRoutine(let name): String(localized: "Creating the routine «\(name)»…")
+    case .listRoutines: String(localized: "Looking at its routines…")
+    case .setRoutineEnabled(let name, let on):
+        on ? String(localized: "Turning on the routine «\(name)»…") : String(localized: "Turning off the routine «\(name)»…")
+    case .deleteRoutine(let name): String(localized: "Deleting the routine «\(name)»…")
+    case .runRoutine(let name): String(localized: "Starting the routine «\(name)»…")
+    case .emitSignal(let name): String(localized: "Sending the signal «\(name)»…")
+    case .raiseDecision: String(localized: "Asking you to decide…")
+    case .listDecisions: String(localized: "Looking at the decisions…")
+    case .withdrawDecision(let n): String(localized: "Withdrawing decision #\(n)…")
     }
 }
 
@@ -44,6 +54,16 @@ func serifStepTitle(_ call: SerifToolCall) -> String {
     case .createBot(let name): String(localized: "Bot created: \(name)")
     case .updateInstructions: String(localized: "Instructions updated")
     case .archiveBot(let name): String(localized: "Bot archived: \(name)")
+    case .createRoutine(let name): String(localized: "Routine created: \(name)")
+    case .listRoutines: String(localized: "Routines")
+    case .setRoutineEnabled(let name, let on):
+        on ? String(localized: "Routine on: \(name)") : String(localized: "Routine off: \(name)")
+    case .deleteRoutine(let name): String(localized: "Routine deleted: \(name)")
+    case .runRoutine(let name): String(localized: "Routine run: \(name)")
+    case .emitSignal(let name): String(localized: "Signal: \(name)")
+    case .raiseDecision: String(localized: "Decision raised")
+    case .listDecisions: String(localized: "Decisions")
+    case .withdrawDecision(let n): String(localized: "Decision #\(n) withdrawn")
     }
 }
 

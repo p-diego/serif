@@ -16,6 +16,12 @@ extension Engine {
             case "create_bot": return ToolResult(try createBot(arguments, from: rt))
             case "update_instructions": return ToolResult(try updateInstructions(arguments, from: rt))
             case "archive_bot": return ToolResult(try archiveBot(arguments, from: rt))
+            // Routines, signals and decisions (spec §4–6 of 0.6)
+            case "create_routine": return ToolResult(try createRoutine(arguments, from: rt))
+            case "list_routines": return ToolResult(listRoutines(for: rt))
+            case "set_routine_enabled": return ToolResult(try setRoutineEnabled(arguments, from: rt))
+            case "delete_routine": return ToolResult(try deleteRoutine(arguments, from: rt))
+            case "run_routine": return ToolResult(try runRoutine(arguments, from: rt))
             default: return ToolResult("Serif has no tool called \(name)", isError: true)
             }
         } catch let refusal as MailError {
@@ -271,7 +277,7 @@ extension Engine {
 }
 
 /// A whole number a model gave as a number or as text ("17", "#17"); nil when left out.
-private func number(_ v: JSONValue?, _ field: String) throws -> Int? {
+func number(_ v: JSONValue?, _ field: String) throws -> Int? {
     guard let v, v != .null else { return nil }
     if let n = v.int ?? v.string.flatMap({ Int($0.trimmingCharacters(in: .init(charactersIn: "# "))) }) { return n }
     throw MailError("\(field) must be a whole number")
