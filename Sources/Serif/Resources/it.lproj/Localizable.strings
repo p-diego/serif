@@ -364,3 +364,6 @@
 "Signal: 1 to 64 characters, no spaces" = "Segnale: da 1 a 64 caratteri, senza spazi";
 "This cron expression never runs" = "Questa espressione cron non scatta mai";
 "The time must be from 00:00 to 23:59" = "L'ora deve essere tra 00:00 e 23:59";
+"Instructions changed by %@" = "Istruzioni cambiate da %@";
+"Instructions changed by you" = "Istruzioni cambiate da te";
+"Now with %@" = "Ora con %@";

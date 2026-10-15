@@ -209,6 +209,40 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(MailNote.self, from: Data(old.utf8)).from, "Cody")
     }
 
+    func testAttachmentsHistoryAndDiagnosticsRoundTrip() throws {
+        // Spec §4–8 of 0.7: the new requests and answers, the event with files, the new system lines.
+        let files = [AttachedFile(name: "foto.png", data: Data([1, 2, 3])), AttachedFile(name: "note.pdf", data: Data())]
+        try assertRoundTrip(AppRequest.attach(botId: botId, files: files))
+        try assertRoundTrip(AppRequest.send(botId: botId, text: "Look", attachments: ["allegati/2026-10-15/foto.png"]))
+        try assertRoundTrip(AppRequest.send(botId: botId, text: "Hi"))
+        try assertRoundTrip(AppRequest.changes(botId: botId))
+        try assertRoundTrip(AppRequest.changeAgent(botId: botId, agent: .codex))
+        try assertRoundTrip(AppRequest.diagnostics)
+        try assertRoundTrip(ResponseBody.attached(["allegati/2026-10-15/foto.png", "allegati/2026-10-15/foto-2.png"]))
+        try assertRoundTrip(ResponseBody.changes([BotChange(at: at, by: .bot(id: botId, name: "Ada"), field: .instructions, old: "a", new: "b"),
+                                                  BotChange(at: at, by: .user, field: .face, old: ["shape": "ball", "body": 1], new: .null)]))
+        let d = Diagnostics(appVersion: "0.7", engineVersion: "0.7.0", dataFolder: "/data",
+                            agents: [AgentDiagnostics(agent: .codex, path: nil, version: nil, signedIn: nil)],
+                            bots: [BotDiagnostics(name: "Cody", project: "P", agent: .claude, state: .working(.serif(.inbox)),
+                                                  lastCrash: .init(at: at, reason: "Exit code 3"), mailWaiting: 1,
+                                                  routines: [.init(name: "Tidy", next: at)], openCards: 2)],
+                            logTail: ["a line"])
+        try assertRoundTrip(ResponseBody.diagnostics(d))
+        let events: [ChatEvent] = [
+            .userMessage(text: "Look", promptId: "p1", origin: .chat, attachments: ["allegati/2026-10-15/foto.png"]),
+            .userMessage(text: "", promptId: "p1", origin: .chat, attachments: ["allegati/2026-10-15/note.pdf"]),
+            .system(.instructionsChanged(by: nil)), .system(.instructionsChanged(by: "Ada")), .system(.agentChanged(.codex)),
+        ]
+        for event in events { try assertRoundTrip(event) }
+        // A record events.jsonl got from 0.6 has no attachments; a `send` from a 0.6 app has none either (spec §4).
+        let old = #"{"seq":3,"at":"2026-10-13T10:00:00Z","event":{"userMessage":{"text":"ciao","promptId":"p1","origin":"chat"}}}"#
+        XCTAssertEqual(try protocolDecoder().decode(ChatEventRecord.self, from: Data(old.utf8)).event,
+                       .userMessage(text: "ciao", promptId: "p1", origin: .chat, attachments: nil))
+        let send = #"{"id":1,"request":{"send":{"botId":"\#(botId.uuidString)","text":"ciao"}}}"#
+        XCTAssertEqual(try protocolDecoder().decode(RequestEnvelope.self, from: Data(send.utf8)).request,
+                       .send(botId: botId, text: "ciao", attachments: nil))
+    }
+
     func testBotStatesRoundTrip() throws {
         let states: [BotState] = [
             .starting, .ready, .working(.runningCommand(nil)), .working(.tool("mcp__x")),

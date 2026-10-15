@@ -45,7 +45,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         guard let center, let bot = client.state.bots[id]?.bot else { return }
         guard record.seq > (lastSeq[id] ?? -1) else { return }
         lastSeq[id] = record.seq
-        if case let .userMessage(_, _, origin) = record.event { turnOrigin[id] = origin }
+        if case let .userMessage(_, _, origin, _) = record.event { turnOrigin[id] = origin }
         if case let .routineRun(run) = record.event, run.outcome == nil { routineNotifies[id] = run.notifies }
         // "Not now" at first launch: macOS asks the first time a bot waits for you; this notification waits for the answer.
         var asking: Task<Void, Never>?

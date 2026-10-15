@@ -21,7 +21,7 @@ private func shown(_ outputs: [NormalizerOutput]) -> [String] {
     var texts: [String: String] = [:], lines: [String] = []
     for o in outputs {
         switch o {
-        case .event(.userMessage(let t, _, let origin)): lines.append("U\(origin == .terminal ? "" : "(\(origin.rawValue))"): \(t)")
+        case .event(.userMessage(let t, _, let origin, _)): lines.append("U\(origin == .terminal ? "" : "(\(origin.rawValue))"): \(t)")
         case .event(.assistantText(let id, _, let d, _, _)):
             if texts[id] == nil { lines.append("A:\(id)") }
             texts[id, default: ""] += d

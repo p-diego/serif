@@ -23,7 +23,7 @@ func replay(_ hooks: [RecordedHook]) -> [String] {
     for o in out {
         guard case .event(let e) = o else { continue }
         switch e {
-        case .userMessage(let t, _, _): lines.append("U: \(t)")
+        case .userMessage(let t, _, _, _): lines.append("U: \(t)")
         case .assistantText(let id, _, let d, _, _):
             if texts[id] == nil { order.append(id); lines.append("A:\(id)") }
             texts[id, default: ""] += d

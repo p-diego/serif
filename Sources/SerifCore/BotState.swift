@@ -89,7 +89,7 @@ public struct StateTracker: Sendable {
 public func isUnread(lastReadSeq: Int, records: [ChatEventRecord]) -> Bool {
     var origin: MessageOrigin?
     return records.contains { record in
-        if case let .userMessage(_, _, o) = record.event { origin = o }
+        if case let .userMessage(_, _, o, _) = record.event { origin = o }
         guard record.seq > lastReadSeq, origin != .bot else { return false }
         switch record.event {
         case .turnEnded, .turnFailed, .turnInterrupted: return true

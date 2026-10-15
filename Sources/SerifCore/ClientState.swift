@@ -33,7 +33,7 @@ public struct ClientState: Equatable, Sendable {
             transcripts[botId]?.apply(record)
             bots[botId]?.lastEvent = record
             // Trimmed on both sides, like the normalizer's own chat-origin match.
-            if case .userMessage(let text, _, .chat) = record.event {
+            if case .userMessage(let text, _, .chat, _) = record.event {
                 let taken = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let i = pendingSends[botId]?.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == taken }) {
                     pendingSends[botId]?.remove(at: i)

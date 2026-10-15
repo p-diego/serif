@@ -213,7 +213,7 @@ private struct ChatContent: View {
     @ViewBuilder private func row(_ item: ChatItem, _ maxBubble: CGFloat) -> some View {
         switch item {
         case .timestamp(_, let at): TimestampLine(at: at)
-        case .user(_, let text, let origin, _): UserBubble(text: text, origin: origin, maxWidth: maxBubble)
+        case .user(_, let text, let origin, _, _): UserBubble(text: text, origin: origin, maxWidth: maxBubble)
         case .assistant(_, let text, _, _): AssistantBubble(text: text, maxWidth: maxBubble)
         case .steps(let id, let steps, let status):
             StepsCard(steps: steps, status: status,

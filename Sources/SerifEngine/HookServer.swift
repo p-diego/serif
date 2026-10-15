@@ -167,7 +167,7 @@ extension Engine {
     func repairTranscript(_ rt: BotRuntime) {
         let turn = rt.turn
         rt.turn = []
-        guard let path = rt.transcriptPath, case let .userMessage(prompt, _, _)? = turn.first else { return }
+        guard let path = rt.transcriptPath, case let .userMessage(prompt, _, _, _)? = turn.first else { return }
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let jsonl = try? String(contentsOfFile: path, encoding: .utf8),
                   let texts = transcriptTexts(transcriptJSONL: jsonl, prompt: prompt) else { return }

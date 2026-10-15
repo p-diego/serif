@@ -67,7 +67,7 @@ final class BotRuntime {
             previewMessage = nil
             let detail = request.input["command"]?.string ?? request.input["questions"]?.array?.first?["question"]?.string
             preview = [request.toolName, detail].compactMap { $0 }.joined(separator: ": ")
-        case let .userMessage(_, _, origin):
+        case let .userMessage(_, _, origin, _):
             turnOrigin = origin
         case .turnEnded, .turnFailed, .turnInterrupted:
             if turnOrigin != .bot { unread = true }          // the bots' own traffic is nothing to read (spec §6)
@@ -445,7 +445,7 @@ public final class Engine {
         let (state, unread) = (rt.tracker.state, rt.unread)
         rt.tracker.apply(event)
         rt.note(record)
-        if case let .userMessage(_, _, origin) = event {
+        if case let .userMessage(_, _, origin, _) = event {
             rt.turn = []
             rt.awaitingEcho = false
             if origin != .bot { rt.turnTask = nil }         // a turn the mail did not start carries no task's chain

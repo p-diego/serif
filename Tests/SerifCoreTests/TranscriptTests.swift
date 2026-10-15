@@ -84,6 +84,15 @@ final class TranscriptTests: XCTestCase {
         XCTAssertEqual(paged.items[1], .task(id: "task-4", card: done))
     }
 
+    func testAMessageWithFilesKeepsThemOnItsBubble() {
+        // Spec §4 of 0.7: the bubble carries the paths; one with files alone is still a bubble.
+        var t = Transcript()
+        t.apply([rec(1, .userMessage(text: "Look", promptId: "p", origin: .chat, attachments: ["allegati/2026-10-15/foto.png"])),
+                 rec(2, .userMessage(text: "", promptId: "p", origin: .chat, attachments: ["allegati/2026-10-15/note.pdf"]))])
+        XCTAssertEqual(t.items[1], .user(id: "u-1", text: "Look", origin: .chat, at: t0.addingTimeInterval(1), attachments: ["allegati/2026-10-15/foto.png"]))
+        XCTAssertEqual(t.items[2], .user(id: "u-2", text: "", origin: .chat, at: t0.addingTimeInterval(2), attachments: ["allegati/2026-10-15/note.pdf"]))
+    }
+
     func testMailEchoIsNotShownAsYours() {
         // The text a bot gets from the mail is not the user's: the mail's own item shows it (spec §6).
         var t = Transcript()

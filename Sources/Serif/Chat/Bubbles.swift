@@ -85,6 +85,9 @@ struct SystemLine: View {
         case .crashed(let r): String(localized: "Stopped: \(crashReasonText(r))")
         case .messageMayNotHaveArrived(let t): String(localized: "This message may not have reached Codex: \(t)")
         case .createdBy(let name): String(localized: "Created by \(name)")
+        case .instructionsChanged(let by?): String(localized: "Instructions changed by \(by)")
+        case .instructionsChanged(nil): String(localized: "Instructions changed by you")
+        case .agentChanged(let agent): String(localized: "Now with \(agentName(agent))")
         }
     }
 }

@@ -28,7 +28,7 @@ public enum StepsStatus: Equatable, Sendable { case running, done, failed }
 
 public enum ChatItem: Equatable, Identifiable, Sendable {
     case timestamp(id: String, at: Date)
-    case user(id: String, text: String, origin: MessageOrigin, at: Date)
+    case user(id: String, text: String, origin: MessageOrigin, at: Date, attachments: [String]? = nil)
     case assistant(id: String, text: String, at: Date, streaming: Bool)
     case steps(id: String, steps: [Step], status: StepsStatus)
     case request(id: String, request: PendingRequest, resolution: RequestResolution?, answer: RequestAnswer?)
@@ -39,7 +39,7 @@ public enum ChatItem: Equatable, Identifiable, Sendable {
 
     public var id: String {
         switch self {
-        case .timestamp(let id, _), .user(let id, _, _, _), .assistant(let id, _, _, _), .steps(let id, _, _),
+        case .timestamp(let id, _), .user(let id, _, _, _, _), .assistant(let id, _, _, _), .steps(let id, _, _),
              .request(let id, _, _, _), .system(let id, _, _), .mail(let id, _, _), .task(let id, _),
              .routineRun(let id, _): return id
         }
@@ -92,13 +92,14 @@ public struct Transcript: Equatable, Sendable {
 
     private mutating func fold(_ r: ChatEventRecord) {
         switch r.event {
-        case .userMessage(let text, _, let origin):
+        case .userMessage(let text, _, let origin, let attachments):
             switch origin {
             // Serif's own first message to a new bot is not yours: a system line says what happened (spec §5 of 0.3).
             case .introduction: add(.system(id: "sys-\(r.seq)", note: .introductionRequested, at: r.at), r)
             case .bot: break        // the mail's own item shows it (spec §6)
             case .routine: break    // the run's header shows it (spec §4 of 0.6)
-            case .chat, .terminal: add(.user(id: "u-\(r.seq)", text: text, origin: origin, at: r.at), r)
+            case .chat, .terminal:
+                add(.user(id: "u-\(r.seq)", text: text, origin: origin, at: r.at, attachments: attachments), r)
             }
         case .assistantText(let id, _, let delta, let final, _):
             if let i = items.lastIndex(where: { if case .assistant(id, _, _, _) = $0 { true } else { false } }),

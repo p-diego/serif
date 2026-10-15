@@ -357,7 +357,7 @@ final class EngineTests: XCTestCase {
     private func turnsEnded(_ m: [EngineMessage], _ bot: Bot) -> Int { m.chatEvents(bot.id).filter { label($0) == "turnEnded" }.count }
 
     private func mailText(_ m: [EngineMessage], _ bot: Bot) -> String? {
-        m.chatEvents(bot.id).lazy.compactMap { if case let .userMessage(text, _, .bot) = $0 { text } else { nil } }.last
+        m.chatEvents(bot.id).lazy.compactMap { if case let .userMessage(text, _, .bot, _) = $0 { text } else { nil } }.last
     }
 
     func testATaskToAFreeBotStartsItsTurnAtOnce() throws {
@@ -414,7 +414,7 @@ final class EngineTests: XCTestCase {
         XCTAssertFalse(callTool(engines[0], as: bob, "send_message", ["to": "Ada", "body": .string(body), "kind": "note"]).isError)
         waitFor(client, "Ada's mail turn") { self.turnsEnded($0, ada) == 2 }
         XCTAssertEqual(mailText(client.all, ada), "Note from Bob:\n\n" + body)
-        XCTAssertFalse(client.all.chatEvents(ada.id).contains { if case .userMessage(_, _, .terminal) = $0 { true } else { false } })
+        XCTAssertFalse(client.all.chatEvents(ada.id).contains { if case .userMessage(_, _, .terminal, _) = $0 { true } else { false } })
     }
 
     func testAPasteThatNeverArrivedDoesNotHoldBackTheNextMail() throws {
@@ -658,7 +658,7 @@ final class EngineTests: XCTestCase {
             bob: [sessionStart] + prompt("p0") + stop("p0"),
             ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "NEVER"]])
         XCTAssertFalse(callTool(engines[0], as: bob, "send_message", ["to": "Ada", "body": "x", "kind": "task"]).isError)
-        waitFor(first, "Ada on it") { $0.chatEvents(ada.id).contains { if case .userMessage(_, _, .bot) = $0 { true } else { false } } }
+        waitFor(first, "Ada on it") { $0.chatEvents(ada.id).contains { if case .userMessage(_, _, .bot, _) = $0 { true } else { false } } }
         shutdown(engines[0])
         try play([sessionStart] + prompt("p9") + stop("p9"))
         let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
@@ -707,7 +707,7 @@ final class EngineTests: XCTestCase {
 
     /// The routine's turn text, as `mailText` for the mail (origin `.routine`).
     private func runText(_ m: [EngineMessage], _ bot: Bot) -> String? {
-        m.chatEvents(bot.id).lazy.compactMap { if case let .userMessage(text, _, .routine) = $0 { text } else { nil } }.last
+        m.chatEvents(bot.id).lazy.compactMap { if case let .userMessage(text, _, .routine, _) = $0 { text } else { nil } }.last
     }
 
     private func runs(_ m: [EngineMessage], _ bot: Bot) -> [RoutineRun] {
@@ -800,7 +800,7 @@ final class EngineTests: XCTestCase {
         XCTAssertFalse(callTool(engine, as: ada, "send_message", ["to": "Bob", "body": "hi", "kind": "note"]).isError)
         XCTAssertEqual(request(client, .terminalInput(botId: bob.id, data: Data("GO".utf8))), .ok)
         waitFor(client, "both turns") { self.turnsEnded($0, bob) == 4 }
-        let origins = client.all.chatEvents(bob.id).compactMap { if case let .userMessage(_, _, o) = $0 { o } else { nil } }
+        let origins = client.all.chatEvents(bob.id).compactMap { if case let .userMessage(_, _, o, _) = $0 { o } else { nil } }
         XCTAssertEqual(origins, [.introduction, .chat, .bot, .routine])             // the note first, then the run (spec §4)
     }
 
@@ -1296,7 +1296,7 @@ final class EngineTests: XCTestCase {
     }
 
     private func introduction(_ events: [ChatEvent]) -> String? {
-        events.lazy.compactMap { if case let .userMessage(text, _, .introduction) = $0 { text } else { nil } }.first
+        events.lazy.compactMap { if case let .userMessage(text, _, .introduction, _) = $0 { text } else { nil } }.first
     }
 
     func testSignedOutClaudeCodeStopsTheBotUntilRetry() throws {
@@ -2326,7 +2326,7 @@ final class EngineTests: XCTestCase {
             return method + " " + [m["params"]?["input"]?.array?.first?["text"]?.string, m["params"]?["expectedTurnId"]?.string].compactMap { $0 }.joined(separator: "@")
         }
         XCTAssertEqual(rpc.dropFirst(), ["turn/steer uno@turn-1", "turn/start uno", "turn/steer due@turn-2"])
-        let said = client.all.chatEvents(bot.id).compactMap { if case let .userMessage(text, _, .chat) = $0 { text } else { nil } }
+        let said = client.all.chatEvents(bot.id).compactMap { if case let .userMessage(text, _, .chat, _) = $0 { text } else { nil } }
         XCTAssertEqual(said, ["uno", "due"])
     }
 

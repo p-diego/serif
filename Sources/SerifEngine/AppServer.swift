@@ -120,7 +120,7 @@ extension Engine {
             return .ok
         case let .history(botId, beforeSeq, limit):
             return .history(try store.history(bot: botId, beforeSeq: beforeSeq, limit: limit))
-        case let .send(botId, text):
+        case let .send(botId, text, _):
             let rt = try runtime(botId)
             if rt.bot.agent == .codex {
                 if case .stopped = rt.tracker.state { throw Refusal("The bot is archived") }
@@ -139,6 +139,8 @@ extension Engine {
                 if hasOpenRequest(rt) || !rt.outbox.isEmpty { rt.outbox.append((text, .chat)) } else { type(text, into: rt) }
             }
             return .ok
+        case .attach, .changes:
+            throw Refusal("Not yet")       // served by Tasks 3 and 5
         case let .interrupt(botId):
             stopTurn(try runtime(botId))
             return .ok
@@ -186,8 +188,8 @@ extension Engine {
         case let .resizeTerminal(botId, cols, rows):
             try runtime(botId).host.resize(cols: cols, rows: rows)
             return .ok
-        case .agentStatus, .codexCatalog:
-            return .ok      // never reached: appLine answers them once they are ready
+        case .agentStatus, .codexCatalog, .changeAgent, .diagnostics:
+            return .ok      // never reached: appLine answers them once the agents' checks are done
         case .shutdown:
             return .ok      // never reached: appLine answers it after the bots have stopped
         }

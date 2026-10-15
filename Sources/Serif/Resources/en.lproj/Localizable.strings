@@ -364,3 +364,6 @@
 "Signal: 1 to 64 characters, no spaces" = "Signal: 1 to 64 characters, no spaces";
 "This cron expression never runs" = "This cron expression never runs";
 "The time must be from 00:00 to 23:59" = "The time must be from 00:00 to 23:59";
+"Instructions changed by %@" = "Instructions changed by %@";
+"Instructions changed by you" = "Instructions changed by you";
+"Now with %@" = "Now with %@";

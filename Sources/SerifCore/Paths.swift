@@ -57,4 +57,6 @@ public struct BotPaths: Sendable {
     public var mcpConfig: URL { dir.appendingPathComponent("mcp.json") }
     public var events: URL { dir.appendingPathComponent("events.jsonl") }
     public var meta: URL { dir.appendingPathComponent("meta.json") }
+    /// The bot's changes, one per line (spec §5 of 0.7).
+    public var history: URL { dir.appendingPathComponent("history.jsonl") }
 }

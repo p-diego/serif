@@ -13,6 +13,8 @@ public enum SystemNote: Codable, Equatable, Sendable {
     case crashed(reason: String)
     case messageMayNotHaveArrived(text: String)     // sent to Codex, whose server went before answering: not sent again
     case createdBy(name: String)                    // in place of `botCreated` for a bot another bot created (spec §7)
+    case instructionsChanged(by: String?)           // nil: by you; else the bot's name (spec §6 of 0.7)
+    case agentChanged(Agent)                        // "Now with Codex" (spec §7 of 0.7)
 }
 
 /// What a working bot is doing right now, shown next to its name.
@@ -108,7 +110,9 @@ public enum SerifToolCall: Codable, Equatable, Sendable {
 
 /// One entry of a bot's chat timeline. Streams are split into deltas and a final flag.
 public enum ChatEvent: Codable, Equatable, Sendable {
-    case userMessage(text: String, promptId: String?, origin: MessageOrigin)
+    /// `attachments`: the files sent with a message of yours, by their path in the shared folder (spec §4 of 0.7); the
+    /// text is your own words, what the bot got is `messageText`.
+    case userMessage(text: String, promptId: String?, origin: MessageOrigin, attachments: [String]? = nil)
     case assistantText(messageId: String, index: Int, delta: String, final: Bool, promptId: String?)
     case assistantTextReplaced(messageId: String, text: String)
     case toolStarted(toolUseId: String, name: String, input: JSONValue, promptId: String?)

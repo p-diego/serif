@@ -81,7 +81,7 @@ final class ClientStateTests: XCTestCase {
         s.historyRequested(bot: bot)
         s.apply(.chatEvent(botId: bot, record: record(3, at: 3, user("new"))))
         s.historyLoaded([record(1, at: 1, user("old")), record(2, at: 2, user("older")), record(3, at: 3, user("new"))], bot: bot)
-        let texts = s.transcripts[bot]?.items.compactMap { if case .user(_, let t, _, _) = $0 { t } else { nil } }
+        let texts = s.transcripts[bot]?.items.compactMap { if case .user(_, let t, _, _, _) = $0 { t } else { nil } }
         XCTAssertEqual(texts, ["old", "older", "new"])
         XCTAssertEqual(s.transcripts[bot]?.firstSeq, 1)
         XCTAssertEqual(s.transcripts[bot]?.lastSeq, 3)

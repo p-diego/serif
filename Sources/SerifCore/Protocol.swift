@@ -78,7 +78,7 @@ public enum AppRequest: Codable, Equatable, Sendable {
     case archiveBot(id: UUID)
     case restartBot(id: UUID)
     case history(botId: UUID, beforeSeq: Int?, limit: Int)
-    case send(botId: UUID, text: String)
+    case send(botId: UUID, text: String, attachments: [String]? = nil)   // files already attached, by path (spec §4 of 0.7)
     case interrupt(botId: UUID)
     case answer(requestId: UUID, answer: RequestAnswer)
     case markRead(botId: UUID, seq: Int)
@@ -93,7 +93,18 @@ public enum AppRequest: Codable, Equatable, Sendable {
     case deleteRoutine(id: UUID)
     case runRoutine(id: UUID)                       // "Run now": a run as soon as the bot is free
     case decisions(projectId: UUID)                 // the project's decisions, for its settings (spec §6 of 0.6)
+    case attach(botId: UUID, files: [AttachedFile]) // copies the files into the shared folder; answers their paths (spec §4 of 0.7)
+    case changes(botId: UUID)                       // the bot's history, newest last (spec §5 of 0.7)
+    case changeAgent(botId: UUID, agent: Agent)     // Claude Code ↔ Codex, with confirmation in the app (spec §7 of 0.7)
+    case diagnostics                                // the Diagnostics window (spec §8 of 0.7)
     case shutdown
+}
+
+/// A file the app sends with a message (spec §4 of 0.7): its name as the user had it, and its bytes.
+public struct AttachedFile: Codable, Equatable, Sendable {
+    public var name: String
+    public var data: Data
+    public init(name: String, data: Data) { self.name = name; self.data = data }
 }
 
 /// Pairs a request with the id the engine echoes back in its response.
@@ -119,6 +130,9 @@ public enum ResponseBody: Codable, Equatable, Sendable {
     case agentStatus(AgentStatus)
     case codexCatalog(CodexCatalog)
     case decisions([Decision])
+    case attached([String])         // the paths of the files just attached, in the shared folder (spec §4 of 0.7)
+    case changes([BotChange])
+    case diagnostics(Diagnostics)
     case error(String)
 }
 
