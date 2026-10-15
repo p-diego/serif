@@ -10,7 +10,7 @@ Four programs live in one bundle, `Serif.app/Contents/MacOS`:
 | `Serif` | The window. Talks to the engine; registers itself and the engine as login items. |
 | `serifd` | The engine (launchd agent `com.serif.engine`). Keeps every bot's agent alive — Claude Code in its own terminal, Codex on a server of its own —, stores the chats, answers the app. Keeps running when the app is closed. |
 | `serif-hook` | For Claude Code bots: run by Claude Code for every hook; relays it to the engine and, for permissions, waits for the answer. |
-| `serif-tools` | The bots' own tools (an MCP server named `serif`, one per bot, started by its agent): mail to the other bots of the project, tasks, colleagues, bots that create bots. Each call goes to the engine. |
+| `serif-tools` | The bots' own tools (an MCP server named `serif`, one per bot, started by its agent): mail to the other bots of the project, tasks, colleagues, bots that create bots, routines, signals and decisions. Each call goes to the engine. |
 
 ## Install on another Mac
 
@@ -104,6 +104,29 @@ does (open, done, cancelled, expired) and that you can cancel. A turn the mail s
 no notification; cards that wait for you still do. A task past its deadline expires (the engine looks every minute) and
 the bot that asked is told.
 
+## Routines, signals and decisions
+
+A bot also works on its own. A **routine** is a prompt of a bot that runs as a turn of its own on a schedule (every N
+minutes, every day at a time, on chosen weekdays at a time) or when a **signal** comes; you make them in the bot's
+settings ("Routines"), the bots make their own with their tools (a cron expression too). A run starts only when the bot
+is free, after any mail waiting for it, one run at a time; a run past the routine's time limit (30 minutes by default) is
+stopped as with Stop. Runs always mark the chat unread and notify like a turn of yours, unless the routine's "Tell me
+when it finishes" is off. Runs whose time passes while the engine is off are not made up.
+
+| Tool | What it does |
+|---|---|
+| `create_routine` | a routine of the bot's own: `every_minutes` (at least 5), `daily_at "HH:MM"`, `weekdays_at {days: [1–7], time}`, `signal`, or `cron`; at most 20 per bot |
+| `list_routines`, `set_routine_enabled`, `delete_routine`, `run_routine` | the bot's own routines; `run_routine` runs one as soon as the turn ends |
+| `emit_signal` | announces an event by name: every routine of the project on that signal runs; chains of signals stop at 4 |
+| `raise_decision` | a choice that is yours: a question with 2–6 options, a recommendation, some context; the bot goes on and gets your answer as a message |
+| `list_decisions`, `withdraw_decision` | the project's decisions; a bot withdraws only its own open ones |
+
+A **decision** is a card in the bot's chat that does not hold the bot: it stays open across restarts until you answer it
+(an option, your own words, or both), the bot withdraws it or the bot is archived. Your answer reaches the bot as a
+message from you; the project's lead gets a copy with the question and the answer. The "N waiting for you" row above the
+projects opens a view with every open card of every bot, grouped by bot, answered there; the project settings list its
+decisions.
+
 ## Requirements
 
 - macOS 26, Xcode with Swift 6.2 or later.
@@ -150,7 +173,8 @@ serifd.sock, hook.sock     sockets between app, engine, serif-hook and serif-too
 serifd.log                 engine log (errors only)
 state.json                 projects and bots
 projects/<id>/shared/      folder shared by the bots of a project
-projects/<id>/mail.json    the project's mail and tasks between its bots (an unreadable file is kept as mail.json.bad)
+projects/<id>/mail.json    the project's mail, tasks and decisions (an unreadable file is kept as mail.json.bad)
+projects/<id>/routines.json  the project's routines, with their waiting runs (an unreadable file is kept as routines.json.bad)
 bots/<id>/workspace/       the bot's working folder (its memory is CLAUDE.md there, AGENTS.md for a Codex bot)
 bots/<id>/workspace/.claude/skills/        links to the bot's skills
 bots/<id>/workspace/.agents/skills/        links to a Codex bot's skills (its own and its project's)
