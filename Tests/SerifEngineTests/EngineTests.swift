@@ -2839,6 +2839,47 @@ final class EngineTests: XCTestCase {
         waitFor(client, "ready on Codex") { $0.summaries(bob.id).last?.state == .ready && $0.summaries(bob.id).last?.bot.agent == .codex }
     }
 
+    func testAskingForTheCurrentAgentCancelsAWaitingSwitch() throws {
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "GO"]] + stop("p1"))
+        try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Work long")), .ok)
+        waitFor(client, "working") { $0.chatEvents(bob.id).filter { label($0) == "userMessage" }.count == 2 }
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .ok)
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .claude)), .ok)       // never mind
+        XCTAssertEqual(request(client, .terminalInput(botId: bob.id, data: Data("GO".utf8))), .ok)
+        waitFor(client, "the turn ended") { self.turnsEnded($0, bob) == 2 }
+        Thread.sleep(forTimeInterval: 0.5)                                           // a switch would be under way by now
+        XCTAssertEqual(client.all.summaries(bob.id).last?.bot.agent, .claude)
+        XCTAssertFalse(client.all.chatEvents(bob.id).contains(.system(.agentChanged(.codex))))
+    }
+
+    func testAnAgentSwitchPendingWhenTheBotCrashesIsDoneAtItsRelaunch() throws {
+        // A switch waiting for a turn that ends in a crash (spec §7): the crash does not drop it, and the relaunch applies it.
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "GO"], ["exit": 3]])
+        try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        let workspace = paths.bot(bob.id).workspace
+        try "remember: 42".write(to: workspace.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Work long")), .ok)
+        waitFor(client, "working") { $0.chatEvents(bob.id).filter { label($0) == "userMessage" }.count == 2 }
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .ok)
+        XCTAssertEqual(request(client, .terminalInput(botId: bob.id, data: Data("GO".utf8))), .ok)
+        waitFor(client, "the crash") { $0.chatEvents(bob.id).contains(.system(.crashed(reason: "Exit code 3"))) }
+        waitFor(client, "now with Codex") { $0.chatEvents(bob.id).contains(.system(.agentChanged(.codex))) }
+        let lines = client.all.chatEvents(bob.id).compactMap { e -> String? in
+            if case .system(.crashed) = e { "crashed" } else if case .system(.agentChanged) = e { "agentChanged" } else { nil }
+        }
+        XCTAssertEqual(lines, ["crashed", "agentChanged"])
+        waitUntil("a thread on Codex") { [unowned self] in codexRequests("thread/start").count == 1 }
+        waitFor(client, "ready on Codex") { $0.summaries(bob.id).last?.state == .ready && $0.summaries(bob.id).last?.bot.agent == .codex }
+        XCTAssertEqual(try String(contentsOf: workspace.appendingPathComponent("AGENTS.md"), encoding: .utf8), "remember: 42")
+    }
+
     func testAnAgentSwitchIsRefusedForAMissingAgentOrABotNeverStarted() throws {
         // Spec §7, §10: the agent's problem comes back (the app shows its help); a bot with no conversation yet waits.
         let fake = binDir.appendingPathComponent("fake-claude").path

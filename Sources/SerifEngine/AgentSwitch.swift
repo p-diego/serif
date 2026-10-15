@@ -9,7 +9,7 @@ extension Engine {
     /// caller (`appLine`) and found installed and signed in.
     func changeAgent(_ rt: BotRuntime, to agent: Agent) throws {
         guard rt.bot.archivedAt == nil else { throw Refusal("The bot is archived") }
-        guard agent != rt.bot.agent else { return }
+        guard agent != rt.bot.agent else { rt.pendingAgent = nil; return }       // changed their mind: nothing waits
         guard store.meta(rt.bot.id).hasStarted else { throw Refusal("The bot has not started yet") }
         if rt.tracker.state.inTurn { rt.pendingAgent = agent; return }
         switchAgent(rt, to: agent)
@@ -20,13 +20,13 @@ extension Engine {
     func switchAgent(_ rt: BotRuntime, to agent: Agent) {
         rt.pendingAgent = nil
         stop(rt) { [self] in
-            if let problem = moveMemory(in: paths.bot(rt.bot.id).workspace, to: agent) {
-                log("bot \(rt.bot.id): \(problem)")
-            }
             var bot = rt.bot
             (bot.agent, bot.model, bot.plugins, bot.sessionId, bot.threadId) = (agent, nil, [], UUID(), nil)
             do { try saveBot(bot, by: .user, rt, relaunch: false) }
-            catch { return log("cannot save \(rt.bot.id): \(error)") }
+            catch { return log("cannot save \(rt.bot.id): \(error)") }         // before the memory moves: no half state
+            if let problem = moveMemory(in: paths.bot(rt.bot.id).workspace, to: agent) {
+                log("bot \(rt.bot.id): \(problem)")
+            }
             updateMeta(rt) { $0.hasStarted = false }            // a new conversation: no --resume
             record(.system(.agentChanged(agent)), rt)
             launch(rt)
