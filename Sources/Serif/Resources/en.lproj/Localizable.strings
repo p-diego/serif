@@ -367,3 +367,8 @@
 "Instructions changed by %@" = "Instructions changed by %@";
 "Instructions changed by you" = "Instructions changed by you";
 "Now with %@" = "Now with %@";
+"Attach files…" = "Attach files…";
+"Attach" = "Attach";
+"At most %lld files per message" = "At most %lld files per message";
+"A file is larger than 16 MB: %@" = "A file is larger than 16 MB: %@";
+"file no longer available" = "file no longer available";

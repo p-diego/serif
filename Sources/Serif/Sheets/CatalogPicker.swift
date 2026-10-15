@@ -17,7 +17,7 @@ struct CatalogPicker: View {
 
     var body: some View {
         if !chosen.isEmpty {
-            FlowLayout {
+            ChipFlow {
                 ForEach(chosen, id: \.self) { pill($0) }
             }
         }
@@ -96,34 +96,5 @@ struct CatalogPicker: View {
         }
         folderError = nil
         if !chosen.contains(url.path) { chosen.append(url.path) }
-    }
-}
-
-/// Pills left to right, wrapping onto new rows.
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrange(width: proposal.width ?? .infinity, subviews).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for (view, point) in zip(subviews, arrange(width: bounds.width, subviews).points) {
-            view.place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), proposal: .unspecified)
-        }
-    }
-
-    private func arrange(width: CGFloat, _ subviews: Subviews) -> (points: [CGPoint], size: CGSize) {
-        var points: [CGPoint] = []
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
-        for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width { x = 0; y += rowHeight + spacing; rowHeight = 0 }
-            points.append(CGPoint(x: x, y: y))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-            widest = max(widest, x - spacing)
-        }
-        return (points, CGSize(width: widest, height: y + rowHeight))
     }
 }

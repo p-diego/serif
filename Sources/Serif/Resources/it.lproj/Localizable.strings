@@ -367,3 +367,8 @@
 "Instructions changed by %@" = "Istruzioni cambiate da %@";
 "Instructions changed by you" = "Istruzioni cambiate da te";
 "Now with %@" = "Ora con %@";
+"Attach files…" = "Allega file…";
+"Attach" = "Allega";
+"At most %lld files per message" = "Al massimo %lld file per messaggio";
+"A file is larger than 16 MB: %@" = "Un file supera i 16 MB: %@";
+"file no longer available" = "file non più disponibile";

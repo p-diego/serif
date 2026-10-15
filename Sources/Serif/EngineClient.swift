@@ -288,9 +288,16 @@ final class EngineClient {
     func restart(bot: UUID) async throws { _ = try await send(.restartBot(id: bot)) }
     func archive(bot: UUID) async throws { _ = try await send(.archiveBot(id: bot)) }
 
-    func sendMessage(bot: UUID, text: String) async throws {
+    /// Your message, with its files first copied into the shared folder by the engine (spec §4 of 0.7): a file that
+    /// cannot be copied fails the whole send, and nothing reaches the bot.
+    func sendMessage(bot: UUID, text: String, files: [AttachedFile] = []) async throws {
+        var attachments: [String]?
+        if !files.isEmpty {
+            guard case .attached(let paths) = try await send(.attach(botId: bot, files: files)) else { throw EngineError(message: "Unexpected reply") }
+            attachments = paths
+        }
         state.pendingSends[bot, default: []].append(text)
-        do { _ = try await send(.send(botId: bot, text: text)) } catch {
+        do { _ = try await send(.send(botId: bot, text: text, attachments: attachments)) } catch {
             if let i = state.pendingSends[bot]?.firstIndex(of: text) { state.pendingSends[bot]?.remove(at: i) }
             throw error
         }

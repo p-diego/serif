@@ -74,9 +74,9 @@ private struct ChatContent: View {
                     .frame(height: 40).allowsHitTesting(false)
                 if !atBottom { jumpButton.padding(.bottom, 8) }
             }
-            Composer(botName: summary.bot.name, working: isWorking, onSend: { text in
+            Composer(botName: summary.bot.name, working: isWorking, onSend: { text, files in
                 atBottom = true; bottomRequest += 1    // your own message always brings the chat to the bottom
-                do { try await client.sendMessage(bot: summary.bot.id, text: text); return true } catch { return false }
+                do { try await client.sendMessage(bot: summary.bot.id, text: text, files: files); return true } catch { return false }
             }, onStop: { Task { try? await client.interrupt(bot: summary.bot.id) } })
             .padding(.horizontal, 20).padding(.bottom, 16).padding(.top, 4)
             }
@@ -213,7 +213,8 @@ private struct ChatContent: View {
     @ViewBuilder private func row(_ item: ChatItem, _ maxBubble: CGFloat) -> some View {
         switch item {
         case .timestamp(_, let at): TimestampLine(at: at)
-        case .user(_, let text, let origin, _, _): UserBubble(text: text, origin: origin, maxWidth: maxBubble)
+        case .user(_, let text, let origin, _, let attachments):
+            UserBubble(text: text, origin: origin, maxWidth: maxBubble, attachments: attachments, projectId: summary.bot.projectId)
         case .assistant(_, let text, _, _): AssistantBubble(text: text, maxWidth: maxBubble)
         case .steps(let id, let steps, let status):
             StepsCard(steps: steps, status: status,

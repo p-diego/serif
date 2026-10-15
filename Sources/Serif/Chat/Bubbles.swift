@@ -6,9 +6,16 @@ struct UserBubble: View {
     let origin: MessageOrigin
     var pending = false
     let maxWidth: CGFloat
+    /// The files sent with the message, and the project whose shared folder holds them (spec §4 of 0.7).
+    var attachments: [String]? = nil
+    var projectId: UUID? = nil
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 3) {
+            if let attachments, let projectId, !attachments.isEmpty {
+                AttachmentList(paths: attachments, project: projectId).padding(.bottom, text.isEmpty ? 0 : 3)
+            }
+            if !text.isEmpty || attachments?.isEmpty != false {
             Text(text).font(.system(size: Theme.Size.body)).foregroundStyle(Theme.userBubbleText)
                 .textSelection(.enabled)
                 .padding(.vertical, 12).padding(.horizontal, 16)
@@ -22,6 +29,7 @@ struct UserBubble: View {
                             .offset(x: -4, y: 14)
                     }
                 }
+            }
             if origin == .terminal {
                 Text("from the terminal").font(.system(size: Theme.Size.caption)).foregroundStyle(Theme.textTertiary)
             }
