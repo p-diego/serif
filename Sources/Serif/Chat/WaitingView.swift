@@ -43,6 +43,8 @@ struct WaitingView: View {
                 }
             }
         }
+        // Also when it opens already empty (spec §7): back to the bot you were looking at.
+        .onAppear { if requests.isEmpty { client.showWaiting = false } }
         .onChange(of: requests.isEmpty) { _, empty in if empty { client.showWaiting = false } }
     }
 }
