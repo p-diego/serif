@@ -3,13 +3,14 @@
 A Mac app that keeps Claude Code and Codex bots running, grouped by project, and shows each one as a chat. The real terminal of
 every bot is one click away.
 
-Three programs live in one bundle, `Serif.app/Contents/MacOS`:
+Four programs live in one bundle, `Serif.app/Contents/MacOS`:
 
 | Program | Role |
 |---|---|
 | `Serif` | The window. Talks to the engine; registers itself and the engine as login items. |
 | `serifd` | The engine (launchd agent `com.serif.engine`). Keeps every bot's agent alive — Claude Code in its own terminal, Codex on a server of its own —, stores the chats, answers the app. Keeps running when the app is closed. |
 | `serif-hook` | For Claude Code bots: run by Claude Code for every hook; relays it to the engine and, for permissions, waits for the answer. |
+| `serif-tools` | The bots' own tools (an MCP server named `serif`, one per bot, started by its agent): mail to the other bots of the project, tasks, colleagues, bots that create bots. Each call goes to the engine. |
 
 ## Install on another Mac
 
@@ -80,6 +81,29 @@ project's and the linked one.
 Codex is `SERIF_CODEX`, else `codex` on the login shell's `PATH`, else the ChatGPT app's own copy
 (`/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`, updated with the app).
 
+## Bots that work together
+
+The bots of a project write to each other, hand each other tasks and get their results, know who else is in the
+project, and can create bots for a job. They do it with Serif's own tools, the same for Claude Code and Codex:
+
+| Tool | What it does |
+|---|---|
+| `send_message` | a task (it ends with `complete_task`; at most 3 open per bot, chains of at most 4, never back up the chain, a deadline of 1–168 hours, 24 by default), a reply about an open task, or a note; 64 KB at most |
+| `complete_task` | closes a task the bot was given; the result goes to the bot that asked and, as a copy, to the project's lead |
+| `cancel_task` | cancels a task the bot asked for |
+| `check_inbox` | the bot's open tasks, the tasks it asked for, and the messages that came while it was busy |
+| `list_bots` | the project's bots: name, first line of the instructions, state, agent, lead |
+| `create_bot` | a new bot in the project, with the creator's agent, model and freedom, no skills, plugins or connectors of its own |
+| `update_instructions` | the bot's own instructions, or those of a bot it created, from that bot's next start |
+| `archive_bot` | archives a bot it created |
+
+Mail waits in `projects/<id>/mail.json` until its bot is free: ready, with no turn running and no card open. Then the
+engine starts a turn with it, one message per turn; never inside a running turn. The chats show it: a received message as
+a bubble ("From Cody · task #17"), a sent one as a line, each task as a card in both chats that changes as the task does
+(open, done, cancelled, expired) and that you can cancel. A turn the mail started marks nothing unread and sends no
+notification; cards that wait for you still do. A task past its deadline expires (the engine looks every minute) and
+the bot that asked is told. The project's lead, chosen in the project settings, gets a copy of every finished task.
+
 ## Requirements
 
 - macOS 26, Xcode with Swift 6.2 or later.
@@ -122,15 +146,17 @@ bot waits for you.
 Everything lives in `~/Library/Application Support/Serif/` (or `$SERIF_HOME`):
 
 ```
-serifd.sock, hook.sock     sockets between app, engine and serif-hook
+serifd.sock, hook.sock     sockets between app, engine, serif-hook and serif-tools
 serifd.log                 engine log (errors only)
 state.json                 projects and bots
 projects/<id>/shared/      folder shared by the bots of a project
+projects/<id>/mail.json    the project's mail and tasks between its bots (a file that cannot be read is kept as mail.json.bad)
 bots/<id>/workspace/       the bot's working folder (its memory is CLAUDE.md there, AGENTS.md for a Codex bot)
 bots/<id>/workspace/.claude/skills/        links to the bot's skills
 bots/<id>/workspace/.agents/skills/        links to a Codex bot's skills (its own and its project's)
 projects/<id>/shared/.claude/skills/       links to the project's skills
 bots/<id>/events.jsonl     the chat history, one event per line
+bots/<id>/mcp.json         a Claude Code bot's tools server, with this launch's secret, rewritten at every launch
 bots/<id>/codex.log        a Codex bot's server output, rewritten at every launch
 codex-catalog.log          output of the server that lists Codex's plugins and models
 ```
@@ -145,7 +171,10 @@ The app logs to the unified log: `log stream --predicate 'process == "Serif"'`. 
 Each bot runs `claude` in its own workspace with:
 
 - `--setting-sources project,local`: the user's global settings, and the hooks and plugins they enable (Siigil's
-  included), are not loaded; only the bot's `--settings` file, which routes every hook to `serif-hook`;
+  included), are not loaded; only the bot's `--settings` file, which routes every hook to `serif-hook` and lets Serif's
+  tools run without asking (`permissions.allow: ["mcp__serif"]`);
+- `--mcp-config` with the bot's `mcp.json`: Serif's tools, added to the servers the bot already has (never
+  `--strict-mcp-config`); the bot and its secret reach them in their environment, never in the arguments;
 - `--permission-mode` from the bot's freedom (asks, edits files on its own, or auto);
 - `--append-system-prompt-file` with who the bot is and where its folders are;
 - one `--plugin-dir` per plugin of the bot and its project, and `ENABLE_CLAUDEAI_MCP_SERVERS=false` in its environment unless the bot's connectors are on;
@@ -155,6 +184,8 @@ Each bot runs `claude` in its own workspace with:
 Each Codex bot's server runs with:
 
 - `--disable hooks` and `-c notify=[]`: Siigil's hooks and the user's notify program never run for a bot;
+- `-c mcp_servers.serif.*`: Serif's tools, approved without asking, taking the bot and its secret from the server's
+  environment by name (`env_vars`);
 - `-c plugins.<id>.enabled=false|true` for every installed plugin, `-c skills.config=…` hiding the skills of the remote plugins
   not chosen, and `--disable apps` unless the bot's connectors are on;
 - an environment without `CLAUDE*` variables, `ANTHROPIC_API_KEY` and `CODEX_THREAD_ID`.
