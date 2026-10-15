@@ -62,19 +62,6 @@ case "freedom" where args.count >= 3:
     guard var bot = snapshot().bots.first(where: { $0.bot.id == uuid(args[1]) })?.bot,
           let freedom = Freedom(rawValue: args[2]) else { fail("unknown bot or freedom") }
     bot.freedom = freedom; _ = call(.updateBot(bot)); print("freedom=\(freedom)")
-case "routines":
-    for r in snapshot().routines {
-        print("routine \(r.id) bot=\(r.botId) «\(r.name)» \(triggerText(r.trigger)) enabled=\(r.enabled) runs=\(r.runs) "
-              + "last=\(r.lastOutcome.map { "\($0)" } ?? "-") next=\(nextRun(of: r).map { "\($0)" } ?? "-") pending=\(r.pending != nil)")
-    }
-case "routine-enabled" where args.count >= 3:
-    guard var r = snapshot().routines.first(where: { $0.id == uuid(args[1]) }) else { fail("unknown routine") }
-    r.enabled = args[2] == "true"; _ = call(.saveRoutine(r)); print("enabled=\(r.enabled)")
-case "run-routine" where args.count >= 2:
-    _ = call(.runRoutine(id: uuid(args[1]))); print("ok")
-case "answer-decision" where args.count >= 3:
-    let option = Int(args[2]); let text = args.count > 3 ? args[3...].joined(separator: " ") : nil
-    _ = call(.answer(requestId: uuid(args[1]), answer: .decision(option: option, text: text))); print("ok")
 case "lead" where args.count >= 3:
     guard var project = snapshot().projects.first(where: { $0.id == uuid(args[1]) }) else { fail("unknown project") }
     project.leadBotId = args[2] == "none" ? nil : uuid(args[2]); _ = call(.updateProject(project)); print("lead=\(project.leadBotId?.uuidString ?? "none")")
@@ -107,5 +94,5 @@ case "terminal" where args.count >= 2:
     Thread.sleep(forTimeInterval: 0.5)
     queue.sync { connection.close() }
 default:
-    fail("usage: serifctl snapshot | create-project <name> | create-bot <projectId> <name> [model] | send <botId> <text> | answer-allow <requestId> | mark-read <botId> | pin <botId> | stop <botId> | freedom <botId> ask|edits|auto | cancel-task <projectId> <number> | lead <projectId> <botId>|none | routines | routine-enabled <id> true|false | run-routine <id> | answer-decision <requestId> <index|-> [text] | terminal <botId> [seconds | text | ENTER | ESC]...")
+    fail("usage: serifctl snapshot | create-project <name> | create-bot <projectId> <name> [model] | send <botId> <text> | answer-allow <requestId> | mark-read <botId> | pin <botId> | stop <botId> | freedom <botId> ask|edits|auto | cancel-task <projectId> <number> | lead <projectId> <botId>|none | terminal <botId> [seconds | text | ENTER | ESC]...")
 }
