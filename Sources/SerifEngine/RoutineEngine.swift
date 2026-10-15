@@ -246,4 +246,30 @@ extension Engine {
         }
         return i
     }
+    /// `emit_signal` (spec §5): every routine of the project on that signal gets a run, one at most; a run a signal
+    /// started counts the chain, and a turn at 4 may not go on.
+    func emitSignal(_ a: JSONValue, from rt: BotRuntime) throws -> String {
+        guard let name = a["name"]?.string else { throw MailError("emit_signal needs name") }
+        if let problem = signalNameProblem(name) { throw MailError(problem) }
+        let text = a["text"]?.string
+        if let text, text.utf8.count > RoutineRules.maxSignalBytes { throw MailError("the text is longer than 4 KB") }
+        guard rt.turnChain < RoutineRules.maxSignalChain else { throw MailError("signal chain too long") }
+        var routines = store.routines(rt.bot.projectId)
+        var hit = 0
+        for i in routines.indices where routines[i].enabled {
+            guard case let .signal(wanted) = routines[i].trigger, wanted.caseInsensitiveCompare(name) == .orderedSame else { continue }
+            hit += 1
+            if routines[i].pending == nil {
+                routines[i].pending = PendingRun(dueAt: now(), signal: RunSignal(name: name, text: text, from: rt.bot.name,
+                                                                                 chain: rt.turnChain + 1))
+            }
+        }
+        if hit > 0 {
+            try store.save(routines, project: rt.bot.projectId)
+            push(.routinesChanged(projectId: rt.bot.projectId, routines: routines))
+            deliverMail(in: rt.bot.projectId)
+        }
+        return "Signal «\(name)» sent to \(hit) routine\(hit == 1 ? "" : "s")"
+    }
+
 }

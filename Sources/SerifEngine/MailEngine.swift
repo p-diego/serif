@@ -22,6 +22,7 @@ extension Engine {
             case "set_routine_enabled": return ToolResult(try setRoutineEnabled(arguments, from: rt))
             case "delete_routine": return ToolResult(try deleteRoutine(arguments, from: rt))
             case "run_routine": return ToolResult(try runRoutine(arguments, from: rt))
+            case "emit_signal": return ToolResult(try emitSignal(arguments, from: rt))
             default: return ToolResult("Serif has no tool called \(name)", isError: true)
             }
         } catch let refusal as MailError {

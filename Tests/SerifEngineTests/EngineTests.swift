@@ -843,6 +843,42 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(try Store(paths: paths).routines(bob.projectId).first?.lastOutcome, .failed)
     }
 
+    func testASignalStartsEveryRoutineOnItAndChainsStopAtFour() throws {
+        let (client, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
+                + [tool("emit_signal", ["name": "build-done", "text": "v0.6 built"])] + stop("p1") + prompt("p2") + stop("p2"),
+            ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1") + prompt("p2") + stop("p2"))
+        let engine = engines[0]
+        XCTAssertEqual(request(client, .saveRoutine(routine(ada, "Deploy", .signal(name: "build-done"), prompt: "Deploy it"))), .ok)
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Notes", .signal(name: "Build-Done"), prompt: "Write the notes"))), .ok)
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Other", .signal(name: "other"), prompt: "x"))), .ok)
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Announce")), .ok)
+        waitFor(client, "both runs") { self.turnsEnded($0, bob) == 3 && self.turnsEnded($0, ada) == 2 }
+        guard case .terminal = request(client, .attachTerminal(botId: bob.id)) else { return XCTFail("no terminal") }
+        waitFor(client, "the tool's answer") { $0.terminalText.contains("TOOL-OUT:Signal «build-done» sent to 2 routines") }
+        for (bot, name, job) in [(ada, "Deploy", "Deploy it"), (bob, "Notes", "Write the notes")] {
+            let text = try XCTUnwrap(runText(client.all, bot))
+            XCTAssertTrue(text.hasPrefix("Routine «\(name)» (run of "), text)
+            XCTAssertTrue(text.hasSuffix("Started by the signal «build-done» from Bob: v0.6 built\n\n\(job)"), text)
+            XCTAssertEqual(runs(client.all, bot).first?.signal, RunSignal(name: "build-done", text: "v0.6 built", from: "Bob", chain: 1))
+        }
+        XCTAssertEqual(routines(client.all, bob.projectId).first { $0.name == "Other" }?.pending, nil)
+        // The chain (spec §5): a turn at 4 may not emit; one at 3 starts runs at 4.
+        XCTAssertEqual(callTool(engine, as: bob, "emit_signal", ["name": "build done"]),
+                       ToolResult("the signal name must be 1 to 64 characters with no spaces", isError: true))
+        XCTAssertEqual(callTool(engine, as: bob, "emit_signal", ["name": "nobody"]), ToolResult("Signal «nobody» sent to 0 routines"))
+        engine.queue.sync { engine.bots[bob.id]?.turnChain = 4 }
+        XCTAssertEqual(callTool(engine, as: bob, "emit_signal", ["name": "build-done"]), ToolResult("signal chain too long", isError: true))
+        engine.queue.sync { engine.bots[bob.id]?.turnChain = 3 }
+        XCTAssertEqual(callTool(engine, as: bob, "emit_signal", ["name": "build-done", "text": .string(String(repeating: "x", count: 4097))]),
+                       ToolResult("the text is longer than 4 KB", isError: true))
+        XCTAssertFalse(callTool(engine, as: bob, "emit_signal", ["name": "build-done"]).isError)
+        waitFor(client, "Ada's second run") { self.turnsEnded($0, ada) == 3 }
+        XCTAssertEqual(runs(client.all, ada).last?.signal?.chain, 4)
+        XCTAssertEqual(engine.queue.sync { engine.bots[ada.id]?.turnChain }, 4)
+        XCTAssertEqual(callTool(engine, as: ada, "emit_signal", ["name": "build-done"]), ToolResult("signal chain too long", isError: true))
+    }
+
     func testTheRoutineToolsFollowTheRules() throws {
         let turns = [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "Deployed.")
         let (client, bob, ada) = try twoBots(bob: turns, ada: turns)
