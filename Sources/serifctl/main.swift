@@ -62,6 +62,12 @@ case "freedom" where args.count >= 3:
     guard var bot = snapshot().bots.first(where: { $0.bot.id == uuid(args[1]) })?.bot,
           let freedom = Freedom(rawValue: args[2]) else { fail("unknown bot or freedom") }
     bot.freedom = freedom; _ = call(.updateBot(bot)); print("freedom=\(freedom)")
+case "lead" where args.count >= 3:
+    guard var project = snapshot().projects.first(where: { $0.id == uuid(args[1]) }) else { fail("unknown project") }
+    project.leadBotId = args[2] == "none" ? nil : uuid(args[2]); _ = call(.updateProject(project)); print("lead=\(project.leadBotId?.uuidString ?? "none")")
+case "cancel-task" where args.count >= 3:
+    guard let n = Int(args[2]) else { fail("bad task number") }
+    _ = call(.cancelTask(projectId: uuid(args[1]), number: n)); print("ok")
 case "terminal" where args.count >= 2:
     // Shows the bot's terminal without the app: steps are seconds to wait, or text typed (ENTER, ESC: those keys; text
     // gets Enter). Writes everything the terminal shows to stdout, raw.
@@ -88,5 +94,5 @@ case "terminal" where args.count >= 2:
     Thread.sleep(forTimeInterval: 0.5)
     queue.sync { connection.close() }
 default:
-    fail("usage: serifctl snapshot | create-project <name> | create-bot <projectId> <name> [model] | send <botId> <text> | answer-allow <requestId> | mark-read <botId> | pin <botId> | stop <botId> | freedom <botId> ask|edits|auto | terminal <botId> [seconds | text | ENTER | ESC]...")
+    fail("usage: serifctl snapshot | create-project <name> | create-bot <projectId> <name> [model] | send <botId> <text> | answer-allow <requestId> | mark-read <botId> | pin <botId> | stop <botId> | freedom <botId> ask|edits|auto | cancel-task <projectId> <number> | lead <projectId> <botId>|none | terminal <botId> [seconds | text | ENTER | ESC]...")
 }
