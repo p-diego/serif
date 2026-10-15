@@ -2741,4 +2741,98 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(client.all.chatEvents(ada.id).contains(.userMessage(text: "hello", promptId: "turn-2", origin: .chat)))
         XCTAssertEqual(try codexServers(ada).count, 1, "new instructions relaunched the Codex bot")
     }
+
+    func testAnAgentSwitchMovesTheMemoryAndStartsANewConversationKeepingTheRest() throws {
+        // Spec §7: Claude Code → Codex and back; CLAUDE.md ↔ AGENTS.md (the new agent's kept when both exist); a new
+        // conversation; plugins and model reset; instructions, skills, freedom, routines, mail and decisions kept.
+        try play([sessionStart] + prompt("p0") + stop("p0"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let skill = root.appendingPathComponent("my-skills/tidy")
+        try FileManager.default.createDirectory(at: skill, withIntermediateDirectories: true)
+        try "---\nname: tidy\n---\n".write(to: skill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        let bob = try createBot(client, model: "sonnet", skills: [skill.path], plugins: ["tool@shop"], freedom: .edits)
+        let ada = try createBot(client, in: bob.projectId, name: "Ada")
+        for bot in [bob, ada] { waitFor(client, "introduced") { self.turnsEnded($0, bot) == 1 } }
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Tidy", .every(minutes: 5)))), .ok)
+        XCTAssertEqual(callTool(engine, as: bob, "raise_decision", ["question": "Ship?", "options": ["Yes", "No"]]).isError, false)
+        waitFor(client, "the card") { $0.openedRequests.count == 1 }
+        let workspace = paths.bot(bob.id).workspace
+        try "remember: 42".write(to: workspace.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .claude)), .ok)       // the same agent: nothing
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .ok)
+        waitFor(client, "now with Codex") { $0.chatEvents(bob.id).contains(.system(.agentChanged(.codex))) }
+        waitUntil("a thread on Codex") { [unowned self] in codexRequests("thread/start").count == 1 }
+        waitFor(client, "ready on Codex") { $0.summaries(bob.id).last?.state == .ready && $0.summaries(bob.id).last?.bot.agent == .codex }
+        let switched = try XCTUnwrap(client.all.summaries(bob.id).last?.bot)
+        XCTAssertEqual([switched.model, switched.threadId], [nil, nil])
+        XCTAssertEqual(switched.plugins, [])
+        XCTAssertNotEqual(switched.sessionId, bob.sessionId)
+        XCTAssertEqual([switched.instructions, switched.freedom.rawValue], ["Help.", "edits"])
+        XCTAssertEqual(switched.skills, [skill.path])
+        XCTAssertEqual(try String(contentsOf: workspace.appendingPathComponent("AGENTS.md"), encoding: .utf8), "remember: 42")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workspace.appendingPathComponent("CLAUDE.md").path))
+        XCTAssertEqual(changes(client, bob).map(\.field), [.model, .plugins, .agent])
+        XCTAssertEqual(changes(client, bob).last?.new, "codex")
+        XCTAssertEqual(routines(client.all, bob.projectId).map(\.name), ["Tidy"])
+        XCTAssertEqual(client.all.openedRequests.count, 1)
+        XCTAssertNil(client.all.closed(client.all.openedRequests[0].id))
+        XCTAssertEqual(codexRequests("thread/start").count, 1)                      // a new thread, nothing resumed
+        XCTAssertTrue(codexRequests("thread/start").first?["developerInstructions"]?.string?.contains("Help.") ?? false)
+        XCTAssertFalse(callTool(engine, as: ada, "send_message", ["to": "Bob", "body": "hi", "kind": "note"]).isError)
+        waitFor(client, "the note's turn on Codex") { self.turnsEnded($0, bob) == 2 }
+        XCTAssertEqual(mailText(client.all, bob), "Note from Ada:\n\nhi")
+        // And back, with both memory files there: the new agent's stays, the other becomes .old.md.
+        try "newer".write(to: workspace.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)
+        try play([sessionStart] + prompt("p9") + stop("p9"))
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .claude)), .ok)
+        waitFor(client, "now with Claude Code") { $0.chatEvents(bob.id).contains(.system(.agentChanged(.claude))) }
+        _ = try launches(4)                                                           // the catalog's server, Bob, Ada, Bob's server; now Bob again
+        waitFor(client, "ready again") { $0.summaries(bob.id).last?.state == .ready && $0.summaries(bob.id).last?.bot.agent == .claude }
+        XCTAssertEqual(try String(contentsOf: workspace.appendingPathComponent("CLAUDE.md"), encoding: .utf8), "newer")
+        XCTAssertEqual(try String(contentsOf: workspace.appendingPathComponent("AGENTS.old.md"), encoding: .utf8), "remember: 42")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workspace.appendingPathComponent("AGENTS.md").path))
+        let back = try XCTUnwrap(launches(5).last { $0.args.first != "app-server" })
+        XCTAssertEqual(back.args.suffix(2).first, "--session-id")                   // a new conversation, not --resume
+        XCTAssertFalse(client.all.chatEvents(bob.id).contains { if case .system(.crashed) = $0 { true } else { false } })
+    }
+
+    func testAnAgentSwitchWaitsForTheEndOfTheTurn() throws {
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "GO"]] + stop("p1"))
+        try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Work long")), .ok)
+        waitFor(client, "working") { $0.chatEvents(bob.id).filter { label($0) == "userMessage" }.count == 2 }
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .ok)
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertEqual(client.all.summaries(bob.id).last?.bot.agent, .claude)        // still working, still Claude Code
+        XCTAssertFalse(client.all.chatEvents(bob.id).contains(.turnInterrupted))
+        XCTAssertEqual(request(client, .terminalInput(botId: bob.id, data: Data("GO".utf8))), .ok)
+        waitFor(client, "the turn ended") { self.turnsEnded($0, bob) == 2 }
+        waitFor(client, "now with Codex") { $0.chatEvents(bob.id).contains(.system(.agentChanged(.codex))) }
+        waitUntil("a thread on Codex") { [unowned self] in codexRequests("thread/start").count == 1 }
+        waitFor(client, "ready on Codex") { $0.summaries(bob.id).last?.state == .ready && $0.summaries(bob.id).last?.bot.agent == .codex }
+    }
+
+    func testAnAgentSwitchIsRefusedForAMissingAgentOrABotNeverStarted() throws {
+        // Spec §7, §10: the agent's problem comes back (the app shows its help); a bot with no conversation yet waits.
+        let fake = binDir.appendingPathComponent("fake-claude").path
+        let engine = try makeEngine("starting", locate: { $0 == .claude ? fake : nil })
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .error("Codex not installed"))
+        XCTAssertEqual(client.all.summaries(bob.id).last?.bot.agent, .claude)
+        XCTAssertEqual(request(client, .changeAgent(botId: UUID(), agent: .codex)), .error("Codex not installed"))
+        // Codex installed since (the check looks again where it was last seen), but the bot never started: its
+        // introduction is still waiting for SessionStart's echo.
+        let fakeCodex = binDir.appendingPathComponent("fake-codex").path
+        engine.queue.sync { engine.statuses[.codex] = AgentStatus(agent: .codex, path: fakeCodex, version: nil, loggedIn: nil, email: nil) }
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .error("The bot has not started yet"))
+        XCTAssertEqual(request(client, .archiveBot(id: bob.id)), .ok)
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .error("The bot is archived"))
+    }
 }

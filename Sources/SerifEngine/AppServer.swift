@@ -42,6 +42,19 @@ extension Engine {
                            to: [connection])
             }
         }
+        // The new agent is checked first (spec §7 of 0.7): missing or signed out, the switch is refused with its problem.
+        if case let .changeAgent(botId, agent) = envelope.request {
+            return checkAgent(agent) { [weak self] status in
+                guard let self else { return }
+                var body = ResponseBody.ok
+                if let problem = status.problem { body = .error(problem.rawValue) }
+                else {
+                    do { try changeAgent(try runtime(botId), to: agent) }
+                    catch { body = .error((error as? Refusal)?.reason ?? "\(error)") }
+                }
+                send(.response(id: envelope.id, body: body), to: [connection])
+            }
+        }
         let body: ResponseBody
         do { body = try respond(to: envelope.request, from: connection) } catch {
             body = .error((error as? Refusal)?.reason ?? "\(error)")
@@ -209,7 +222,7 @@ extension Engine {
         }
     }
 
-    private func runtime(_ id: UUID) throws -> BotRuntime {
+    func runtime(_ id: UUID) throws -> BotRuntime {
         guard let rt = bots[id] else { throw Refusal("Unknown bot") }
         return rt
     }

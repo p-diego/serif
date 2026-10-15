@@ -41,6 +41,7 @@ final class BotRuntime {
     var turnChain = 0                         // the signal chain of this turn: a run a signal started is one longer than its sender's
     // Instructions and agent (spec §6–7 of 0.7)
     var instructionsPending = false           // new instructions not yet in the running prompt: the next message carries them
+    var pendingAgent: Agent?                  // a switch that waits for the end of the running turn
     // A Codex bot (spec §4)
     var codex: CodexServer?                   // its own app-server, while it runs
     var codexNormalizer = CodexNormalizer()
@@ -251,6 +252,7 @@ public final class Engine {
         rt.restart = nil
         guard !stopping, rt.bot.archivedAt == nil, !rt.isRunning, !rt.waitingForCatalog,
               let project = store.projects.first(where: { $0.id == rt.bot.projectId }) else { return }
+        if let agent = rt.pendingAgent { return switchAgent(rt, to: agent) }   // waited for the turn's end (spec §7 of 0.7)
         guard let status = statuses[rt.bot.agent], checked || status.problem == nil else {
             return checkAgent(rt.bot.agent) { [weak self] _ in self?.launch(rt, checked: true) }
         }
@@ -472,17 +474,23 @@ public final class Engine {
             closeRequests(of: rt, .answeredInTerminal)      // safety net: nothing can still be waiting after the turn
             repairTranscript(rt)
             runEnded(rt, .done)
-            deliverMail(rt)                                 // the next message waiting for it (spec §6)
+            turnOver(rt)
         case .turnFailed:
             runEnded(rt, .failed)
-            deliverMail(rt)
+            turnOver(rt)
         case .turnInterrupted:
             // The engine's own stop (time limit) or a crash said so first; otherwise it was your Stop (spec §4 of 0.6).
             runEnded(rt, rt.runEnding ?? .interrupted)
-            deliverMail(rt)
+            turnOver(rt)
         default:
             break
         }
+    }
+
+    /// After a turn: the agent switch that waited for it (spec §7 of 0.7), else the next message waiting (spec §6 of
+    /// 0.5). A process already gone (a crash) switches at its relaunch instead.
+    private func turnOver(_ rt: BotRuntime) {
+        if let agent = rt.pendingAgent, rt.isRunning { switchAgent(rt, to: agent) } else { deliverMail(rt) }
     }
 
     func push(_ push: Push) { send(.push(push), to: apps.values.map(\.connection)) }
