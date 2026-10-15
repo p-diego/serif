@@ -28,6 +28,11 @@ public struct SerifPaths: Sendable {
         root.appendingPathComponent("projects").appendingPathComponent(project.uuidString).appendingPathComponent("shared")
     }
 
+    /// A project's mail (spec §5 of 0.5): next to its shared folder, never inside it (bots write there).
+    public func mail(_ project: UUID) -> URL {
+        shared(project).deletingLastPathComponent().appendingPathComponent("mail.json")
+    }
+
     public func bot(_ id: UUID) -> BotPaths {
         BotPaths(dir: root.appendingPathComponent("bots").appendingPathComponent(id.uuidString))
     }

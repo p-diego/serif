@@ -120,6 +120,23 @@ final class StoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.shared(project.id).path, isDirectory: &isDir) && isDir.boolValue)
     }
 
+    func testMailIsKeptPerProjectAndABadFileSetAside() throws {
+        let (project, other) = (UUID(), UUID())
+        var box = Mailbox()
+        _ = try box.sendTask(from: UUID(), to: UUID(), text: "Check the logs", hours: nil, turnTask: nil, at: t0)
+        try Store(paths: paths).save(box, project: project)
+        XCTAssertEqual(paths.mail(project).deletingLastPathComponent(), paths.shared(project).deletingLastPathComponent())
+        XCTAssertEqual(try Store(paths: paths).mailbox(project), box)              // read back by a new engine
+        XCTAssertEqual(try Store(paths: paths).mailbox(other), Mailbox())
+        // A file that does not decode: set aside, the mail starts empty (spec §10).
+        try FileManager.default.createDirectory(at: paths.shared(other), withIntermediateDirectories: true)
+        try Data("{".utf8).write(to: paths.mail(other))
+        XCTAssertEqual(try Store(paths: paths).mailbox(other), Mailbox())
+        XCTAssertEqual(try String(contentsOf: paths.mail(other).appendingPathExtension("bad"), encoding: .utf8), "{")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.mail(other).path))
+        XCTAssertTrue(try String(contentsOf: paths.log, encoding: .utf8).contains("mail.json.bad"))
+    }
+
     func testStateWrittenBy04Loads() throws {
         // As Serif 0.4 saved them: no lead, no creator (spec §7-8).
         let state = #"""

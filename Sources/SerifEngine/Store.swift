@@ -20,6 +20,7 @@ public final class Store {
     private let encoder = protocolEncoder()
     private let decoder = protocolDecoder()
     private var metas: [UUID: BotMeta] = [:]
+    private var mailboxes: [UUID: Mailbox] = [:]
     public private(set) var projects: [Project] = []
     public private(set) var bots: [Bot] = []
 
@@ -89,6 +90,32 @@ public final class Store {
 
     public func records(bot: UUID, afterSeq: Int) throws -> [ChatEventRecord] {
         try readAll(bot).filter { $0.seq > afterSeq }
+    }
+
+    /// A project's mail (spec §5), read once: empty when there is none. A file that cannot be read is kept as
+    /// `mail.json.bad` and the mail starts empty (spec §10), with a line in the log.
+    public func mailbox(_ project: UUID) -> Mailbox {
+        if let cached = mailboxes[project] { return cached }
+        let url = paths.mail(project)
+        var mailbox = Mailbox()
+        if FileManager.default.fileExists(atPath: url.path) {
+            if let data = try? Data(contentsOf: url), let read = try? decoder.decode(Mailbox.self, from: data) {
+                mailbox = read
+            } else {
+                let bad = url.appendingPathExtension("bad")
+                try? FileManager.default.removeItem(at: bad)
+                try? FileManager.default.moveItem(at: url, to: bad)
+                Engine.log("mail of project \(project) unreadable: kept as mail.json.bad, starting empty", to: paths)
+            }
+        }
+        mailboxes[project] = mailbox
+        return mailbox
+    }
+
+    /// Written whole and atomically at every change, like `state.json` (spec §5).
+    public func save(_ mailbox: Mailbox, project: UUID) throws {
+        mailboxes[project] = mailbox
+        try writeAtomically(try encoder.encode(mailbox), to: paths.mail(project))
     }
 
     public func prepareFolders(for bot: Bot) throws {
