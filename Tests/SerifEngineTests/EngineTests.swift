@@ -1250,7 +1250,7 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(Array(server.args.suffix(20)), ["--disable", "hooks", "-c", "notify=[]",
                                                         "-c", "mcp_servers.serif.command=\"\(tools)\"", "-c", "mcp_servers.serif.args=[]",
                                                         "-c", #"mcp_servers.serif.env_vars=["SERIF_BOT_ID","SERIF_TOKEN","SERIF_HOOK_SOCKET"]"#,
-                                                        "-c", #"mcp_servers.serif.default_tools_approval_mode="auto""#,
+                                                        "-c", #"mcp_servers.serif.default_tools_approval_mode="approve""#,
                                                         "-c", "plugins.browser@openai-bundled.enabled=false",
                                                         "-c", "plugins.visualize@openai-bundled.enabled=false",
                                                         "-c", #"skills.config=[{name="work-pets:pets",enabled=false}]"#,

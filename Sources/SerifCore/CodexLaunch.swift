@@ -35,7 +35,8 @@ public func codexServerArgs(listen: String, tokenHash: String?, tools: String? =
         args += ["-c", "mcp_servers.serif.command=\(JSONValue.string(tools).compactText)",
                  "-c", "mcp_servers.serif.args=[]",
                  "-c", #"mcp_servers.serif.env_vars=["SERIF_BOT_ID","SERIF_TOKEN","SERIF_HOOK_SOCKET"]"#,
-                 "-c", #"mcp_servers.serif.default_tools_approval_mode="auto""#]
+                 // "approve" never asks; "auto" follows the tool's annotations and asked under untrusted (live 15/10).
+                 "-c", #"mcp_servers.serif.default_tools_approval_mode="approve""#]
     }
     // ponytail: plugin ids have no dots (Codex 0.160); a dotted one would need a quoted key, which -c ignores.
     for p in plugins { args += ["-c", "plugins.\(p.id).enabled=\(p.enabled)"] }
