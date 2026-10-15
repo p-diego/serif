@@ -94,7 +94,7 @@ project, and can create bots for a job. They do it with Serif's own tools, the s
 | `check_inbox` | the bot's open tasks, the tasks it asked for, and the messages that came while it was busy |
 | `list_bots` | the project's bots: name, first line of the instructions, state, agent, lead |
 | `create_bot` | a new bot in the project, with the creator's agent, model and freedom, no skills, plugins or connectors of its own; at most 12 active bots per project this way |
-| `update_instructions` | the bot's own instructions, or those of a bot it created, from that bot's next start |
+| `update_instructions` | the bot's own instructions, or those of a bot it created; the bot follows them from its next message, without a restart |
 | `archive_bot` | archives a bot it created |
 
 Mail waits in `projects/<id>/mail.json` until its bot is free: ready, with no turn running and no card open. Then the
@@ -126,6 +126,28 @@ A **decision** is a card in the bot's chat that does not hold the bot: it stays 
 message from you; the project's lead gets a copy with the question and the answer, when the lead is another bot. The
 "N waiting for you" row above the projects opens a view with every open card of every bot, grouped by bot, answered
 there; the project settings list its decisions.
+
+## Files, history, instructions, agents, diagnostics
+
+Paste (⌘V), drop or pick files in the message field and they go with your message: the engine copies them into the
+project's shared folder under `allegati/<day>/` (a name already there gets `-2`, `-3`), the bot reads their paths under
+your text and a Codex bot gets the images as pictures too; the chat shows a thumbnail for an image and a row for any
+other file, opened with a click. 16 MB per file, 10 files per message.
+
+Every change made to a bot (name, face, instructions, model, freedom, skills, plugins, connectors, agent,
+notifications), by you or by a bot with its tools, is in the bot's settings under "History" with the old and the new
+value; "Restore" puts the old value back as a new change of yours.
+
+New instructions no longer restart the bot: it gets them at the head of its next message, whatever brings it (you, the
+mail, a routine, your answer to a decision). Model, freedom, skills, plugins and connectors still restart it.
+
+A bot can move from Claude Code to Codex or back from its settings: it starts a new conversation on the other agent,
+its memory file follows it (`CLAUDE.md` ↔ `AGENTS.md`), plugins and model are reset, everything else (instructions,
+skills, connectors, freedom, mail, routines, decisions) stays. A bot that is working switches at the end of its turn.
+
+"Diagnostics…" in the Serif menu (⌥⌘D) shows the versions, the agents, every bot's state with its last crash, mail and
+routines, and the last lines of the engine's log; "Copy" puts it all on the pasteboard as text, with no secret and no
+chat in it.
 
 ## Requirements
 
@@ -180,6 +202,8 @@ bots/<id>/workspace/.claude/skills/        links to the bot's skills
 bots/<id>/workspace/.agents/skills/        links to a Codex bot's skills (its own and its project's)
 projects/<id>/shared/.claude/skills/       links to the project's skills
 bots/<id>/events.jsonl     the chat history, one event per line
+bots/<id>/history.jsonl    the bot's changes, one per line (old and new value, who, when)
+projects/<id>/shared/allegati/<day>/   the files sent to the project's bots with a message
 bots/<id>/mcp.json         a Claude Code bot's tools server, with this launch's secret, rewritten at every launch
 bots/<id>/codex.log        a Codex bot's server output, rewritten at every launch
 codex-catalog.log          output of the server that lists Codex's plugins and models
