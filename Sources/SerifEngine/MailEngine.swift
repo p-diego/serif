@@ -13,6 +13,9 @@ extension Engine {
             case "cancel_task": return ToolResult(try cancelTask(arguments, from: rt))
             case "check_inbox": return ToolResult(try checkInbox(from: rt))
             case "list_bots": return ToolResult(listBots(for: rt))
+            case "create_bot": return ToolResult(try createBot(arguments, from: rt))
+            case "update_instructions": return ToolResult(try updateInstructions(arguments, from: rt))
+            case "archive_bot": return ToolResult(try archiveBot(arguments, from: rt))
             default: return ToolResult("Serif has no tool called \(name)", isError: true)
             }
         } catch let refusal as MailError {
@@ -103,6 +106,55 @@ extension Engine {
         let lead = store.projects.first { $0.id == rt.bot.projectId }?.leadBotId
         let mates = projectBots(rt).map { ($0, bots[$0.id]?.tracker.state ?? .stopped) }
         return colleaguesText(mates, caller: rt.bot.id, lead: lead)
+    }
+
+    /// `create_bot` (spec §7): in the creator's project, with its agent and its freedom, a face no bot has, no skills,
+    /// plugins or connectors of its own (the project's reach it anyway); it introduces itself like any new bot.
+    private func createBot(_ a: JSONValue, from rt: BotRuntime) throws -> String {
+        guard let name = a["name"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
+              let instructions = try fitting(a["instructions"]?.string) else {
+            throw MailError("create_bot needs name and instructions")
+        }
+        let taken = projectBots(rt).contains {
+            $0.archivedAt == nil && $0.name.caseInsensitiveCompare(name) == .orderedSame
+        }
+        guard !taken else { throw MailError("a bot called \(name) is already in this project") }
+        let new = NewBot(projectId: rt.bot.projectId, name: name, face: randomFace(existing: store.bots.map(\.face)),
+                         agent: rt.bot.agent, model: rt.bot.model, instructions: instructions, freedom: rt.bot.freedom)
+        _ = try createBot(new, createdBy: rt.bot)
+        return "Created \(name)"
+    }
+
+    /// `update_instructions` (spec §7): the caller's own, or those of a bot it created. They apply from that bot's next
+    /// start: at once when it is free, else when it next starts (a bot never ends its own turn).
+    private func updateInstructions(_ a: JSONValue, from rt: BotRuntime) throws -> String {
+        guard let instructions = try fitting(a["instructions"]?.string) else {
+            throw MailError("update_instructions needs instructions")
+        }
+        var target = rt
+        if let name = a["bot"]?.string, !name.trimmingCharacters(in: .whitespaces).isEmpty {
+            let bot = try mailBot(named: name, in: projectBots(rt))
+            guard bot.id == rt.bot.id || bot.createdBy == rt.bot.id, let found = bots[bot.id] else {
+                throw MailError("you can change only your own instructions and those of the bots you created")
+            }
+            target = found
+        }
+        target.bot.instructions = instructions
+        try store.save(bot: target.bot)
+        push(.botChanged(target.summary))
+        if isFree(target) { restart(target) }
+        return "Updated; applies from the next start"
+    }
+
+    /// `archive_bot` (spec §7): only a bot the caller created, as the app's Archive does.
+    private func archiveBot(_ a: JSONValue, from rt: BotRuntime) throws -> String {
+        guard let name = a["name"]?.string else { throw MailError("archive_bot needs name") }
+        let bot = try mailBot(named: name, in: projectBots(rt))
+        guard bot.createdBy == rt.bot.id, let target = bots[bot.id] else {
+            throw MailError("you can archive only the bots you created")
+        }
+        try archive(target)
+        return "Archived \(bot.name)"
     }
 
     // MARK: - Delivery
@@ -213,4 +265,10 @@ private func number(_ v: JSONValue?, _ field: String) throws -> Int? {
     guard let v, v != .null else { return nil }
     if let n = v.int ?? v.string.flatMap({ Int($0.trimmingCharacters(in: .init(charactersIn: "# "))) }) { return n }
     throw MailError("\(field) must be a whole number")
+}
+
+/// Instructions within the 64 KB a message may have (spec §5).
+private func fitting(_ text: String?) throws -> String? {
+    guard let text, text.utf8.count > Mailbox.maxBytes else { return text }
+    throw MailError("the instructions are longer than 64 KB")
 }

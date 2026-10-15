@@ -646,6 +646,73 @@ final class EngineTests: XCTestCase {
                        ToolResult("Ada is archived", isError: true))
     }
 
+    func testABotCreatesABotOfItsOwnAgentAndFreedom() throws {
+        let turns = [sessionStart] + prompt("p0") + stop("p0")
+        try play(turns)
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client, connectors: true, plugins: ["tool@shop"], freedom: .edits)
+        let cleo = try createBot(client, in: bob.projectId, name: "Cleo", agent: .codex)
+        for bot in [bob, cleo] { waitFor(client, "introduced") { self.turnsEnded($0, bot) == 1 } }
+        XCTAssertEqual(callTool(engine, as: bob, "create_bot", ["name": " Milo ", "instructions": "Writes the docs."]),
+                       ToolResult("Created Milo"))
+        XCTAssertEqual(callTool(engine, as: bob, "create_bot", ["name": "milo", "instructions": "x"]),
+                       ToolResult("a bot called milo is already in this project", isError: true))
+        XCTAssertEqual(callTool(engine, as: cleo, "create_bot", ["name": "Nia", "instructions": "x"]), ToolResult("Created Nia"))
+        guard case let .snapshot(snapshot) = request(client, .snapshot) else { return XCTFail("no snapshot") }
+        let milo = try XCTUnwrap(snapshot.bots.first { $0.bot.name == "Milo" }?.bot)
+        XCTAssertEqual(milo.projectId, bob.projectId)
+        XCTAssertEqual(milo.agent, .claude)
+        XCTAssertEqual(milo.freedom, .edits)                              // the creator's, never more (spec §7)
+        XCTAssertEqual([milo.skills, milo.plugins], [[], []])
+        XCTAssertFalse(milo.connectors)
+        XCTAssertEqual(milo.model, bob.model)                             // the creator's model too (spec §7)
+        XCTAssertEqual(milo.createdBy, bob.id)
+        XCTAssertFalse(snapshot.bots.filter { $0.bot.id != milo.id }.map(\.bot.face).contains(milo.face))
+        XCTAssertEqual(snapshot.bots.first { $0.bot.name == "Nia" }?.bot.agent, .codex)
+        waitFor(client, "Milo introduced") { self.turnsEnded($0, milo) == 1 }
+        XCTAssertEqual(client.all.chatEvents(milo.id).first, .system(.createdBy(name: "Bob")))
+        XCTAssertTrue(introduction(client.all.chatEvents(milo.id))?.contains("introduce yourself") ?? false)
+    }
+
+    func testInstructionsAndArchivingStayWithTheCreator() throws {
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
+                 + [tool("update_instructions", ["instructions": "Lead the release."])] + stop("p1"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        let ada = try createBot(client, in: bob.projectId, name: "Ada")
+        for bot in [bob, ada] { waitFor(client, "introduced") { self.turnsEnded($0, bot) == 1 } }
+        XCTAssertEqual(callTool(engine, as: bob, "create_bot", ["name": "Milo", "instructions": "Writes the docs."]),
+                       ToolResult("Created Milo"))
+        let milo = try XCTUnwrap(engine.queue.sync { engine.bots.values.first { $0.bot.name == "Milo" }?.bot })
+        waitFor(client, "Milo introduced") { self.turnsEnded($0, milo) == 1 }
+        XCTAssertEqual(try launches(3).count, 3)
+        // Its own bot, free: restarted at once with the new instructions.
+        XCTAssertEqual(callTool(engine, as: bob, "update_instructions", ["bot": "milo", "instructions": "Write the README."]),
+                       ToolResult("Updated; applies from the next start"))
+        _ = try launches(4)
+        waitFor(client, "Milo again") { $0.summaries(milo.id).last?.state == .ready }
+        XCTAssertTrue(try String(contentsOf: paths.bot(milo.id).systemPrompt, encoding: .utf8).contains("Write the README."))
+        // Someone else's bot, or archiving one it did not create: refused.
+        XCTAssertEqual(callTool(engine, as: ada, "update_instructions", ["bot": "Milo", "instructions": "x"]),
+                       ToolResult("you can change only your own instructions and those of the bots you created", isError: true))
+        XCTAssertEqual(callTool(engine, as: ada, "archive_bot", ["name": "Milo"]),
+                       ToolResult("you can archive only the bots you created", isError: true))
+        XCTAssertEqual(callTool(engine, as: bob, "archive_bot", ["name": "Ada"]),
+                       ToolResult("you can archive only the bots you created", isError: true))
+        // Its own instructions, in its turn: saved, no restart until its next start.
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Change your role")), .ok)
+        waitFor(client, "Bob's turn") { self.turnsEnded($0, bob) == 2 }
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertEqual(try launches(4).count, 4)
+        XCTAssertEqual(client.all.summaries(bob.id).last?.bot.instructions, "Lead the release.")
+        XCTAssertEqual(callTool(engine, as: bob, "archive_bot", ["name": "Milo"]), ToolResult("Archived Milo"))
+        waitFor(client, "Milo archived") { $0.summaries(milo.id).last?.state == .stopped }
+    }
+
     func testTheSystemPromptNamesTheColleagues() throws {
         try makeEngine("basic").start()
         let client = try connect()
@@ -974,10 +1041,12 @@ final class EngineTests: XCTestCase {
         _ = try launches(1)
         bot.agent = .codex                       // the agent never changes (spec §2)
         bot.threadId = "made-up"                 // Codex's thread is the engine's to keep
+        bot.createdBy = UUID()                   // so is who created it (spec §7 of 0.5)
         bot.name = "Robert"
         guard case let .bot(saved) = request(client, .updateBot(bot)) else { return XCTFail("update refused") }
         XCTAssertEqual(saved.agent, .claude)
         XCTAssertNil(saved.threadId)
+        XCTAssertNil(saved.createdBy)
         XCTAssertEqual(saved.name, "Robert")
     }
 

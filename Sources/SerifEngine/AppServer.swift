@@ -85,31 +85,15 @@ extension Engine {
             push(.projectChanged(project))
             return .ok
         case let .createBot(new):
-            guard store.projects.contains(where: { $0.id == new.projectId }) else { throw Refusal("Unknown project") }
-            // Before saving: archived bots count too, the tour is for a project's very first bot (spec §5).
-            let firstInProject = !store.bots.contains { $0.projectId == new.projectId }
-            let bot = Bot(projectId: new.projectId, name: new.name, face: new.face, agent: new.agent, model: new.model,
-                          instructions: new.instructions, freedom: new.freedom, skills: new.skills, plugins: new.plugins,
-                          connectors: new.connectors)
-            try store.save(bot: bot)
-            let rt = addRuntime(bot)
-            push(.botChanged(rt.summary))          // the app knows the bot before its first chat event
-            record(.system(.botCreated), rt)
-            // Its first turn: it introduces itself once its session is ready, like a message sent while it starts; if it
-            // crashes first, the next session delivers it (spec §5, §9).
-            let intro = introductionPrompt(instructions: new.instructions, firstInProject: firstInProject,
-                                           language: languageName(preferredLanguages: Locale.preferredLanguages))
-            rt.outbox.append((intro, .introduction))
-            launch(rt)
-            return .bot(bot)
+            return .bot(try createBot(new))
         case let .updateBot(update):
             let rt = try runtime(update.id)
             var bot = update
-            // The engine owns the conversation id, Codex's thread, the agent, the archive flag and the creation date (the
+            // The engine owns the conversation id, Codex's thread, the agent, the archive flag, the creation date (the
             // app's copy went through JSON with millisecond dates: compared as is, a bot created in this engine run always
-            // looked changed). The agent never changes (spec §2).
-            (bot.sessionId, bot.threadId, bot.agent, bot.archivedAt, bot.createdAt) =
-                (rt.bot.sessionId, rt.bot.threadId, rt.bot.agent, rt.bot.archivedAt, rt.bot.createdAt)
+            // looked changed) and the creator (spec §7). The agent never changes (spec §2).
+            (bot.sessionId, bot.threadId, bot.agent, bot.archivedAt, bot.createdAt, bot.createdBy) =
+                (rt.bot.sessionId, rt.bot.threadId, rt.bot.agent, rt.bot.archivedAt, rt.bot.createdAt, rt.bot.createdBy)
             // Model, instructions, freedom, skills, plugins and connectors relaunch the bot (spec §4.5 of 0.1, §6.2); the rest
             // waits for the next launch (a new name or project reaches system.md and the folders then) or never reaches
             // Claude Code at all.

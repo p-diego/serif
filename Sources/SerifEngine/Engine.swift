@@ -204,6 +204,27 @@ public final class Engine {
         return rt
     }
 
+    /// A new bot: saved, known to the apps, then started; its first turn introduces it once its session is ready, like
+    /// a message sent while it starts, and if it crashes first the next session delivers it (spec §5, §9 of 0.3). A bot
+    /// made by another with its tools says so in its chat (spec §7).
+    func createBot(_ new: NewBot, createdBy creator: Bot? = nil) throws -> Bot {
+        guard store.projects.contains(where: { $0.id == new.projectId }) else { throw Refusal("Unknown project") }
+        // Before saving: archived bots count too, the tour is for a project's very first bot (spec §5 of 0.3).
+        let firstInProject = !store.bots.contains { $0.projectId == new.projectId }
+        let bot = Bot(projectId: new.projectId, name: new.name, face: new.face, agent: new.agent, model: new.model,
+                      instructions: new.instructions, freedom: new.freedom, skills: new.skills, plugins: new.plugins,
+                      connectors: new.connectors, createdBy: creator?.id)
+        try store.save(bot: bot)
+        let rt = addRuntime(bot)
+        push(.botChanged(rt.summary))          // the app knows the bot before its first chat event
+        record(.system(creator.map { .createdBy(name: $0.name) } ?? .botCreated), rt)
+        let intro = introductionPrompt(instructions: new.instructions, firstInProject: firstInProject,
+                                       language: languageName(preferredLanguages: Locale.preferredLanguages))
+        rt.outbox.append((intro, .introduction))
+        launch(rt)
+        return bot
+    }
+
     /// Writes the bot's system prompt and hook settings, then starts its Claude Code (spec §3.2 of 0.1), or starts a Codex
     /// bot (`launchCodex`). Its agent is checked first (spec §4 of 0.3): at the first launch, after a bot crashes, and
     /// again after a check that found it missing or signed out, since the user may have fixed it since; `checked` marks the
