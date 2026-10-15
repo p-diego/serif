@@ -139,8 +139,10 @@ extension Engine {
             }
             target = found
         }
-        target.bot.instructions = instructions
-        try store.save(bot: target.bot)
+        var updated = target.bot
+        updated.instructions = instructions
+        try store.save(bot: updated)                 // memory changes only once the disk has it
+        target.bot = updated
         push(.botChanged(target.summary))
         if isFree(target) { restart(target) }
         return "Updated; applies from the next start"
