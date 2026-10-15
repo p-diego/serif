@@ -74,6 +74,9 @@ struct SidebarView: View {
             searchField
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
+                    // Above the projects while any card is open for you (spec §7 of 0.6).
+                    let waiting = state.waitingForYou.count
+                    if waiting > 0 { WaitingRow(count: waiting, selected: client.showWaiting, client: client).padding(.bottom, 6) }
                     if search.isEmpty, !state.pinned.isEmpty {
                         PinnedRow(pinned: state.pinned, selected: client.selectedBot, client: client).padding(.bottom, 6)
                     }
@@ -116,6 +119,24 @@ struct SidebarView: View {
                 }
             }
             }
+        }
+    }
+
+    /// "3 waiting for you": opens the view of every open card (spec §7 of 0.6).
+    private struct WaitingRow: View {
+        let count: Int
+        let selected: Bool
+        let client: EngineClient
+        var body: some View {
+            HStack(spacing: 10) {
+                Image(systemName: "tray.full").font(.system(size: 18)).foregroundStyle(Theme.yellowSolid).frame(width: 44)
+                Text(String(localized: "\(count) waiting for you")).font(.system(size: 15)).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8).frame(height: 44)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.row).fill(selected ? Theme.active : .clear))
+            .contentShape(Rectangle())
+            .onTapGesture { client.showWaiting = true }
         }
     }
 

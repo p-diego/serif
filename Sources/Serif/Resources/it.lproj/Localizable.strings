@@ -347,3 +347,6 @@
 "Time limit" = "Durata massima";
 "A run longer than this is stopped, as with Stop." = "Un giro più lungo viene fermato, come con Ferma.";
 "Tell me when it finishes" = "Avvisami quando finisce";
+"Waiting.title" = "Ti aspettano";
+"Nothing is waiting for you" = "Niente che aspetti te";
+"Open the chat" = "Apri la chat";

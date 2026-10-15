@@ -10,7 +10,9 @@ struct ChatView: View {
 
     var body: some View {
         Group {
-            if let summary = client.chat.summary {
+            if client.showWaiting {
+                WaitingView(client: client)
+            } else if let summary = client.chat.summary {
                 ChatContent(client: client, summary: summary, transcript: client.chat.transcript,
                             pending: client.chat.pending, showPanel: $showPanel, showTerminal: $showTerminal)
                     .id(summary.bot.id)    // fresh scroll and composer state per bot

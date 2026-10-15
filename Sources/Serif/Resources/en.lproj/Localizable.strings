@@ -347,3 +347,6 @@
 "Time limit" = "Time limit";
 "A run longer than this is stopped, as with Stop." = "A run longer than this is stopped, as with Stop.";
 "Tell me when it finishes" = "Tell me when it finishes";
+"Waiting.title" = "Waiting for you";
+"Nothing is waiting for you" = "Nothing is waiting for you";
+"Open the chat" = "Open the chat";

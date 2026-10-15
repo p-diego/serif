@@ -45,7 +45,10 @@ final class EngineClient {
     }
     /// Projects and bot summaries only (no transcripts or requests): the sidebar observes this, not `state`.
     private(set) var roster = ClientState()
-    var selectedBot: UUID? { didSet { refreshChat() } }
+    /// Choosing a bot leaves the "waiting for you" view (spec §7 of 0.6).
+    var selectedBot: UUID? { didSet { showWaiting = false; refreshChat() } }
+    /// The main area shows the open cards of every bot instead of a chat (spec §7 of 0.6).
+    var showWaiting = false
     /// The sheet shown over the main window, if any.
     enum Sheet: Identifiable, Equatable {
         case newProject
