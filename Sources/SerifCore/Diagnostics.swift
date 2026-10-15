@@ -62,3 +62,38 @@ public struct Diagnostics: Codable, Equatable, Sendable {
 }
 
 public func agentName(_ agent: Agent) -> String { agent == .claude ? "Claude Code" : "Codex" }
+
+/// A bot's state in a word, for the bots and for the page (crash reasons kept).
+public func stateWord(_ state: BotState) -> String {
+    switch state {
+    case .ready: "ready"
+    case .starting: "starting"
+    case .working: "working"
+    case .waiting: "waiting for the user"
+    case .rateLimited: "at its usage limit"
+    case .crashed(let reason, let retry): retry == nil ? "stopped: \(reason)" : "crashed: \(reason), starting again"
+    case .stopped: "stopped"
+    }
+}
+
+/// The page as plain text for "Copy" (spec §8): English, like the log, to paste into a conversation.
+public func diagnosticsText(_ d: Diagnostics, timeZone: TimeZone = .current) -> String {
+    var lines = ["Serif \(d.appVersion) · engine \(d.engineVersion)", "Data folder: \(d.dataFolder)", "", "Agents"]
+    for a in d.agents {
+        guard let path = a.path else { lines.append("- \(agentName(a.agent)): not installed"); continue }
+        let signed = a.signedIn.map { $0 ? "signed in" : "not signed in" } ?? "sign-in unknown"
+        lines.append("- \(agentName(a.agent)): \(path), \(a.version ?? "version unknown"), \(signed)")
+    }
+    lines += ["", "Bots"]
+    if d.bots.isEmpty { lines.append("- none") }
+    for b in d.bots {
+        let routines = b.routines.isEmpty ? "none"
+            : b.routines.map { "\($0.name) (next \($0.next.map { mailDate($0, timeZone: timeZone) } ?? "never"))" }
+                .joined(separator: ", ")
+        lines.append("- \(b.name) (\(b.project), \(agentName(b.agent))): \(stateWord(b.state)); "
+                     + "mail waiting: \(b.mailWaiting); open cards: \(b.openCards); routines: \(routines)")
+        if let c = b.lastCrash { lines.append("  last crash: \(mailDate(c.at, timeZone: timeZone)) — \(c.reason)") }
+    }
+    lines += ["", "Log (last \(d.logTail.count) lines)"] + d.logTail
+    return lines.joined(separator: "\n")
+}

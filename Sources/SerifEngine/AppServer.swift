@@ -55,6 +55,15 @@ extension Engine {
                 send(.response(id: envelope.id, body: body), to: [connection])
             }
         }
+        // Both agents are checked anew, so the page says how they are now (spec §8 of 0.7).
+        if case .diagnostics = envelope.request {
+            let checks = DispatchGroup()
+            for agent in Agent.allCases { checks.enter(); checkAgent(agent) { _ in checks.leave() } }
+            return checks.notify(queue: queue) { [weak self] in
+                guard let self else { return }
+                send(.response(id: envelope.id, body: .diagnostics(diagnostics())), to: [connection])
+            }
+        }
         let body: ResponseBody
         do { body = try respond(to: envelope.request, from: connection) } catch {
             body = .error((error as? Refusal)?.reason ?? "\(error)")

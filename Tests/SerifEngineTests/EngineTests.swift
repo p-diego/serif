@@ -2835,4 +2835,62 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(request(client, .archiveBot(id: bob.id)), .ok)
         XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .error("The bot is archived"))
     }
+
+    func testDiagnosticsListTheAgentsTheBotsAndTheLogWithoutSecrets() throws {
+        // Spec §8: both agents checked anew, every live bot with its crash, mail, routines and cards, the log's tail; no
+        // launch token or Codex secret anywhere in it.
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "NEVER"]])
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "Bob introduced") { self.turnsEnded($0, bob) == 1 }
+        try play([sessionStart] + prompt("p0") + stop("p0"))
+        let ada = try createBot(client, in: bob.projectId, name: "Ada", plugins: ["gone@shop"])     // left out, and logged
+        waitFor(client, "Ada introduced") { self.turnsEnded($0, ada) == 1 }
+        let milo = try createBot(client, in: bob.projectId, name: "Milo", agent: .codex)
+        waitFor(client, "Milo introduced") { self.turnsEnded($0, milo) == 1 }
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Work long")), .ok)
+        waitFor(client, "Bob working") { $0.chatEvents(bob.id).filter { label($0) == "userMessage" }.count == 2 }
+        XCTAssertFalse(callTool(engine, as: ada, "send_message", ["to": "Bob", "body": "hi", "kind": "note"]).isError)   // waits for him
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Tidy", .every(minutes: 5)))), .ok)
+        XCTAssertFalse(callTool(engine, as: ada, "raise_decision", ["question": "Ship?", "options": ["Yes", "No"]]).isError)
+        waitFor(client, "the card") { $0.openedRequests.count == 1 }
+        try play([sessionStart] + prompt("p0") + [["exit": 3]])
+        let zed = try createBot(client, name: "Zed")                                 // another project; crashes at once
+        waitFor(client, "Zed crashed") { $0.chatEvents(zed.id).contains(.system(.crashed(reason: "Exit code 3"))) }
+        let gone = try createBot(client, in: bob.projectId, name: "Gone")
+        XCTAssertEqual(request(client, .archiveBot(id: gone.id)), .ok)
+        guard case let .diagnostics(d)? = request(client, .diagnostics) else { return XCTFail("no diagnostics") }
+        XCTAssertEqual(d.appVersion, "")                                             // the app's to fill
+        XCTAssertEqual([d.engineVersion, d.dataFolder], [SerifEngineVersion.current, root.path])
+        XCTAssertEqual(d.agents.map(\.agent), [.claude, .codex])
+        XCTAssertEqual(d.agents.map(\.version), ["2.1.296", "0.160.0"])
+        XCTAssertEqual(d.agents.map(\.signedIn), [true, true])
+        XCTAssertEqual(d.bots.map(\.name), ["Bob", "Ada", "Milo", "Zed"])             // the archived one is not listed
+        let b = try XCTUnwrap(d.bots.first { $0.name == "Bob" })
+        XCTAssertEqual([b.project, b.agent.rawValue], ["P", "claude"])
+        XCTAssertEqual(b.state, .working(.thinking))
+        XCTAssertEqual([b.mailWaiting, b.openCards], [1, 0])
+        XCTAssertEqual(b.routines.map(\.name), ["Tidy"])
+        XCTAssertNotNil(b.routines.first?.next)
+        XCTAssertNil(b.lastCrash)
+        XCTAssertEqual(d.bots.first { $0.name == "Ada" }?.openCards, 1)
+        XCTAssertEqual(d.bots.first { $0.name == "Milo" }?.agent, .codex)
+        let z = try XCTUnwrap(d.bots.first { $0.name == "Zed" })
+        XCTAssertEqual(z.lastCrash?.reason, "Exit code 3")
+        if case .crashed = z.state {} else { XCTFail("\(z.state)") }
+        XCTAssertTrue(d.logTail.contains { $0.hasSuffix("bot \(ada.id): plugin gone@shop not found, left out") }, d.logTail.joined(separator: "\n"))
+        XCTAssertTrue(d.logTail.allSatisfy { !$0.isEmpty })
+        // No secret: neither the bots' launch tokens nor the Codex server's secret, in the page or its text.
+        let json = String(decoding: try protocolEncoder().encode(d), as: UTF8.self)
+        let secrets = engine.queue.sync { engine.bots.values.map(\.token) + engine.bots.values.map(\.codexToken) }.filter { !$0.isEmpty }
+        XCTAssertEqual(secrets.count, 6)                                             // five launch tokens, one Codex secret
+        for secret in secrets {
+            XCTAssertFalse(json.contains(secret), d.logTail.filter { $0.contains(secret) }.joined(separator: "\n"))
+            XCTAssertFalse(diagnosticsText(d).contains(secret))
+        }
+        XCTAssertFalse(json.contains("Work long"))                                   // nor a chat's text
+        XCTAssertTrue(diagnosticsText(d).contains("- Zed (P, Claude Code): crashed: Exit code 3, starting again;"))
+    }
 }
