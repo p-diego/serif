@@ -240,7 +240,7 @@ final class EngineTests: XCTestCase {
 
     /// A bot in `projectId`, or in a new project "P"; returns the bot as the engine created it.
     private func createBot(_ client: TestClient, in projectId: UUID? = nil, name: String = "Bob", agent: Agent = .claude,
-                           connectors: Bool = false, skills: [String] = [], plugins: [String] = [],
+                           model: String? = nil, connectors: Bool = false, skills: [String] = [], plugins: [String] = [],
                            freedom: Freedom = .ask) throws -> Bot {
         let project: UUID
         if let projectId { project = projectId } else {
@@ -248,7 +248,7 @@ final class EngineTests: XCTestCase {
             else { throw XCTSkip("createProject failed") }
             project = p.id
         }
-        let new = NewBot(projectId: project, name: name, face: randomFace(existing: []), agent: agent, model: nil,
+        let new = NewBot(projectId: project, name: name, face: randomFace(existing: []), agent: agent, model: model,
                          instructions: "Help.", freedom: freedom, skills: skills, plugins: plugins, connectors: connectors)
         guard case let .bot(bot) = request(client, .createBot(new)) else { throw XCTSkip("createBot failed") }
         return bot
@@ -665,8 +665,8 @@ final class EngineTests: XCTestCase {
         let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
         try engine.start()
         let client = try connect()
-        let bob = try createBot(client, connectors: true, plugins: ["tool@shop"], freedom: .edits)
-        let cleo = try createBot(client, in: bob.projectId, name: "Cleo", agent: .codex)
+        let bob = try createBot(client, model: "sonnet", connectors: true, plugins: ["tool@shop"], freedom: .edits)
+        let cleo = try createBot(client, in: bob.projectId, name: "Cleo", agent: .codex, model: "gpt-6-luna")
         for bot in [bob, cleo] { waitFor(client, "introduced") { self.turnsEnded($0, bot) == 1 } }
         XCTAssertEqual(callTool(engine, as: bob, "create_bot", ["name": " Milo ", "instructions": "Writes the docs."]),
                        ToolResult("Created Milo"))
@@ -680,10 +680,11 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(milo.freedom, .edits)                              // the creator's, never more (spec §7)
         XCTAssertEqual([milo.skills, milo.plugins], [[], []])
         XCTAssertFalse(milo.connectors)
-        XCTAssertEqual(milo.model, bob.model)                             // the creator's model too (spec §7)
+        XCTAssertEqual(milo.model, "sonnet")                                // the creator's model too (spec §7)
         XCTAssertEqual(milo.createdBy, bob.id)
         XCTAssertFalse(snapshot.bots.filter { $0.bot.id != milo.id }.map(\.bot.face).contains(milo.face))
         XCTAssertEqual(snapshot.bots.first { $0.bot.name == "Nia" }?.bot.agent, .codex)
+        XCTAssertEqual(snapshot.bots.first { $0.bot.name == "Nia" }?.bot.model, "gpt-6-luna")
         waitFor(client, "Milo introduced") { self.turnsEnded($0, milo) == 1 }
         XCTAssertEqual(client.all.chatEvents(milo.id).first, .system(.createdBy(name: "Bob")))
         XCTAssertTrue(introduction(client.all.chatEvents(milo.id))?.contains("introduce yourself") ?? false)
