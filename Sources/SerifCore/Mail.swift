@@ -174,6 +174,7 @@ public struct Mailbox: Codable, Equatable, Sendable {
     /// `cancel_task` by the bot that asked, or the user's Cancel (`by` nil) (spec §5): the recipient is told, and after
     /// the user's Cancel the requester too.
     public mutating func cancel(_ number: Int, by bot: UUID?, reason: String?, at now: Date) throws -> MailTask {
+        if let reason { try Self.checkSize(reason) }
         let i = try openTask(number)
         if let bot, tasks[i].from != bot {
             throw MailError("only the bot that asked for task #\(number) can cancel it")

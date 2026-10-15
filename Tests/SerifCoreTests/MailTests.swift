@@ -31,6 +31,38 @@ final class MailTests: XCTestCase {
         XCTAssertThrowsError(try box.sendMessage(from: cody, to: milo, kind: .note, text: biggest + "a", task: nil, at: t0))
     }
 
+    func testEveryTextIsLimitedTo64KB() throws {
+        var box = Mailbox()
+        let biggest = String(repeating: "é", count: 32_768), tooBig = biggest + "a"
+        XCTAssertNoThrow(try box.sendTask(from: cody, to: milo, text: biggest, hours: nil, turnTask: nil, at: t0))
+        XCTAssertThrowsError(try box.sendTask(from: cody, to: milo, text: tooBig, hours: nil, turnTask: nil, at: t0))
+        XCTAssertNoThrow(try box.complete(1, by: milo, result: biggest, lead: nil, at: t0))
+        _ = try box.sendTask(from: cody, to: milo, text: "x", hours: nil, turnTask: nil, at: t0)
+        XCTAssertThrowsError(try box.complete(2, by: milo, result: tooBig, lead: nil, at: t0))
+        XCTAssertThrowsError(try box.cancel(2, by: cody, reason: tooBig, at: t0))
+        XCTAssertEqual(box.task(2)?.status, .open)                                  // a refused cancel changes nothing
+        XCTAssertNoThrow(try box.cancel(2, by: cody, reason: biggest, at: t0))
+    }
+
+    func testDeliveredMessagesAreKeptEightDays() throws {
+        var box = Mailbox()
+        _ = try box.sendMessage(from: cody, to: milo, kind: .note, text: "old", task: nil, at: t0)
+        _ = try box.sendMessage(from: cody, to: milo, kind: .note, text: "recent", task: nil, at: t0)
+        _ = try box.sendMessage(from: cody, to: milo, kind: .note, text: "waiting", task: nil, at: t0)
+        let ids = box.messages.map(\.id)
+        box.markDelivered(ids[0], at: t0)
+        box.markDelivered(ids[1], at: t0.addingTimeInterval(2))
+        _ = box.expire(at: t0.addingTimeInterval(8 * 86_400))                      // exactly 8 days: kept
+        XCTAssertEqual(box.messages.count, 3)
+        _ = box.expire(at: t0.addingTimeInterval(8 * 86_400 + 1))                  // 8 days + 1 s: the first goes
+        XCTAssertEqual(box.messages.map(\.text), ["recent", "waiting"])
+        _ = box.expire(at: t0.addingTimeInterval(40 * 86_400))                     // undelivered stays; tasks never go
+        XCTAssertEqual(box.messages.map(\.text), ["waiting"])
+        let task = try box.sendTask(from: cody, to: milo, text: "t", hours: nil, turnTask: nil, at: t0)
+        _ = box.expire(at: t0.addingTimeInterval(400 * 86_400))
+        XCTAssertEqual(box.task(task.number)?.status, .expired)
+    }
+
     func testThreeOpenTasksForWhoAsksNoneForWhoReceives() throws {
         var box = Mailbox()
         for _ in 0..<3 { _ = try box.sendTask(from: cody, to: milo, text: "x", hours: nil, turnTask: nil, at: t0) }
