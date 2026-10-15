@@ -25,9 +25,11 @@ extension Engine {
 
     /// `raise_decision` (spec §6): the card opens in the bot's chat and counts for you; the turn goes on.
     func raiseDecision(_ a: JSONValue, from rt: BotRuntime) throws -> String {
-        guard let question = a["question"]?.string, let options = a["options"]?.array?.compactMap(\.string) else {
+        guard let question = a["question"]?.string, let given = a["options"]?.array else {
             throw MailError("raise_decision needs question and options")
         }
+        let options = given.compactMap(\.string)
+        guard options.count == given.count else { throw MailError("options must be 2 to 6 short texts") }
         var box = store.mailbox(rt.bot.projectId)
         let recommendation = try number(a["recommendation"], "recommendation").map { $0 - 1 }      // the bot counts from 1
         let d = try box.raiseDecision(by: rt.bot.id, question: question, options: options, recommendation: recommendation,

@@ -950,6 +950,16 @@ final class EngineTests: XCTestCase {
         waitFor(client, "the refusal") { $0.terminalText.contains("TOOL-OUT:routine chain too long") }
     }
 
+    func testADecisionWithAnOptionThatIsNotTextIsRefused() throws {
+        let engine = try makeEngine("basic")
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(callTool(engine, as: bob, "raise_decision", ["question": "Ship?", "options": ["A", 1, "B"]]),
+                       ToolResult("options must be 2 to 6 short texts", isError: true))
+    }
+
     func testADecisionIsACardThatDoesNotHoldTheBotAndYourAnswerComesBackAsMail() throws {
         let (client, bob, ada) = try twoBots(
             bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
