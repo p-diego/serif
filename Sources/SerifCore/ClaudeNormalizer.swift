@@ -167,6 +167,11 @@ public struct ClaudeNormalizer {
             let err = response["stderr"]?.string ?? ""
             return truncatedOutput(stdout + (err.isEmpty ? "" : "\n" + err))
         }
+        // An MCP tool answers with content items: their text, as Codex's mcpToolCall shows it.
+        if let items = response.array {
+            let text = items.compactMap { $0["text"]?.string }
+            if !text.isEmpty { return truncatedOutput(text.joined(separator: "\n")) }
+        }
         return truncatedOutput(response.compactText)
     }
 

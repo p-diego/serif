@@ -87,6 +87,16 @@ final class ClaudeNormalizerTests: XCTestCase {
             .toolResolved(toolUseId: "u1")])
     }
 
+    func testAnMCPToolResponseShowsItsTextNotRawJSON() {
+        var n = ClaudeNormalizer(); let t = Date()
+        let items: JSONValue = .array([.object(["type": str("text"), "text": str("one")]),
+                                       .object(["type": str("text"), "text": str("two")])])
+        _ = n.ingest(ev("PreToolUse", ["tool_name": str("mcp__serif__list_bots"), "tool_use_id": str("u1"), "prompt_id": str("p")]), at: t)
+        _ = n.ingest(ev("PostToolUse", ["tool_use_id": str("u1"), "prompt_id": str("p"), "tool_response": items]), at: t)
+        let finished = n.flush(now: t.addingTimeInterval(1)).contains(.event(.toolFinished(toolUseId: "u1", ok: true, output: "one\ntwo", durationMs: nil)))
+        XCTAssertTrue(finished)
+    }
+
     func testOtherPromptReleasesHeldQueue() {
         var n = ClaudeNormalizer(); let t = Date()
         _ = n.ingest(ev("PreToolUse", ["tool_name": str("Bash"), "tool_use_id": str("u1"), "prompt_id": str("p")]), at: t)
