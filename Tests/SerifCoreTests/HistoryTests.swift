@@ -38,6 +38,18 @@ final class HistoryTests: XCTestCase {
         XCTAssertThrowsError(try protocolDecoder().decode(BotChange.self, from: Data(json.replacingOccurrences(of: "model", with: "pinned").utf8)))
     }
 
+    func testALiteralLineDecodes() throws {
+        // The on-disk names (`at, by, field, old, new`) are pinned against literal lines, not only a round trip.
+        let id = UUID(uuidString: "6F9619FF-8B86-D011-B42D-00C04FC964FF")!
+        let user = #"{"at":"2026-10-15T10:00:00.000Z","by":{"user":{}},"field":"model","old":null,"new":"opus"}"#
+        let byBot = #"{"at":"2026-10-15T10:00:00.000Z","by":{"bot":{"id":"\#(id)","name":"Ada"}},"field":"name","old":"a","new":"b"}"#
+        let u = try protocolDecoder().decode(BotChange.self, from: Data(user.utf8))
+        XCTAssertEqual(u.by, .user); XCTAssertEqual(u.field, .model); XCTAssertEqual(u.old, .null); XCTAssertEqual(u.new, "opus")
+        let b = try protocolDecoder().decode(BotChange.self, from: Data(byBot.utf8))
+        XCTAssertEqual(b.by, .bot(id: id, name: "Ada")); XCTAssertEqual(b.field, .name)
+        XCTAssertEqual(b.old, "a"); XCTAssertEqual(b.new, "b")
+    }
+
     func testRestorePutsTheOldValueBack() throws {
         // Spec §5: every field goes back; a value that does not fit the field is refused, never a crash.
         var new = bot
