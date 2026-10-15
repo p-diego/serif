@@ -459,6 +459,85 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(client.all.summaries(ada.id).last?.state, .ready)
     }
 
+    func testACompletedTaskGoesBackAndTheLeadGetsACopy() throws {
+        let (client, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
+                + [tool("send_message", ["to": "Ada", "body": "Check the logs", "kind": "task"])] + stop("p1")
+                + prompt("p2") + stop("p2", "Thanks."),
+            ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
+                + [tool("complete_task", ["task_id": "#1", "result": "All clean"])] + stop("p1"))
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "Noted."))
+        let lea = try createBot(client, in: bob.projectId, name: "Lea")
+        waitFor(client, "Lea introduced") { self.turnsEnded($0, lea) == 1 }
+        guard case let .snapshot(snapshot) = request(client, .snapshot), var project = snapshot.projects.first
+        else { return XCTFail("no project") }
+        project.leadBotId = lea.id
+        guard case .project = request(client, .updateProject(project)) else { return XCTFail("lead refused") }
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Delegate")), .ok)
+        waitFor(client, "the reply and the copy") { self.turnsEnded($0, bob) == 3 && self.turnsEnded($0, lea) == 2 }
+        XCTAssertEqual(mailText(client.all, bob), "Reply from Ada to your task #1, now done:\n\nAll clean")
+        XCTAssertEqual(mailText(client.all, lea), "Task #1 (Bob → Ada) is done:\n\nAll clean")
+        let notice = client.all.chatEvents(lea.id).lazy.compactMap { if case let .mail(m) = $0 { m } else { nil } }.first
+        XCTAssertEqual(notice?.notice, .done)
+        // Both cards show it done; Ada's chat shows the reply she sent.
+        for bot in [bob, ada] { XCTAssertTrue(client.all.chatEvents(bot.id).map(label).contains("task(#1 done)")) }
+        XCTAssertTrue(client.all.chatEvents(ada.id).map(label).contains("mail(sent reply)"))
+        guard case .terminal = request(client, .attachTerminal(botId: ada.id)) else { return XCTFail("no terminal") }
+        waitFor(client, "Ada's answer") { $0.terminalText.contains("TOOL-OUT:Task #1 closed; Bob has been told") }
+    }
+
+    func testTheRulesAnswerTheBotWithAnError() throws {
+        let turns = [sessionStart] + prompt("p0") + stop("p0") + (1...4).flatMap { prompt("p\($0)") + stop("p\($0)") }
+        try play(turns)
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        let ada = try createBot(client, in: bob.projectId, name: "Ada")
+        for bot in [bob, ada] { waitFor(client, "introduced") { self.turnsEnded($0, bot) == 1 } }
+        func send(_ from: Bot, _ to: String, _ kind: String = "task", body: String = "x") -> ToolResult {
+            callTool(engine, as: from, "send_message", ["to": .string(to), "body": .string(body), "kind": .string(kind)])
+        }
+        func refused(_ r: ToolResult) -> String? { r.isError ? r.text : nil }
+        XCTAssertEqual(refused(send(bob, "bob")), "you cannot write to yourself")
+        XCTAssertEqual(refused(send(bob, "Zed")), "no bot of this project is called Zed")
+        XCTAssertEqual(refused(send(bob, "Ada", "memo")), "kind must be task, reply or note")
+        XCTAssertNotNil(refused(send(bob, "Ada", "note", body: String(repeating: "x", count: 65_537))))
+        XCTAssertEqual(refused(callTool(engine, as: bob, "complete_task", ["task_id": "abc", "result": "r"])),
+                       "task_id must be a whole number")
+        for _ in 1...3 { XCTAssertFalse(send(bob, "Ada").isError) }                   // #1 starts Ada's turn at once
+        XCTAssertEqual(refused(send(bob, "Ada")), "you already have 3 open tasks: wait for one to finish, or cancel one")
+        // Ada's turn came from task #1: passing work back up its chain is a circle (spec §5).
+        XCTAssertEqual(refused(send(ada, "Bob")),
+                       "that bot asked for task #1 higher in this chain: reply to it instead of passing work back")
+        XCTAssertEqual(refused(callTool(engine, as: bob, "complete_task", ["task_id": 1, "result": "r"])),
+                       "task #1 was not given to you: only its recipient completes it")
+        XCTAssertEqual(refused(callTool(engine, as: ada, "cancel_task", ["task_id": 1])),
+                       "only the bot that asked for task #1 can cancel it")
+        XCTAssertEqual(callTool(engine, as: bob, "cancel_task", ["task_id": 3, "reason": "not needed"]), ToolResult("Task #3 cancelled"))
+    }
+
+    func testCheckInboxTakesWhatWaitsWithoutAnotherTurn() throws {
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "GO"]] + stop("p1"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        let ada = try createBot(client, in: bob.projectId, name: "Ada")
+        for bot in [bob, ada] { waitFor(client, "introduced") { self.turnsEnded($0, bot) == 1 } }
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "Work long")), .ok)
+        waitFor(client, "Ada working") { $0.chatEvents(ada.id).filter { label($0) == "userMessage" }.count == 2 }
+        XCTAssertFalse(callTool(engine, as: bob, "send_message", ["to": "Ada", "body": "hi", "kind": "note"]).isError)
+        let inbox = callTool(engine, as: ada, "check_inbox")
+        XCTAssertTrue(inbox.text.hasSuffix("New messages:\n\nNote from Bob:\n\nhi"), inbox.text)
+        XCTAssertTrue(client.all.chatEvents(ada.id).map(label).contains("mail(received note)"))
+        XCTAssertEqual(request(client, .terminalInput(botId: ada.id, data: Data("GO".utf8))), .ok)
+        waitFor(client, "Ada's turn ended") { self.turnsEnded($0, ada) == 2 }
+        Thread.sleep(forTimeInterval: 0.5)                          // a turn for the note would have started by now
+        XCTAssertNil(mailText(client.all, ada))
+        XCTAssertEqual(callTool(engine, as: ada, "check_inbox"), ToolResult("No open tasks and no new messages."))
+    }
+
     func testTheSystemPromptNamesTheColleagues() throws {
         try makeEngine("basic").start()
         let client = try connect()

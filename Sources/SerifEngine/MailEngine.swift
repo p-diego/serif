@@ -9,6 +9,9 @@ extension Engine {
         do {
             switch name {
             case "send_message": return ToolResult(try sendMessage(arguments, from: rt))
+            case "complete_task": return ToolResult(try completeTask(arguments, from: rt))
+            case "cancel_task": return ToolResult(try cancelTask(arguments, from: rt))
+            case "check_inbox": return ToolResult(try checkInbox(from: rt))
             case "list_bots": return ToolResult(listBots(for: rt))
             default: return ToolResult("Serif has no tool called \(name)", isError: true)
             }
@@ -52,6 +55,49 @@ extension Engine {
         return "Task #\(task.number) sent to \(to.name), deadline \(mailDate(task.deadline))"
     }
 
+    /// `complete_task` (spec §5): the result goes to the requester, a copy to the lead; the cards change in place.
+    private func completeTask(_ a: JSONValue, from rt: BotRuntime) throws -> String {
+        guard let n = try number(a["task_id"], "task_id"), let result = a["result"]?.string else {
+            throw MailError("complete_task needs task_id and result")
+        }
+        var box = store.mailbox(rt.bot.projectId)
+        let lead = store.projects.first { $0.id == rt.bot.projectId }?.leadBotId
+        let task = try box.complete(n, by: rt.bot.id, result: result, lead: lead, at: now())
+        try store.save(box, project: rt.bot.projectId)
+        taskChanged(task, in: box)
+        if let reply = box.messages.last(where: { $0.kind == .reply && $0.taskId == n }) {
+            record(.mail(note(reply, .sent, in: box)), rt)
+        }
+        deliverMail(in: rt.bot.projectId)
+        return "Task #\(n) closed; \(botName(task.from)) has been told"
+    }
+
+    private func cancelTask(_ a: JSONValue, from rt: BotRuntime) throws -> String {
+        guard let n = try number(a["task_id"], "task_id") else { throw MailError("cancel_task needs task_id") }
+        try cancelTask(n, in: rt.bot.projectId, by: rt.bot.id, reason: a["reason"]?.string)
+        return "Task #\(n) cancelled"
+    }
+
+    /// A task cancelled by the bot that asked, or by the user's Cancel (`by` nil, spec §5); the other side is told.
+    func cancelTask(_ n: Int, in project: UUID, by bot: UUID?, reason: String?) throws {
+        var box = store.mailbox(project)
+        let task = try box.cancel(n, by: bot, reason: reason, at: now())
+        try store.save(box, project: project)
+        taskChanged(task, in: box)
+        deliverMail(in: project)
+    }
+
+    /// `check_inbox` (spec §4, §6): what waits for the bot counts as delivered from now on, and its chat shows it as
+    /// received; a task read so heads no chain.
+    private func checkInbox(from rt: BotRuntime) throws -> String {
+        var box = store.mailbox(rt.bot.projectId)
+        let new = box.waiting(for: rt.bot.id)
+        let text = inboxText(box, for: rt.bot.id, new: new, name: botName, now: now())
+        for message in new { received(message, by: rt, in: &box) }
+        if !new.isEmpty { try store.save(box, project: rt.bot.projectId) }
+        return text
+    }
+
     /// `list_bots` (spec §4), with the project's lead as it is now (spec §8).
     private func listBots(for rt: BotRuntime) -> String {
         let lead = store.projects.first { $0.id == rt.bot.projectId }?.leadBotId
@@ -89,6 +135,17 @@ extension Engine {
         } else {
             type(text, origin: .bot, into: rt)
         }
+    }
+
+    /// Every free bot of the project gets what waits for it.
+    func deliverMail(in project: UUID) {
+        for rt in bots.values where rt.bot.projectId == project { deliverMail(rt) }
+    }
+
+    /// A task's new state, in place on its cards (spec §6): the requester's, and the recipient's once it had the task.
+    func taskChanged(_ task: MailTask, in box: Mailbox) {
+        if let requester = bots[task.from] { record(.task(card(task)), requester) }
+        if box.delivered(task: task.number), let recipient = bots[task.to] { record(.task(card(task)), recipient) }
     }
 
     /// A message `rt` has now (a turn, or `check_inbox`): delivered, and in its chat the task's card first for a task,
