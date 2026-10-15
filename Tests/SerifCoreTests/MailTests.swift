@@ -205,6 +205,89 @@ final class MailTests: XCTestCase {
 
     // MARK: - Decisions (spec §6 of 0.6)
 
+    func testADecisionNeedsAQuestionAndTwoToSixShortOptions() throws {
+        var box = Mailbox()
+        let d = try box.raiseDecision(by: cody, question: " Ship 0.6 today? ", options: ["Yes", " No "], recommendation: 0,
+                                      context: "Tests are green.", at: t0)
+        XCTAssertEqual([d.number, d.recommendation], [1, 0])
+        XCTAssertEqual(d.question, "Ship 0.6 today?")
+        XCTAssertEqual(d.options, ["Yes", "No"])
+        XCTAssertEqual(d.status, .open)
+        XCTAssertEqual(box.decision(1), d)
+        func refused(_ q: String = "Q?", _ options: [String] = ["A", "B"], recommendation: Int? = nil, context: String? = nil) -> String? {
+            do { _ = try box.raiseDecision(by: cody, question: q, options: options, recommendation: recommendation, context: context, at: t0) }
+            catch { return (error as? MailError)?.text }
+            return nil
+        }
+        XCTAssertEqual(refused(" "), "raise_decision needs a question")
+        XCTAssertEqual(refused(String(repeating: "q", count: 4097)), "the question is longer than 4 KB")
+        XCTAssertEqual(refused("Q?", ["A"]), "give 2 to 6 options")
+        XCTAssertEqual(refused("Q?", ["A", "B", "C", "D", "E", "F", "G"]), "give 2 to 6 options")
+        XCTAssertEqual(refused("Q?", ["A", " "]), "each option must be 1 to 200 characters")
+        XCTAssertEqual(refused("Q?", ["A", String(repeating: "b", count: 201)]), "each option must be 1 to 200 characters")
+        XCTAssertEqual(refused("Q?", ["A", "B"], recommendation: 2), "recommendation must be the number of one of the options, 1 for the first")
+        XCTAssertEqual(refused("Q?", ["A", "B"], context: String(repeating: "c", count: 4097)), "the context is longer than 4 KB")
+        XCTAssertNil(refused("Q?", ["A", "B", "C", "D", "E", "F"], recommendation: 5, context: String(repeating: "c", count: 4096)))
+        XCTAssertNil(refused())                                                        // the third open one
+        XCTAssertEqual(refused(), "you already have 3 open decisions: wait for an answer, or withdraw one")
+        XCTAssertNoThrow(try box.raiseDecision(by: milo, question: "Q?", options: ["A", "B"], recommendation: nil, context: nil, at: t0))
+        XCTAssertEqual(box.decisions.filter { $0.botId == milo }.count, 1)           // the limit is per bot
+    }
+
+    func testAnAnswerGoesToTheBotAsMailFromTheUserAndToTheLead() throws {
+        var box = Mailbox()
+        _ = try box.raiseDecision(by: cody, question: "Ship 0.6 today?", options: ["Yes", "No"], recommendation: 0, context: nil, at: t0)
+        XCTAssertThrowsError(try box.answerDecision(1, option: nil, text: " ", botName: "Cody", lead: nil, at: t0)) {
+            XCTAssertEqual($0 as? MailError, MailError("choose an option or write an answer"))
+        }
+        XCTAssertThrowsError(try box.answerDecision(1, option: 2, text: nil, botName: "Cody", lead: nil, at: t0)) {
+            XCTAssertEqual($0 as? MailError, MailError("there is no option 3"))
+        }
+        let answered = try box.answerDecision(1, option: 0, text: " after lunch ", botName: "Cody", lead: lead, at: t0)
+        XCTAssertEqual(answered.status, .answered)
+        XCTAssertEqual(answered.answer, DecisionAnswer(option: 0, text: "after lunch"))
+        XCTAssertEqual(answered.answeredAt, t0)
+        // From you (no sender), as a system message with the whole text; the lead gets the question and the answer.
+        let toCody = box.waiting(for: cody)
+        XCTAssertEqual(toCody.map(\.kind), [.system])
+        XCTAssertNil(toCody.first?.from)
+        XCTAssertEqual(toCody.first?.text, "Your decision on #1 «Ship 0.6 today?»: Yes — after lunch")
+        XCTAssertEqual(box.waiting(for: lead).map(\.text), ["Decision #1 of Cody «Ship 0.6 today?» was answered by the user: Yes — after lunch"])
+        XCTAssertThrowsError(try box.answerDecision(1, option: 1, text: nil, botName: "Cody", lead: nil, at: t0)) {
+            XCTAssertEqual($0 as? MailError, MailError("decision #1 is already answered"))
+        }
+        // Words alone, an option alone; the lead who asked gets no copy.
+        _ = try box.raiseDecision(by: lead, question: "Colour?", options: ["Red", "Blue"], recommendation: nil, context: nil, at: t0)
+        _ = try box.answerDecision(2, option: nil, text: "Green, actually", botName: "Lea", lead: lead, at: t0)
+        XCTAssertEqual(box.waiting(for: lead).map(\.text).last, "Your decision on #2 «Colour?»: Green, actually")
+        XCTAssertEqual(box.waiting(for: lead).count, 2)
+        _ = try box.raiseDecision(by: milo, question: "Font?", options: ["Serif", "Sans"], recommendation: 1, context: nil, at: t0)
+        _ = try box.answerDecision(3, option: 1, text: nil, botName: "Milo", lead: nil, at: t0)
+        XCTAssertEqual(box.waiting(for: milo).map(\.text), ["Your decision on #3 «Font?»: Sans"])
+        XCTAssertThrowsError(try box.answerDecision(9, option: 0, text: nil, botName: "x", lead: nil, at: t0)) {
+            XCTAssertEqual($0 as? MailError, MailError("there is no decision #9"))
+        }
+    }
+
+    func testWithdrawnByItsBotOrByArchiving() throws {
+        var box = Mailbox()
+        _ = try box.raiseDecision(by: cody, question: "Q1?", options: ["A", "B"], recommendation: nil, context: nil, at: t0)
+        _ = try box.raiseDecision(by: cody, question: "Q2?", options: ["A", "B"], recommendation: nil, context: nil, at: t0)
+        _ = try box.raiseDecision(by: milo, question: "Q3?", options: ["A", "B"], recommendation: nil, context: nil, at: t0)
+        XCTAssertThrowsError(try box.withdrawDecision(1, by: milo, reason: nil, at: t0)) {
+            XCTAssertEqual($0 as? MailError, MailError("decision #1 is not yours"))
+        }
+        let gone = try box.withdrawDecision(1, by: cody, reason: "solved it", at: t0)
+        XCTAssertEqual([gone.status.rawValue, gone.reason], ["withdrawn", "solved it"])
+        XCTAssertEqual(box.waiting(for: cody), [])                                    // no mail for a withdrawal
+        XCTAssertThrowsError(try box.withdrawDecision(1, by: cody, reason: nil, at: t0)) {
+            XCTAssertEqual($0 as? MailError, MailError("decision #1 is already withdrawn"))
+        }
+        XCTAssertEqual(box.withdrawDecisions(of: cody, at: t0).map(\.number), [2])
+        XCTAssertEqual(box.decisions.map(\.status), [.withdrawn, .withdrawn, .open])
+        XCTAssertEqual(box.withdrawDecisions(of: cody, at: t0), [])
+    }
+
     func testAMailJSONOfSerif05StillDecodes() throws {
         // As 0.5 wrote it: no decisions, no counter; a task's message with its sender.
         let json = #"""
@@ -227,6 +310,12 @@ final class MailTests: XCTestCase {
         """#
         let d = try protocolDecoder().decode(Decision.self, from: Data(decision.utf8))
         XCTAssertNil(d.recommendation); XCTAssertNil(d.context); XCTAssertNil(d.answer); XCTAssertNil(d.reason)
+        // Round trip with everything.
+        var box2 = Mailbox()
+        _ = try box2.raiseDecision(by: cody, question: "Q?", options: ["A", "B"], recommendation: 1, context: "why", at: t0)
+        _ = try box2.answerDecision(1, option: 1, text: "ok", botName: "Cody", lead: lead, at: t0)
+        let data = try protocolEncoder().encode(box2)
+        XCTAssertEqual(try protocolDecoder().decode(Mailbox.self, from: data), box2)
     }
 
     func testABotCannotCreateTheThirteenthBotOfAProject() {

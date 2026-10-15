@@ -51,6 +51,34 @@ final class MailTextTests: XCTestCase {
         XCTAssertEqual(text(archived.waiting(for: milo)[0], archived), "Task #1 from Cody was cancelled: Cody was archived")
     }
 
+    func testAMessageFromTheUserReadsAsItIs() throws {
+        // A decision's answer (spec §6 of 0.6): no sender, no task, the whole text.
+        var b = Mailbox()
+        _ = try b.raiseDecision(by: cody, question: "Ship?", options: ["Yes", "No"], recommendation: nil, context: nil, at: deadline)
+        _ = try b.answerDecision(1, option: 0, text: nil, botName: "Cody", lead: lead, at: deadline)
+        XCTAssertEqual(text(b.waiting(for: cody)[0], b), "Your decision on #1 «Ship?»: Yes")
+        XCTAssertEqual(text(b.waiting(for: lead)[0], b), "Decision #1 of Cody «Ship?» was answered by the user: Yes")
+        XCTAssertTrue(inboxText(b, for: cody, new: b.waiting(for: cody), name: name, now: deadline, timeZone: utc)
+            .hasSuffix("New messages:\n\nYour decision on #1 «Ship?»: Yes"))
+    }
+
+    func testDecisionsList() throws {
+        var b = Mailbox()
+        _ = try b.raiseDecision(by: cody, question: "Ship?", options: ["Yes", "No"], recommendation: 0, context: nil, at: deadline)
+        _ = try b.raiseDecision(by: milo, question: "Font?", options: ["Serif", "Sans"], recommendation: nil, context: nil, at: deadline)
+        _ = try b.raiseDecision(by: milo, question: "Colour?", options: ["Red", "Blue"], recommendation: nil, context: nil, at: deadline)
+        _ = try b.answerDecision(1, option: 1, text: "not yet", botName: "Cody", lead: nil, at: deadline)
+        _ = try b.withdrawDecision(2, by: milo, reason: "moot", at: deadline)
+        XCTAssertEqual(decisionsText(b.decisions, name: name, timeZone: utc), """
+            Decisions of this project:
+            - #3 by Milo, 16 Oct 2026, 18:05: «Colour?» 1. Red; 2. Blue — open
+            - #2 by Milo, 16 Oct 2026, 18:05: «Font?» 1. Serif; 2. Sans — withdrawn: moot
+            - #1 by Cody, 16 Oct 2026, 18:05: «Ship?» 1. Yes (recommended); 2. No — answered: No — not yet
+            """)
+        XCTAssertEqual(decisionsText([], name: name), "No decisions in this project.")
+        XCTAssertTrue(serifToolsGuide.contains("raise_decision") && serifToolsGuide.contains("create_routine"))
+    }
+
     func testColleagues() {
         let p = UUID(), face = BotFace(shape: .allCases[0], body: 1, eyes: 2)
         let me = Bot(projectId: p, name: "Cody", face: face, instructions: "Leads the release.\nMore.")

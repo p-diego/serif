@@ -271,6 +271,82 @@ public struct Mailbox: Codable, Equatable, Sendable {
         return (closed, dropped)
     }
 
+    // MARK: - Decisions (spec §6 of 0.6)
+
+    public func decision(_ number: Int) -> Decision? { decisions.first { $0.number == number } }
+
+    /// `raise_decision`: a question with 2–6 short options, at most 3 open per bot; it does not stop the bot.
+    public mutating func raiseDecision(by bot: UUID, question: String, options: [String], recommendation: Int?,
+                                       context: String?, at now: Date) throws -> Decision {
+        let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { throw MailError("raise_decision needs a question") }
+        guard question.utf8.count <= Self.maxDecisionBytes else { throw MailError("the question is longer than 4 KB") }
+        let options = options.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard Self.decisionOptions.contains(options.count) else { throw MailError("give 2 to 6 options") }
+        guard options.allSatisfy({ !$0.isEmpty && $0.count <= Self.maxOptionLength }) else {
+            throw MailError("each option must be 1 to 200 characters")
+        }
+        if let recommendation, !options.indices.contains(recommendation) {
+            throw MailError("recommendation must be the number of one of the options, 1 for the first")
+        }
+        if let context, context.utf8.count > Self.maxDecisionBytes { throw MailError("the context is longer than 4 KB") }
+        guard decisions.filter({ $0.botId == bot && $0.status == .open }).count < Self.maxOpenDecisions else {
+            throw MailError("you already have \(Self.maxOpenDecisions) open decisions: wait for an answer, or withdraw one")
+        }
+        lastDecision += 1
+        let new = Decision(number: lastDecision, botId: bot, question: question, options: options,
+                           recommendation: recommendation, context: context, status: .open, createdAt: now,
+                           requestId: UUID())
+        decisions.append(new)
+        return new
+    }
+
+    /// Your answer (spec §6): an option, words, or both. The bot gets it as mail from you; the lead, when it is
+    /// another bot, a copy with the question and the answer.
+    public mutating func answerDecision(_ number: Int, option: Int?, text: String?, botName: String, lead: UUID?,
+                                        at now: Date) throws -> Decision {
+        let i = try openDecision(number)
+        let text = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = text.flatMap { $0.isEmpty ? nil : $0 }
+        if let option, !decisions[i].options.indices.contains(option) { throw MailError("there is no option \(option + 1)") }
+        guard option != nil || words != nil else { throw MailError("choose an option or write an answer") }
+        (decisions[i].status, decisions[i].answer, decisions[i].answeredAt) = (.answered, DecisionAnswer(option: option, text: words), now)
+        let d = decisions[i]
+        post(from: nil, to: d.botId, kind: .system, text: decisionMailText(d), task: nil, at: now)
+        if let lead, lead != d.botId {
+            post(from: nil, to: lead, kind: .system, text: decisionLeadText(d, botName: botName), task: nil, at: now)
+        }
+        return d
+    }
+
+    /// `withdraw_decision` (spec §6): only the bot that raised it, while it is open.
+    public mutating func withdrawDecision(_ number: Int, by bot: UUID, reason: String?, at now: Date) throws -> Decision {
+        let i = try openDecision(number)
+        guard decisions[i].botId == bot else { throw MailError("decision #\(number) is not yours") }
+        (decisions[i].status, decisions[i].reason) = (.withdrawn, reason)
+        return decisions[i]
+    }
+
+    /// A bot archived (spec §6): its open decisions are withdrawn; returned so their cards can close.
+    public mutating func withdrawDecisions(of bot: UUID, at now: Date) -> [Decision] {
+        var withdrawn: [Decision] = []
+        for i in decisions.indices where decisions[i].botId == bot && decisions[i].status == .open {
+            decisions[i].status = .withdrawn
+            withdrawn.append(decisions[i])
+        }
+        return withdrawn
+    }
+
+    private func openDecision(_ number: Int) throws -> Int {
+        guard let i = decisions.firstIndex(where: { $0.number == number }) else {
+            throw MailError("there is no decision #\(number)")
+        }
+        guard decisions[i].status == .open else {
+            throw MailError("decision #\(number) is already \(decisions[i].status.rawValue)")
+        }
+        return i
+    }
+
     // MARK: - Private
 
     @discardableResult
