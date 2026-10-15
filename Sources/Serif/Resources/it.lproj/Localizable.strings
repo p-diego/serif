@@ -383,3 +383,5 @@
 "Change the agent of %@?" = "Cambiare l'agente di %@?";
 "%@ will start again with %@ in a new conversation. The chat stays, the plugins are reset." = "%1$@ ripartirà con %2$@ in una conversazione nuova. La chat resta, i plugin si azzerano.";
 "Change agent" = "Cambia agente";
+"Claude Code is not signed in: type `claude` in Terminal." = "Claude Code non è collegato: scrivi `claude` nel Terminale.";
+"Claude Code is not installed." = "Claude Code non è installato.";

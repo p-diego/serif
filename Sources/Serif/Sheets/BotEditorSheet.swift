@@ -23,6 +23,7 @@ struct BotEditorSheet: View {
     @State private var codexCatalog: CodexCatalog?        // asked of the engine when the sheet opens (spec §6)
     @State private var codexStatus: AgentStatus?          // Codex can be chosen once the engine finds it ready (spec §7)
     @State private var codexChecked = false               // the check answered or failed
+    @State private var claudeStatus: AgentStatus?         // for a Codex bot's switch to Claude Code (spec §7 of 0.7)
     @State private var changes: [BotChange] = []          // the bot's history, newest last (spec §5 of 0.7)
     @State private var busy = false
     @State private var error: String?
@@ -95,17 +96,25 @@ struct BotEditorSheet: View {
                 FacePicker(face: $face, existing: client.roster.bots.values.map(\.bot.face))
             }
             FieldGroup(label: String(localized: "Agent")) {
-                // Chosen at creation, never changed (spec §2); Codex only once the engine finds it ready (spec §7).
+                // An agent only once the engine finds it ready (spec §7 of 0.3); for a bot that exists, changing it asks
+                // first and starts a new conversation on the other agent (spec §7 of 0.7).
                 Picker("", selection: $agent) {
-                    Text("Claude Code").tag(Agent.claude)
+                    Text("Claude Code").tag(Agent.claude).disabled(editing?.agent == .codex && claudeStatus?.problem != nil)
                     Text("Codex").tag(Agent.codex).disabled(codexStatus == nil || codexStatus?.problem != nil)
-                }.pickerStyle(.segmented).labelsHidden().disabled(editing != nil)
-                if editing == nil, let hint = codexHint {
+                }.pickerStyle(.segmented).labelsHidden()
+                if let hint = agentHint {
                     HStack(spacing: 6) {
                         Text((try? AttributedString(markdown: hint)) ?? AttributedString(hint))
-                        if codexChecked { Link(String(localized: "Help"), destination: AgentCheckView.codexGuide) }
+                        if codexChecked {
+                            Link(String(localized: "Help"), destination: editing?.agent == .codex ? AgentCheckView.guide : AgentCheckView.codexGuide)
+                        }
                     }
                     .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
+                }
+                if let bot = editing, agent != bot.agent {
+                    Text(String(localized: "\(bot.name) will start again with \(agentName(agent)) in a new conversation. The chat stays, the plugins are reset."))
+                        .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if agent == .claude {
                     Picker(String(localized: "Model"), selection: $model) {
@@ -208,22 +217,31 @@ struct BotEditorSheet: View {
             codexSkills = catalog.codexSkills(environment: env)
         }
         .task {
-            guard (editing?.agent ?? .codex) == .codex else { return }     // a Claude Code bot's settings need nothing of Codex
+            // Codex: for a new bot and for the switch of a Claude Code bot; Claude Code: for the switch of a Codex bot.
+            if editing?.agent == .codex { claudeStatus = try? await client.agentStatus(.claude) }
             codexStatus = try? await client.agentStatus(.codex)
             codexChecked = true
-            if codexStatus?.problem == nil { codexCatalog = try? await client.codexCatalog() }
+            if codexStatus?.problem == nil, (editing?.agent ?? .codex) == .codex { codexCatalog = try? await client.codexCatalog() }
         }
         .task { if let id = editing?.id { changes = (try? await client.changes(bot: id)) ?? [] } }
         .onChange(of: agent) {
             // The two agents' models and plugins differ: what was picked for the other one goes; a template suggests anew.
             model = .standard; codexModel = nil
             if template != nil { suggest(template) } else { plugins = [] }
+            // A bot that exists: the switch is confirmed here and done on Save (spec §7 of 0.7).
+            if let bot = editing, agent != bot.agent, !confirmAgentChange(bot, to: agent) { agent = bot.agent }
         }
     }
 
-    /// Why Codex cannot be chosen yet, if so (spec §7).
-    private var codexHint: String? {
+    /// Why the other agent cannot be chosen yet, if so (spec §7 of 0.3, §7 of 0.7): the same help as the first launch.
+    private var agentHint: String? {
         guard codexChecked else { return String(localized: "Checking Codex…") }
+        if editing?.agent == .codex {
+            guard let status = claudeStatus, status.problem != nil else { return nil }
+            return status.problem == .claudeNotSignedIn
+                ? String(localized: "Claude Code is not signed in: type `claude` in Terminal.")
+                : String(localized: "Claude Code is not installed.")
+        }
         if let status = codexStatus, status.problem == nil { return nil }
         // Not installed, or a check that failed: either way Codex cannot be chosen.
         return codexStatus?.problem == .codexNotSignedIn
@@ -321,6 +339,8 @@ struct BotEditorSheet: View {
                     guard let live = client.roster.bots[id]?.bot, live.archivedAt == nil else {
                         throw EngineError(message: String(localized: "This bot no longer exists"))
                     }
+                    // The switch first (spec §7 of 0.7): refused, the sheet stays open with the reason.
+                    if agent != live.agent { try await client.changeAgent(bot: id, to: agent) }
                     try await client.updateBot(live.applying(BotEdits(name: trimmed, face: face, model: chosenModel,
                         instructions: instructions, freedom: freedom, notifications: notifications,
                         skills: skills, plugins: plugins, connectors: connectors)))
