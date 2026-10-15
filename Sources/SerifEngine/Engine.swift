@@ -449,7 +449,8 @@ public final class Engine {
             rt.turn = []
             rt.awaitingEcho = false
             if origin != .bot { rt.turnTask = nil }         // a turn the mail did not start carries no task's chain
-            if origin != .routine { (rt.run, rt.turnChain) = (nil, 0) }   // nor a routine's run and its signal chain
+            // nor a routine's run and its signal chain; a steer into the run's own turn is not a new turn
+            if origin != .routine && !state.inTurn { (rt.run, rt.turnChain) = (nil, 0) }
         }
         rt.turn.append(event)
         push(.chatEvent(botId: rt.bot.id, record: record))

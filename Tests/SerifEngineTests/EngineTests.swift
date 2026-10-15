@@ -866,6 +866,20 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(client.all.summaries(ada.id).last?.state, .ready)
     }
 
+    func testASteerIntoACodexRunStillEndsItWithAnOutcome() throws {
+        try makeEngine("basic", codex: "codex-routine-steered").start()
+        let engine = engines[0]
+        let client = try connect()
+        let ada = try createBot(client, agent: .codex)
+        waitFor(client, "introduced") { self.turnsEnded($0, ada) == 1 }
+        XCTAssertEqual(request(client, .saveRoutine(routine(ada, "Slow", .every(minutes: 5), maxMinutes: 1))), .ok)
+        sweep(engine, at: 301)
+        waitFor(client, "the run") { self.runText($0, ada) != nil }
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "Finish")), .ok)       // a steer: its echo is not a new turn
+        waitFor(client, "done") { self.runs($0, ada).last?.outcome == .done }
+        XCTAssertEqual(try Store(paths: paths).routines(ada.projectId).first?.lastOutcome, .done)
+    }
+
     func testACrashMidRunReadsAsFailed() throws {
         try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["exit": 3]])
         let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
