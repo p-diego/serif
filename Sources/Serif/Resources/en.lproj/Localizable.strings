@@ -404,3 +404,16 @@
 "never" = "never";
 "last crash: %@ — %@" = "last crash: %1$@ — %2$@";
 "Log (last %lld lines)" = "Log (last %lld lines)";
+"%@ +%lld" = "%1$@ +%2$lld";
+"Close task #%lld" = "Close task #%lld";
+"Cancel task #%lld" = "Cancel task #%lld";
+"Create bot: %@" = "Create bot: %@";
+"Update instructions" = "Update instructions";
+"Archive bot: %@" = "Archive bot: %@";
+"Create routine: %@" = "Create routine: %@";
+"Turn on routine: %@" = "Turn on routine: %@";
+"Turn off routine: %@" = "Turn off routine: %@";
+"Delete routine: %@" = "Delete routine: %@";
+"Run routine: %@" = "Run routine: %@";
+"Raise a decision" = "Raise a decision";
+"Withdraw decision #%lld" = "Withdraw decision #%lld";

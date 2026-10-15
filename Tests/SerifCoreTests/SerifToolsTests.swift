@@ -40,6 +40,16 @@ final class SerifToolsTests: XCTestCase {
         for tool in tools { XCTAssertEqual(tool["inputSchema"]?["type"], "object") }
     }
 
+    func testEveryDeclaredToolHasItsCallAndSoItsTitle() {
+        // Spec §9 of 0.7: the app titles a step from its `SerifToolCall`, whose switch is exhaustive; a declared tool the
+        // parser did not know would show its raw name.
+        for tool in serifTools {
+            let name = tool["name"]?.string ?? "?"
+            XCTAssertNotNil(SerifToolCall(toolName: "mcp__serif__\(name)", input: [:]), name)
+        }
+        XCTAssertEqual(serifTools.count, 17)
+    }
+
     func testACallGoesThroughAndComesBackAsText() {
         var asked: (String, JSONValue)?
         let r = reply(#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"list_bots","arguments":{"x":1}}}"#) {

@@ -67,6 +67,31 @@ func serifStepTitle(_ call: SerifToolCall) -> String {
     }
 }
 
+/// A call of Serif's tools without its outcome (spec §9 of 0.7): the title of a failed step, which must not read as done
+/// ("Task #17 closed"), and of a group of several calls.
+func serifToolTitle(_ call: SerifToolCall) -> String {
+    switch call {
+    case .message(let to): String(localized: "Message to \(to)")
+    case .completeTask(let n): String(localized: "Close task #\(n)")
+    case .cancelTask(let n): String(localized: "Cancel task #\(n)")
+    case .inbox: String(localized: "Steps.inbox")
+    case .colleagues: String(localized: "Colleagues")
+    case .createBot(let name): String(localized: "Create bot: \(name)")
+    case .updateInstructions: String(localized: "Update instructions")
+    case .archiveBot(let name): String(localized: "Archive bot: \(name)")
+    case .createRoutine(let name): String(localized: "Create routine: \(name)")
+    case .listRoutines: String(localized: "Routines")
+    case .setRoutineEnabled(let name, let on):
+        on ? String(localized: "Turn on routine: \(name)") : String(localized: "Turn off routine: \(name)")
+    case .deleteRoutine(let name): String(localized: "Delete routine: \(name)")
+    case .runRoutine(let name): String(localized: "Run routine: \(name)")
+    case .emitSignal(let name): String(localized: "Signal: \(name)")
+    case .raiseDecision: String(localized: "Raise a decision")
+    case .listDecisions: String(localized: "Decisions")
+    case .withdrawDecision(let n): String(localized: "Withdraw decision #\(n)")
+    }
+}
+
 /// Header text for a bot that is not simply ready.
 func stateText(_ s: BotState) -> String? {
     switch s {

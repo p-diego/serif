@@ -404,3 +404,16 @@
 "never" = "mai";
 "last crash: %@ — %@" = "ultima caduta: %1$@ — %2$@";
 "Log (last %lld lines)" = "Registro (ultime %lld righe)";
+"%@ +%lld" = "%1$@ +%2$lld";
+"Close task #%lld" = "Chiusura del compito #%lld";
+"Cancel task #%lld" = "Annullamento del compito #%lld";
+"Create bot: %@" = "Creazione del bot: %@";
+"Update instructions" = "Aggiornamento delle istruzioni";
+"Archive bot: %@" = "Archiviazione del bot: %@";
+"Create routine: %@" = "Creazione della routine: %@";
+"Turn on routine: %@" = "Accensione della routine: %@";
+"Turn off routine: %@" = "Spegnimento della routine: %@";
+"Delete routine: %@" = "Cancellazione della routine: %@";
+"Run routine: %@" = "Avvio della routine: %@";
+"Raise a decision" = "Richiesta di una decisione";
+"Withdraw decision #%lld" = "Ritiro della decisione #%lld";

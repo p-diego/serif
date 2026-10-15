@@ -38,24 +38,26 @@ struct StepsCard: View {
 
     private var title: String {
         switch stepsKind(steps) {
-        case .commands: String(localized: "Commands")
-        case .files: String(localized: "Files")
-        case .search: String(localized: "Steps.search")
-        case .web: String(localized: "Web")
+        case .commands: return String(localized: "Commands")
+        case .files: return String(localized: "Files")
+        case .search: return String(localized: "Steps.search")
+        case .web: return String(localized: "Web")
         case .mixed(let name):
-            // Serif's own tools read as what they did (spec §9 of 0.5), for one step; "mcp__server__tool" as "tool".
-            if steps.count == 1, steps[0].ok != false, let call = SerifToolCall(toolName: name, input: steps[0].input) {
-                serifStepTitle(call)
+            // Serif's own tools read as what they did (spec §9 of 0.5), never as their raw name (spec §9 of 0.7): one
+            // step says its outcome, several say the first call and how many more; "mcp__server__tool" as "tool".
+            if let first = steps.first(where: { $0.name == name }), let call = SerifToolCall(toolName: name, input: first.input) {
+                let same = steps.filter { $0.name == name }.count
+                return same == 1 ? title(first) : String(localized: "\(serifToolTitle(call)) +\(same - 1)")
             } else {
-                name.isEmpty ? String(localized: "Steps") : plainName(name)
+                return name.isEmpty ? String(localized: "Steps") : plainName(name)
             }
         }
     }
 
     private func title(_ step: Step) -> String {
-        // A failed Serif call must not read as done ("Task #17 closed"): its plain name instead.
+        // A failed Serif call must not read as done ("Task #17 closed"): the call without its outcome instead.
         guard let call = SerifToolCall(toolName: step.name, input: step.input) else { return step.title }
-        return step.ok == false ? plainName(step.name) : serifStepTitle(call)
+        return step.ok == false ? serifToolTitle(call) : serifStepTitle(call)
     }
 
     /// "mcp__server__tool" as "tool".
