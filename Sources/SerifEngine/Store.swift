@@ -114,8 +114,8 @@ public final class Store {
 
     /// Written whole and atomically at every change, like `state.json` (spec §5).
     public func save(_ mailbox: Mailbox, project: UUID) throws {
-        mailboxes[project] = mailbox
         try writeAtomically(try encoder.encode(mailbox), to: paths.mail(project))
+        mailboxes[project] = mailbox            // after the write: a failed save leaves memory as the disk is
     }
 
     public func prepareFolders(for bot: Bot) throws {

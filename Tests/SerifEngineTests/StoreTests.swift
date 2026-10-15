@@ -137,6 +137,18 @@ final class StoreTests: XCTestCase {
         XCTAssertTrue(try String(contentsOf: paths.log, encoding: .utf8).contains("mail.json.bad"))
     }
 
+    func testAFailedMailSaveLeavesTheCachedMailAsItWas() throws {
+        let project = UUID(), store = try Store(paths: paths)
+        var box = Mailbox()
+        _ = try box.sendTask(from: UUID(), to: UUID(), text: "x", hours: nil, turnTask: nil, at: t0)
+        // A file where the project's folder should be: the write cannot happen.
+        try FileManager.default.createDirectory(at: paths.mail(project).deletingLastPathComponent().deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data().write(to: paths.mail(project).deletingLastPathComponent())
+        XCTAssertThrowsError(try store.save(box, project: project))
+        XCTAssertEqual(try store.mailbox(project), Mailbox())          // memory matches the disk, which has nothing
+    }
+
     func testStateWrittenBy04Loads() throws {
         // As Serif 0.4 saved them: no lead, no creator (spec §7-8).
         let state = #"""
