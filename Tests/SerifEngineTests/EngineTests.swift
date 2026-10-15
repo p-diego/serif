@@ -589,6 +589,38 @@ final class EngineTests: XCTestCase {
         XCTAssertFalse(client.all.chatEvents(ada.id).contains { label($0).hasPrefix("task") || label($0).hasPrefix("mail") })
     }
 
+    func testAMailThatCannotBeWrittenIsNeitherDeliveredNorExpiredTwice() throws {
+        let (client, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1"),
+            ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "GO"]] + stop("p1")
+                + prompt("p2") + stop("p2") + prompt("p3") + stop("p3"))
+        let engine = engines[0]
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "Work long")), .ok)
+        waitFor(client, "Ada working") { $0.chatEvents(ada.id).filter { label($0) == "userMessage" }.count == 2 }
+        let sent = callTool(engine, as: bob, "send_message", ["to": "Ada", "body": "x", "kind": "task", "deadline_hours": 1])
+        XCTAssertFalse(sent.isError)
+        // mail.json can no longer be written (events.jsonl still can): the engine's own moves must not repeat.
+        let folder = paths.mail(bob.projectId).deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
+        XCTAssertEqual(request(client, .terminalInput(botId: ada.id, data: Data("GO".utf8))), .ok)
+        waitFor(client, "the task's turn") { self.turnsEnded($0, ada) == 3 }
+        Thread.sleep(forTimeInterval: 0.5)                          // a second delivery would be here by now
+        XCTAssertEqual(turnsEnded(client.all, ada), 3)
+        XCTAssertEqual(client.all.chatEvents(ada.id).filter { label($0) == "mail(received task)" }.count, 1)
+        engine.queue.sync {
+            engine.now = { Date().addingTimeInterval(3601) }
+            engine.expireTasks()
+            engine.expireTasks()                                    // the sweep after: nothing left to expire
+        }
+        waitFor(client, "Bob told") { self.turnsEnded($0, bob) == 2 }
+        Thread.sleep(forTimeInterval: 0.5)
+        for bot in [bob, ada] {
+            XCTAssertEqual(client.all.chatEvents(bot.id).filter { label($0) == "task(#1 expired)" }.count, 1)
+        }
+        XCTAssertEqual(turnsEnded(client.all, bob), 2)
+    }
+
     func testMailWaitingAtARestartIsDeliveredByTheNextEngine() throws {
         let (first, bob, ada) = try twoBots(
             bob: [sessionStart] + prompt("p0") + stop("p0"),

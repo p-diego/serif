@@ -118,6 +118,10 @@ public final class Store {
         mailboxes[project] = mailbox            // after the write: a failed save leaves memory as the disk is
     }
 
+    /// The engine's own moves keep their change in memory when the write failed, so nothing repeats; the next
+    /// successful save writes it (a restart before that may redo one delivery).
+    public func keep(_ mailbox: Mailbox, project: UUID) { mailboxes[project] = mailbox }
+
     public func prepareFolders(for bot: Bot) throws {
         try FileManager.default.createDirectory(at: paths.bot(bot.id).workspace, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: paths.shared(bot.projectId), withIntermediateDirectories: true)

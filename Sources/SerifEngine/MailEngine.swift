@@ -85,7 +85,7 @@ extension Engine {
     func cancelTask(_ n: Int, in project: UUID, by bot: UUID?, reason: String?) throws {
         var box = store.mailbox(project)
         let task = try box.cancel(n, by: bot, reason: reason, at: now())
-        try store.save(box, project: project)
+        if bot == nil { save(box, project) } else { try store.save(box, project: project) }   // the user's Cancel is ours
         taskChanged(task, in: box)
         deliverMail(in: project)
     }
@@ -97,7 +97,7 @@ extension Engine {
         let new = box.waiting(for: rt.bot.id)
         let text = inboxText(box, for: rt.bot.id, new: new, name: botName, now: now())
         for message in new { received(message, by: rt, in: &box) }
-        if !new.isEmpty { try store.save(box, project: rt.bot.projectId) }
+        if !new.isEmpty { save(box, rt.bot.projectId) }
         return text
     }
 
@@ -248,7 +248,10 @@ extension Engine {
 
     /// The engine's own moves (deliveries, expiry, archiving) go on when the file cannot be written: the log says so.
     func save(_ box: Mailbox, _ project: UUID) {
-        do { try store.save(box, project: project) } catch { log("mail of project \(project) not saved: \(error)") }
+        do { try store.save(box, project: project) } catch {
+            store.keep(box, project: project)
+            log("mail.json not written: \(error); kept in memory, a restart may redo one delivery")
+        }
     }
 
     /// A notice keeps its whole English text, which the app shows on request (spec §9).
