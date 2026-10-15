@@ -702,6 +702,8 @@ final class EngineTests: XCTestCase {
         for bot in [bob, cleo] { waitFor(client, "introduced") { self.turnsEnded($0, bot) == 1 } }
         XCTAssertEqual(callTool(engine, as: bob, "create_bot", ["name": " Milo ", "instructions": "Writes the docs."]),
                        ToolResult("Created Milo"))
+        XCTAssertEqual(callTool(engine, as: bob, "create_bot", ["name": " \n ", "instructions": "x"]),
+                       ToolResult("the bot needs a name", isError: true))
         XCTAssertEqual(callTool(engine, as: bob, "create_bot", ["name": "milo", "instructions": "x"]),
                        ToolResult("a bot called milo is already in this project", isError: true))
         XCTAssertEqual(callTool(engine, as: cleo, "create_bot", ["name": "Nia", "instructions": "x"]), ToolResult("Created Nia"))

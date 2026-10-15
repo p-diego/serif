@@ -111,10 +111,11 @@ extension Engine {
     /// `create_bot` (spec §7): in the creator's project, with its agent and its freedom, a face no bot has, no skills,
     /// plugins or connectors of its own (the project's reach it anyway); it introduces itself like any new bot.
     private func createBot(_ a: JSONValue, from rt: BotRuntime) throws -> String {
-        guard let name = a["name"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
-              let instructions = try fitting(a["instructions"]?.string) else {
+        guard let raw = a["name"]?.string, let instructions = try fitting(a["instructions"]?.string) else {
             throw MailError("create_bot needs name and instructions")
         }
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw MailError("the bot needs a name") }
         let taken = projectBots(rt).contains {
             $0.archivedAt == nil && $0.name.caseInsensitiveCompare(name) == .orderedSame
         }
