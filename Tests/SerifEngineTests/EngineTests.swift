@@ -2826,6 +2826,7 @@ final class EngineTests: XCTestCase {
         let client = try connect()
         let bob = try createBot(client)
         waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(client.all.summaries(bob.id).last?.started, true)            // the app's sheet allows the switch
         XCTAssertEqual(request(client, .send(botId: bob.id, text: "Work long")), .ok)
         waitFor(client, "working") { $0.chatEvents(bob.id).filter { label($0) == "userMessage" }.count == 2 }
         XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .ok)

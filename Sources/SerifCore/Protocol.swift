@@ -9,13 +9,16 @@ public struct BotSummary: Codable, Equatable, Sendable {
     public var unread: Bool
     public var lastEvent: ChatEventRecord?      // for row preview/time
     public var preview: String?                 // last assistant text or request summary
+    public var started: Bool?                   // has had its first message; nil from an engine that does not say
 
-    public init(bot: Bot, state: BotState, unread: Bool, lastEvent: ChatEventRecord?, preview: String?) {
+    public init(bot: Bot, state: BotState, unread: Bool, lastEvent: ChatEventRecord?, preview: String?,
+                started: Bool? = nil) {
         self.bot = bot
         self.state = state
         self.unread = unread
         self.lastEvent = lastEvent
         self.preview = preview
+        self.started = started
     }
 }
 

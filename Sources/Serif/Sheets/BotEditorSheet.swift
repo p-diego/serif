@@ -11,6 +11,7 @@ struct BotEditorSheet: View {
     @State private var face: BotFace
     @State private var agent: Agent
     @State private var baseAgent: Agent                   // the bot's agent as the form knows it: a restore moves it
+    @State private var stashed: (model: BotModel, codexModel: String?, plugins: [String])?   // the values before a switch
     @State private var model: BotModel                    // a Claude Code bot's
     @State private var codexModel: String?                // a Codex bot's (nil: Codex's default)
     @State private var instructions: String
@@ -103,8 +104,11 @@ struct BotEditorSheet: View {
                 Picker("", selection: $agent) {
                     Text("Claude Code").tag(Agent.claude).disabled(editing?.agent == .codex && claudeStatus?.problem != nil)
                     Text("Codex").tag(Agent.codex).disabled(codexStatus == nil || codexStatus?.problem != nil)
-                }.pickerStyle(.segmented).labelsHidden()
-                if let hint = agentHint {
+                }.pickerStyle(.segmented).labelsHidden().disabled(neverStarted)
+                if neverStarted {
+                    Text(String(localized: "Can change after the first start")).font(.system(size: Theme.Size.label))
+                        .foregroundStyle(Theme.textSecondary)
+                } else if let hint = agentHint {
                     HStack(spacing: 6) {
                         Text((try? AttributedString(markdown: hint)) ?? AttributedString(hint))
                         if codexChecked {
@@ -231,18 +235,30 @@ struct BotEditorSheet: View {
         }
         .task { if let id = editing?.id { changes = (try? await client.changes(bot: id)) ?? [] } }
         .onChange(of: agent) {
+            if let bot = editing {
+                // Against the form's own base, not `editing` (stale after a Restore of the agent, which sets `baseAgent`).
+                if agent == baseAgent {            // back where it began (cancelled, or flipped back): the values as they were
+                    if let s = stashed { (model, codexModel, plugins) = s; stashed = nil }
+                    return
+                }
+                // Asked first, before any field is touched; the switch itself is done on Save (spec §7 of 0.7).
+                guard confirmAgentChange(bot, to: agent) else { agent = baseAgent; return }
+                if stashed == nil { stashed = (model, codexModel, plugins) }
+            }
             // The two agents' models and plugins differ: what was picked for the other one goes; a template suggests anew.
             model = .standard; codexModel = nil
             if template != nil { suggest(template) } else { plugins = [] }
-            // A bot that exists: the switch is confirmed here and done on Save (spec §7 of 0.7).
-            // Against the form's own base, not `editing` (stale after a Restore of the agent, which sets `baseAgent` first).
-            if let bot = editing, agent != baseAgent, !confirmAgentChange(bot, to: agent) { agent = baseAgent }
         }
     }
 
+    /// A bot that exists but has had no first message yet: its agent can be changed after the first start (spec §7 of 0.7).
+    private var neverStarted: Bool { editing.map { client.roster.bots[$0.id]?.started == false } ?? false }
+
     /// Why the other agent cannot be chosen yet, if so (spec §7 of 0.3, §7 of 0.7): the same help as the first launch.
     private var agentHint: String? {
-        guard codexChecked else { return String(localized: "Checking Codex…") }
+        guard codexChecked else {
+            return editing?.agent == .codex ? String(localized: "Checking Claude Code…") : String(localized: "Checking Codex…")
+        }
         if editing?.agent == .codex {
             guard let status = claudeStatus, status.problem != nil else { return nil }
             return status.problem == .claudeNotSignedIn
@@ -291,7 +307,8 @@ struct BotEditorSheet: View {
                 if change.field == .agent {
                     guard confirmAgentChange(live, to: restored.agent) else { return }
                     try await client.changeAgent(bot: bot.id, to: restored.agent)
-                    baseAgent = restored.agent; agent = restored.agent       // done already: no second confirmation
+                    baseAgent = restored.agent; stashed = nil; agent = restored.agent       // done already: no second confirmation
+                    model = .standard; codexModel = nil; plugins = []                        // the engine reset them
                 } else {
                     try await client.updateBot(restored)
                     (name, face, instructions, freedom, notifications) =

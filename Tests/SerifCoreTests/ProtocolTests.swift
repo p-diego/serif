@@ -311,6 +311,12 @@ final class ProtocolTests: XCTestCase {
 
     func testPushBotChanged() throws {
         try assertRoundTrip(Push.botChanged(BotSummary(bot: bot, state: .ready, unread: false, lastEvent: nil, preview: nil)))
+        // A summary from an engine that does not say whether the bot has started decodes with nil.
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: protocolEncoder().encode(
+            BotSummary(bot: bot, state: .ready, unread: false, lastEvent: nil, preview: nil, started: true))) as? [String: Any])
+        XCTAssertEqual(object.removeValue(forKey: "started") as? Bool, true)
+        let bare = try JSONSerialization.data(withJSONObject: object)
+        XCTAssertNil(try protocolDecoder().decode(BotSummary.self, from: bare).started)
     }
     func testPushProjectChanged() throws { try assertRoundTrip(Push.projectChanged(project)) }
     func testPushChatEvent() throws { try assertRoundTrip(Push.chatEvent(botId: botId, record: record)) }

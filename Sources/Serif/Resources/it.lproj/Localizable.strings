@@ -266,6 +266,8 @@
 "Codex did not start in time" = "Codex non è partito in tempo";
 "Help" = "Aiuto";
 "Checking Codex…" = "Controllo Codex…";
+"Checking Claude Code…" = "Controllo Claude Code…";
+"Can change after the first start" = "Si può cambiare dopo il primo avvio";
 "Codex is not installed: install the ChatGPT app or the Codex CLI." = "Codex non è installato: installa l'app ChatGPT o la CLI di Codex.";
 "Codex is not signed in: type `codex login` in Terminal." = "Codex non è collegato: scrivi `codex login` nel Terminale.";
 "ChatGPT connectors" = "Connettori di ChatGPT";

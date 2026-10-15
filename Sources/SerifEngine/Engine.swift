@@ -31,6 +31,7 @@ final class BotRuntime {
     var resumed = false                       // the running launch used --resume
     var unread = false
     var lastEvent: ChatEventRecord?
+    var started = false                       // the conversation has had its first message (`BotMeta.hasStarted`)
     // Mail (spec §6)
     var turnOrigin: MessageOrigin?            // who started the current (or last) turn: a mail turn is not news
     var turnTask: Int?                        // the task whose delivery started the current turn: heads its chain
@@ -91,7 +92,8 @@ final class BotRuntime {
 
     var summary: BotSummary {
         BotSummary(bot: bot, state: tracker.state, unread: unread, lastEvent: lastEvent,
-                   preview: preview.map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)) })
+                   preview: preview.map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)) },
+                   started: started)
     }
 }
 
@@ -218,6 +220,7 @@ public final class Engine {
         let records = (try? store.records(bot: bot.id, afterSeq: 0)) ?? []
         records.forEach(rt.note)
         rt.unread = isUnread(lastReadSeq: store.meta(bot.id).lastReadSeq, records: records)
+        rt.started = store.meta(bot.id).hasStarted
         if bot.archivedAt != nil { rt.tracker.stopped() }
         bots[bot.id] = rt
         return rt
@@ -444,6 +447,7 @@ public final class Engine {
         var meta = store.meta(rt.bot.id)
         change(&meta)
         do { try store.setMeta(meta, for: rt.bot.id) } catch { log("meta write failed for \(rt.bot.id): \(error)") }
+        if rt.started != meta.hasStarted { rt.started = meta.hasStarted; push(.botChanged(rt.summary)) }    // the app's sheet
     }
 
     // MARK: - Events and pushes
