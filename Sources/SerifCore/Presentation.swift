@@ -127,6 +127,8 @@ public func requestSummary(_ r: PendingRequest) -> RequestSummary {
     case .plan: return .plan
     case .question:
         if let q = r.input["questions"]?.array?.first?["question"]?.string { return .question(q) }
+    case .decision:
+        if let q = r.input["question"]?.string { return .question(q) }
     case .permission:
         if r.toolName == "Bash", let c = r.input["command"]?.string { return .command(c) }
         if let p = r.input["file_path"]?.string, ["Write", "Edit", "MultiEdit", "NotebookEdit"].contains(r.toolName) {

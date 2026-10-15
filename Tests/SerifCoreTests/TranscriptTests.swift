@@ -13,7 +13,7 @@ final class TranscriptTests: XCTestCase {
         t.items.map {
             switch $0 {
             case .timestamp: "ts"; case .user: "user"; case .assistant: "asst"; case .steps: "steps"; case .request: "req"
-            case .system: "sys"; case .mail: "mail"; case .task: "task"
+            case .system: "sys"; case .mail: "mail"; case .task: "task"; case .routineRun: "run"
             }
         }
     }
@@ -30,6 +30,22 @@ final class TranscriptTests: XCTestCase {
         XCTAssertEqual(kinds(t), ["ts", "task", "mail", "asst"])
         XCTAssertEqual(t.items[1], .task(id: "task-4", card: done))
         XCTAssertEqual(t.items[2], .mail(id: "mail-2", note: note, at: t0.addingTimeInterval(2)))
+    }
+
+    func testARoutineRunHeaderChangesInPlaceAndItsEchoIsNotYours() {
+        // Spec §4 of 0.6: the header at the start, the outcome on the same line; the prompt's echo is not a bubble.
+        let id = UUID()
+        let started = RoutineRun(routineId: id, name: "Rassegna", startedAt: t0, maxMinutes: 30, notifies: true)
+        var stopped = started
+        stopped.outcome = .stopped
+        var later = started
+        later.startedAt = t0.addingTimeInterval(3600)
+        var t = Transcript()
+        t.apply([rec(1, .routineRun(started)), rec(2, .userMessage(text: "Routine «Rassegna» (run of…)", promptId: "p", origin: .routine)),
+                 rec(3, text("m", "ok", final: true)), rec(4, .turnInterrupted), rec(5, .routineRun(stopped)), rec(6, .routineRun(later))])
+        XCTAssertEqual(kinds(t), ["ts", "run", "asst", "sys", "run"])
+        XCTAssertEqual(t.items[1], .routineRun(id: "run-1", run: stopped))
+        XCTAssertEqual(t.items[4], .routineRun(id: "run-6", run: later))
     }
 
     func testTaskCardChangesInPlaceToCancelledAndExpired() {

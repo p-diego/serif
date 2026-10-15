@@ -134,5 +134,9 @@ final class RequestSummaryTests: XCTestCase {
                        .waiting)
         XCTAssertEqual(shouldNotify(event: .turnFailed(reason: "boom"), bot: bot, viewingBot: nil, windowKey: false, turnOrigin: .bot),
                        .failed)
+        // A decision's card reads as a question in the row (spec §6 of 0.6).
+        let decision = PendingRequest(botId: bot.id, kind: .decision, toolName: "decision", input: ["question": "Ship?"], toolUseId: nil,
+                                      promptId: nil, suggestions: nil)
+        XCTAssertEqual(requestSummary(decision), .question("Ship?"))
     }
 }

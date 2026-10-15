@@ -323,6 +323,25 @@ final class StateTrackerTests: XCTestCase {
         XCTAssertFalse(isUnread(lastReadSeq: 0, records: []))
     }
 
+    func testADecisionCardNeverHoldsTheBot() {
+        // Spec §6 of 0.6: the bot goes on; a permission opened after it still waits, and closes on its own.
+        var s = workingTracker()
+        let decision = request(kind: .decision)
+        s.apply(.requestOpened(decision))
+        XCTAssertEqual(s.state, .working(.thinking))
+        let permission = request()
+        s.apply(.requestOpened(permission))
+        XCTAssertEqual(s.state, .waiting(kind: .permission, requestId: permission.id))
+        s.apply(.requestClosed(requestId: permission.id, resolution: .answeredInApp, answer: .allow))
+        XCTAssertEqual(s.state, .working(.thinking))
+        s.apply(.turnEnded(promptId: "p", lastMessage: nil))
+        XCTAssertEqual(s.state, .ready)
+        s.apply(.requestClosed(requestId: decision.id, resolution: .answeredInApp, answer: .decision(option: 0, text: nil)))
+        XCTAssertEqual(s.state, .ready)
+        s.apply(.routineRun(RoutineRun(routineId: UUID(), name: "R", startedAt: Date(), maxMinutes: 30, notifies: true)))
+        XCTAssertEqual(s.state, .ready)
+    }
+
     func testMailAndTasksLeaveTheStateAlone() {
         var s = readyTracker()
         s.apply(.task(TaskCard(number: 1, from: "A", to: "B", text: "x", deadline: Date(), status: .open)))

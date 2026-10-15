@@ -214,7 +214,9 @@ extension Engine {
         let (closed, dropped) = box.archive(bot.id, at: now())
         guard !closed.isEmpty || !dropped.isEmpty else { return }
         save(box, bot.projectId)
-        for m in dropped { log("bot \(bot.id) archived: a \(m.kind.rawValue) from \(botName(m.from)) dropped") }
+        for m in dropped {
+            log("bot \(bot.id) archived: a \(m.kind.rawValue) from \(m.from.map(botName) ?? "the user") dropped")
+        }
         closed.forEach { taskChanged($0, in: box) }
         deliverMail(in: bot.projectId)
     }
@@ -262,7 +264,7 @@ extension Engine {
     func note(_ message: MailMessage, _ direction: MailDirection, in box: Mailbox) -> MailNote {
         let text = message.kind == .system
             ? mailTurnText(message, task: message.taskId.flatMap(box.task), name: botName) : message.text
-        return MailNote(messageId: message.id, kind: message.kind, from: botName(message.from), to: botName(message.to),
+        return MailNote(messageId: message.id, kind: message.kind, from: message.from.map(botName), to: botName(message.to),
                         direction: direction, text: text, taskNumber: message.taskId, notice: message.notice)
     }
 }

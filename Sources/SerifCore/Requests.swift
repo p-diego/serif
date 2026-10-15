@@ -1,7 +1,7 @@
 import Foundation
 
-/// The kind of decision a bot is waiting for.
-public enum WaitKind: String, Codable, Sendable { case permission, question, plan }
+/// The kind of answer a card waits for. A `decision` (spec §6 of 0.6) is the one kind that does not hold its bot.
+public enum WaitKind: String, Codable, Sendable { case permission, question, plan, decision }
 
 /// A question or permission prompt raised by a bot, waiting for the user.
 public struct PendingRequest: Codable, Equatable, Identifiable, Sendable {
@@ -51,6 +51,7 @@ public enum RequestAnswer: Codable, Equatable, Sendable {
     case denyAndStop                      // Codex's "cancel": no, and the turn stops
     case answers([String: [String]])      // question text → chosen labels (one element unless multiSelect)
     case approvePlan, rejectPlan(message: String)
+    case decision(option: Int?, text: String?)    // a decision card: the option's index, words, or both (spec §6 of 0.6)
 }
 
 /// What the hook relay does once the user has answered a request.

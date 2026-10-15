@@ -2,7 +2,8 @@ import SwiftUI
 import SerifCore
 
 /// A mail message in the chat (spec §9): received as a bubble on the bot's side saying who sent it and what it is, an
-/// engine notice as a system line, sent as a line; the lines open to the whole text.
+/// engine notice as a system line, sent as a line; the lines open to the whole text. One from you (a decision's answer,
+/// spec §6 of 0.6) is a bubble headed "From you".
 struct MailRow: View {
     let note: MailNote
     let maxWidth: CGFloat
@@ -10,7 +11,7 @@ struct MailRow: View {
 
     var body: some View {
         switch (note.direction, note.kind) {
-        case (.received, .system):
+        case (.received, .system) where note.from != nil:
             line(noticeText(note), alignment: .center)
         case (.received, _):
             VStack(alignment: .leading, spacing: 4) {
@@ -29,10 +30,11 @@ struct MailRow: View {
     private var number: Int { note.taskNumber ?? 0 }
 
     private var header: String {
-        switch note.kind {
-        case .task: String(localized: "From \(note.from) · task #\(number)")
-        case .reply: String(localized: "From \(note.from) · reply #\(number)")
-        case .note, .system: String(localized: "From \(note.from) · note")
+        guard let from = note.from else { return String(localized: "From you") }
+        return switch note.kind {
+        case .task: String(localized: "From \(from) · task #\(number)")
+        case .reply: String(localized: "From \(from) · reply #\(number)")
+        case .note, .system: String(localized: "From \(from) · note")
         }
     }
 
@@ -63,12 +65,12 @@ struct MailRow: View {
 
 /// What an engine notice says, in the app's language (spec §9); its English text is the bot's.
 func noticeText(_ note: MailNote) -> String {
-    let n = note.taskNumber ?? 0
+    let n = note.taskNumber ?? 0, from = note.from ?? ""
     switch note.notice {
     case .done?: return String(localized: "Task #\(n) is done")
-    case .cancelledByRequester?: return String(localized: "Task #\(n) was cancelled by \(note.from)")
+    case .cancelledByRequester?: return String(localized: "Task #\(n) was cancelled by \(from)")
     case .cancelledByUser?: return String(localized: "You cancelled task #\(n)")
-    case .cancelledArchived?: return String(localized: "Task #\(n) was cancelled: \(note.from) was archived")
+    case .cancelledArchived?: return String(localized: "Task #\(n) was cancelled: \(from) was archived")
     case .expired?: return String(localized: "Task #\(n) expired without a reply")
     case nil: return note.text
     }

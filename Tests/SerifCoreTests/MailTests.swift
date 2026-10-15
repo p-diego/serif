@@ -203,6 +203,32 @@ final class MailTests: XCTestCase {
         }
     }
 
+    // MARK: - Decisions (spec §6 of 0.6)
+
+    func testAMailJSONOfSerif05StillDecodes() throws {
+        // As 0.5 wrote it: no decisions, no counter; a task's message with its sender.
+        let json = #"""
+        {"messages":[{"id":"33333333-3333-4333-8333-333333333333","from":"11111111-1111-4111-8111-111111111111",
+                      "to":"22222222-2222-4222-8222-222222222222","kind":"task","text":"Check","taskId":1,
+                      "createdAt":"2026-10-15T09:00:00.000Z"}],
+         "tasks":[{"number":1,"from":"11111111-1111-4111-8111-111111111111","to":"22222222-2222-4222-8222-222222222222",
+                   "text":"Check","deadline":"2026-10-16T09:00:00.000Z","status":"open","chain":[]}],
+         "lastTask":1}
+        """#
+        let box = try protocolDecoder().decode(Mailbox.self, from: Data(json.utf8))
+        XCTAssertEqual([box.messages.count, box.tasks.count, box.lastTask, box.decisions.count, box.lastDecision], [1, 1, 1, 0, 0])
+        XCTAssertEqual(box.messages.first?.from?.uuidString, "11111111-1111-4111-8111-111111111111")
+        // And an empty object is an empty mail.
+        XCTAssertEqual(try protocolDecoder().decode(Mailbox.self, from: Data("{}".utf8)), Mailbox())
+        // A decision without the fields added after it still decodes.
+        let decision = #"""
+        {"number":5,"botId":"11111111-1111-4111-8111-111111111111","question":"Q?","options":["A","B"],"status":"open",
+         "createdAt":"2026-10-15T09:00:00.000Z","requestId":"44444444-4444-4444-8444-444444444444"}
+        """#
+        let d = try protocolDecoder().decode(Decision.self, from: Data(decision.utf8))
+        XCTAssertNil(d.recommendation); XCTAssertNil(d.context); XCTAssertNil(d.answer); XCTAssertNil(d.reason)
+    }
+
     func testABotCannotCreateTheThirteenthBotOfAProject() {
         // Spec §7 (author ruling 15/10): 12 active bots per project when a bot creates one; the user's sheet has no cap.
         XCTAssertEqual(maxBotsPerProject, 12)

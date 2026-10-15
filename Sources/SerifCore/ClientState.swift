@@ -6,6 +6,8 @@ public struct ClientState: Equatable, Sendable {
     public var projects: [Project] = []
     public var bots: [UUID: BotSummary] = [:]
     public var requests: [UUID: PendingRequest] = [:]
+    /// Each project's routines (spec §4 of 0.6).
+    public var routines: [UUID: [Routine]] = [:]
     public var transcripts: [UUID: Transcript] = [:]
     /// Sent from the app, not yet taken by the engine (shown as translucent bubbles).
     public var pendingSends: [UUID: [String]] = [:]
@@ -17,6 +19,7 @@ public struct ClientState: Equatable, Sendable {
         projects = snapshot.projects
         bots = Dictionary(snapshot.bots.map { ($0.bot.id, $0) }, uniquingKeysWith: { _, new in new })
         requests = Dictionary(snapshot.requests.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        routines = Dictionary(grouping: snapshot.routines) { bots[$0.botId]?.bot.projectId ?? UUID() }
     }
 
     public mutating func apply(_ push: Push) {
@@ -42,7 +45,20 @@ public struct ClientState: Equatable, Sendable {
             requests[id] = nil
         case .terminalOutput:
             break    // the terminal view reads these directly
+        case .routinesChanged(let projectId, let list):
+            routines[projectId] = list
         }
+    }
+
+    /// A bot's routines, by name.
+    public func routines(of bot: UUID) -> [Routine] {
+        (bots[bot].flatMap { routines[$0.bot.projectId] } ?? []).filter { $0.botId == bot }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// The cards open for you, of every live bot, oldest first: the "waiting for you" row and view (spec §7 of 0.6).
+    public var waitingForYou: [PendingRequest] {
+        requests.values.filter { bots[$0.botId]?.bot.archivedAt == nil }.sorted { $0.openedAt < $1.openedAt }
     }
 
     /// Before asking for a bot's history: chat events pushed while it loads land in this transcript instead of being lost.

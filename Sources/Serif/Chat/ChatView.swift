@@ -136,6 +136,8 @@ private struct ChatContent: View {
         if case .timestamp = prev { return 12 }
         if case .system = item { return 16 }
         if case .system = prev { return 16 }
+        if case .routineRun = item { return 16 }
+        if case .routineRun = prev { return 16 }
         if case .steps = item { return 8 }
         if case .steps = prev { return 8 }
         return side(prev) == side(item) ? 4 : 12
@@ -221,6 +223,7 @@ private struct ChatContent: View {
         case .system(_, let note, _): SystemLine(note: note, botName: summary.bot.name)
         case .mail(_, let note, _): MailRow(note: note, maxWidth: maxBubble)
         case .task(_, let card): TaskCardView(card: card, projectId: summary.bot.projectId, client: client)
+        case .routineRun(_, let run): RoutineRunLine(run: run)
         }
     }
 }

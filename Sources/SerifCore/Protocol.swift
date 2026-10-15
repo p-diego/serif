@@ -24,12 +24,16 @@ public struct Snapshot: Codable, Equatable, Sendable {
     public var projects: [Project]
     public var bots: [BotSummary]
     public var requests: [PendingRequest]
+    /// Every project's routines (spec §4 of 0.6).
+    public var routines: [Routine]
     public var engineVersion: String
 
-    public init(projects: [Project], bots: [BotSummary], requests: [PendingRequest], engineVersion: String) {
+    public init(projects: [Project], bots: [BotSummary], requests: [PendingRequest], routines: [Routine] = [],
+                engineVersion: String) {
         self.projects = projects
         self.bots = bots
         self.requests = requests
+        self.routines = routines
         self.engineVersion = engineVersion
     }
 }
@@ -121,6 +125,7 @@ public enum Push: Codable, Equatable, Sendable {
     case requestOpened(PendingRequest)
     case requestClosed(requestId: UUID, botId: UUID, resolution: RequestResolution, answer: RequestAnswer? = nil)
     case terminalOutput(botId: UUID, seq: Int, data: Data)
+    case routinesChanged(projectId: UUID, routines: [Routine])     // the project's whole list (spec §4 of 0.6)
 }
 
 /// Every line the engine writes: either a response to a request or a push.

@@ -115,9 +115,10 @@ extension RowPreview {
         case .crashed(let reason): String(localized: "Stopped: \(crashReasonText(reason))")
         case .rateLimited: String(localized: "Limit reached")
         case .text(let text): text
+        case .mail(let note) where note.from == nil: String(localized: "From you: \(plainText(markdown: note.text))")
         case .mail(let note) where note.kind == .system: noticeText(note)
         case .mail(let note) where note.direction == .received:
-            String(localized: "From \(note.from): \(plainText(markdown: note.text))")
+            String(localized: "From \(note.from ?? ""): \(plainText(markdown: note.text))")
         case .mail(let note): String(localized: "To \(note.to): \(plainText(markdown: note.text))")
         }
     }

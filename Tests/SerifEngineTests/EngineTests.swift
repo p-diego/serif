@@ -103,6 +103,7 @@ private func label(_ e: ChatEvent) -> String {
     case .system(let note): "system(\(note))"
     case .mail(let m): "mail(\(m.direction) \(m.kind))"
     case .task(let t): "task(#\(t.number) \(t.status))"
+    case .routineRun(let r): "run(\(r.name) \(r.outcome.map(\.rawValue) ?? "started"))"
     }
 }
 

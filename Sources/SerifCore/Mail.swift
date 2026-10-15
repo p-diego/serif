@@ -27,11 +27,11 @@ public enum MailNotice: String, Codable, Sendable {
 public enum MailDirection: String, Codable, Sendable { case sent, received }
 
 /// A mail message in a bot's chat (spec §6): received (a bubble, or a line for a notice) or sent (a line). Names as
-/// they were then.
+/// they were then; `from` nil is you (a decision's answer, spec §6 of 0.6).
 public struct MailNote: Codable, Equatable, Sendable {
     public var messageId: UUID
     public var kind: MailKind
-    public var from: String
+    public var from: String?
     public var to: String
     public var direction: MailDirection
     /// The body, the result or the reason; for a notice, its whole English text.
@@ -39,7 +39,7 @@ public struct MailNote: Codable, Equatable, Sendable {
     public var taskNumber: Int?
     public var notice: MailNotice?
 
-    public init(messageId: UUID, kind: MailKind, from: String, to: String, direction: MailDirection, text: String,
+    public init(messageId: UUID, kind: MailKind, from: String?, to: String, direction: MailDirection, text: String,
                 taskNumber: Int? = nil, notice: MailNotice? = nil) {
         self.messageId = messageId; self.kind = kind; self.from = from; self.to = to; self.direction = direction
         self.text = text; self.taskNumber = taskNumber; self.notice = notice
@@ -64,9 +64,10 @@ public struct TaskCard: Codable, Equatable, Sendable {
 }
 
 /// A message in a project's mail (spec §5); `deliveredAt` stays nil until its bot has it (a turn, or `check_inbox`).
+/// `from` nil is the user: the answer to a decision (spec §6 of 0.6).
 public struct MailMessage: Codable, Equatable, Sendable {
     public var id: UUID
-    public var from: UUID
+    public var from: UUID?
     public var to: UUID
     public var kind: MailKind
     /// The body (task, reply, note), the result (`done`), the reason (`cancelledByRequester`), else empty.
@@ -91,6 +92,35 @@ public struct MailTask: Codable, Equatable, Sendable {
     public var chain: [Int]
 }
 
+/// Where a decision stands (spec §6 of 0.6); only an open one changes.
+public enum DecisionStatus: String, Codable, Sendable { case open, answered, withdrawn }
+
+/// Your answer to a decision (spec §6 of 0.6): an option (its index), words, or both.
+public struct DecisionAnswer: Codable, Equatable, Sendable {
+    public var option: Int?
+    public var text: String?
+    public init(option: Int?, text: String?) { self.option = option; self.text = text }
+}
+
+/// A choice a bot left to you (spec §6 of 0.6), numbered in its project and kept in its mail; its card is the request
+/// `requestId`, so a restart shows the same card again.
+public struct Decision: Codable, Equatable, Sendable {
+    public var number: Int
+    public var botId: UUID
+    public var question: String
+    public var options: [String]
+    /// The index of the option the bot recommends, if any.
+    public var recommendation: Int?
+    public var context: String?
+    public var status: DecisionStatus
+    public var answer: DecisionAnswer?
+    public var answeredAt: Date?
+    public var createdAt: Date
+    public var requestId: UUID
+    /// Why the bot withdrew it.
+    public var reason: String?
+}
+
 /// Why a tool call cannot be done, as a sentence the bot reads (spec §4).
 public struct MailError: Error, Equatable {
     public let text: String
@@ -101,12 +131,25 @@ public struct MailError: Error, Equatable {
 /// messages it causes; the engine delivers them (spec §6).
 public struct Mailbox: Codable, Equatable, Sendable {
     public static let maxOpenTasks = 3, maxChain = 4, maxBytes = 65_536, hours = 1...168, defaultHours = 24
+    public static let maxOpenDecisions = 3, maxDecisionBytes = 4096, decisionOptions = 2...6, maxOptionLength = 200
 
     public private(set) var messages: [MailMessage] = []
     public private(set) var tasks: [MailTask] = []
     public private(set) var lastTask = 0           // the counter behind "#17"
+    public private(set) var decisions: [Decision] = []
+    public private(set) var lastDecision = 0       // the counter behind a decision's "#5"
 
     public init() {}
+
+    // A mail.json from 0.5 has no decisions: a field added later starts empty, the file is never set aside for it.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        messages = try c.decodeIfPresent([MailMessage].self, forKey: .messages) ?? []
+        tasks = try c.decodeIfPresent([MailTask].self, forKey: .tasks) ?? []
+        lastTask = try c.decodeIfPresent(Int.self, forKey: .lastTask) ?? 0
+        decisions = try c.decodeIfPresent([Decision].self, forKey: .decisions) ?? []
+        lastDecision = try c.decodeIfPresent(Int.self, forKey: .lastDecision) ?? 0
+    }
 
     public func task(_ number: Int) -> MailTask? { tasks.first { $0.number == number } }
 
@@ -231,7 +274,7 @@ public struct Mailbox: Codable, Equatable, Sendable {
     // MARK: - Private
 
     @discardableResult
-    private mutating func post(from: UUID, to: UUID, kind: MailKind, text: String, task: Int?,
+    private mutating func post(from: UUID?, to: UUID, kind: MailKind, text: String, task: Int?,
                                notice: MailNotice? = nil, at now: Date) -> MailMessage {
         let message = MailMessage(id: UUID(), from: from, to: to, kind: kind, text: text, taskId: task, notice: notice,
                                   createdAt: now)

@@ -153,9 +153,37 @@ final class ProtocolTests: XCTestCase {
     func testRequestAnswersRoundTrip() throws {
         let answers: [RequestAnswer] = [
             .allow, .allowSession, .deny(message: nil), .denyAndStop, .answers(["Quale?": ["A", "B"]]),
-            .approvePlan, .rejectPlan(message: "no"),
+            .approvePlan, .rejectPlan(message: "no"), .decision(option: 1, text: nil), .decision(option: nil, text: "later"),
         ]
         for answer in answers { try assertRoundTrip(answer) }
+    }
+
+    func testRoutinesAndDecisionsRoundTrip() throws {
+        // Spec §4–7 of 0.6: the new requests, pushes, events and the snapshot's routines.
+        let routine = Routine(botId: botId, name: "Rassegna", trigger: .weekdaysAt(days: [1, 3], hour: 9, minute: 0), prompt: "Read",
+                              createdBy: .bot, createdAt: at, lastRunAt: at, lastOutcome: .done,
+                              pending: PendingRun(dueAt: at, signal: RunSignal(name: "go", text: nil, from: "Cody", chain: 1)), runs: 2)
+        try assertRoundTrip(Push.routinesChanged(projectId: projectId, routines: [routine]))
+        try assertRoundTrip(ResponseBody.snapshot(Snapshot(projects: [project], bots: [], requests: [], routines: [routine],
+                                                           engineVersion: SerifVersion.current)))
+        let card = PendingRequest(id: requestId, botId: botId, kind: .decision, toolName: "decision",
+                                  input: ["number": 5, "question": "Ship?", "options": ["Yes", "No"]], toolUseId: nil, promptId: nil,
+                                  suggestions: nil, openedAt: at)
+        let run = RoutineRun(routineId: routine.id, name: "Rassegna", startedAt: at, maxMinutes: 30, notifies: false,
+                             signal: routine.pending?.signal)
+        let events: [ChatEvent] = [
+            .userMessage(text: "Routine «Rassegna»", promptId: "p3", origin: .routine),
+            .routineRun(run),
+            .routineRun(RoutineRun(routineId: routine.id, name: "Rassegna", startedAt: at, maxMinutes: 30, notifies: true, outcome: .stopped)),
+            .requestOpened(card),
+            .requestClosed(requestId: requestId, resolution: .answeredInApp, answer: .decision(option: 0, text: "go")),
+            .mail(MailNote(messageId: UUID(), kind: .system, from: nil, to: "Cody", direction: .received,
+                           text: "Your decision on #5 «Ship?»: Yes — go")),
+        ]
+        for event in events { try assertRoundTrip(event) }
+        // A mail note written by 0.5 has a sender; one from you has none.
+        let old = #"{"messageId":"\#(requestId.uuidString)","kind":"note","from":"Cody","to":"Milo","direction":"sent","text":"hi"}"#
+        XCTAssertEqual(try JSONDecoder().decode(MailNote.self, from: Data(old.utf8)).from, "Cody")
     }
 
     func testBotStatesRoundTrip() throws {

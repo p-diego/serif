@@ -30,19 +30,21 @@ public func mailDate(_ date: Date, timeZone: TimeZone = .current) -> String {
 public func mailTurnText(_ message: MailMessage, task: MailTask?, name: (UUID) -> String,
                          timeZone: TimeZone = .current) -> String {
     let number = message.taskId ?? 0
+    let sender = message.from.map(name) ?? "the user"
     switch message.kind {
     case .task:
         let deadline = task.map { mailDate($0.deadline, timeZone: timeZone) } ?? "none"
-        return "Task #\(number) from \(name(message.from)), a bot of this project (deadline \(deadline)). "
+        return "Task #\(number) from \(sender), a bot of this project (deadline \(deadline)). "
             + "When done, call complete_task with task_id \(number).\n\n\(message.text)"
     case .reply where message.notice == .done:
-        return "Reply from \(name(message.from)) to your task #\(number), now done:\n\n\(message.text)"
+        return "Reply from \(sender) to your task #\(number), now done:\n\n\(message.text)"
     case .reply:
-        return "Reply from \(name(message.from)) about task #\(number):\n\n\(message.text)"
+        return "Reply from \(sender) about task #\(number):\n\n\(message.text)"
     case .note:
-        return "Note from \(name(message.from)):\n\n\(message.text)"
+        return "Note from \(sender):\n\n\(message.text)"
     case .system:
-        guard let t = task else { return "Task #\(number): \(message.notice?.rawValue ?? "notice")" }
+        // No task: the text is the whole notice (a decision's answer from the user, spec §6 of 0.6).
+        guard let t = task else { return message.text.isEmpty ? "Task #\(number): notice" : message.text }
         // Seen from whoever gets it: the recipient, the requester, or the lead.
         let subject = message.to == t.to ? "Task #\(t.number) from \(name(t.from))"
             : message.to == t.from ? "Task #\(t.number) to \(name(t.to))"

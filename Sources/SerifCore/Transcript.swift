@@ -35,11 +35,13 @@ public enum ChatItem: Equatable, Identifiable, Sendable {
     case system(id: String, note: SystemNote, at: Date)
     case mail(id: String, note: MailNote, at: Date)
     case task(id: String, card: TaskCard)
+    case routineRun(id: String, run: RoutineRun)
 
     public var id: String {
         switch self {
         case .timestamp(let id, _), .user(let id, _, _, _), .assistant(let id, _, _, _), .steps(let id, _, _),
-             .request(let id, _, _, _), .system(let id, _, _), .mail(let id, _, _), .task(let id, _): return id
+             .request(let id, _, _, _), .system(let id, _, _), .mail(let id, _, _), .task(let id, _),
+             .routineRun(let id, _): return id
         }
     }
 }
@@ -95,6 +97,7 @@ public struct Transcript: Equatable, Sendable {
             // Serif's own first message to a new bot is not yours: a system line says what happened (spec §5 of 0.3).
             case .introduction: add(.system(id: "sys-\(r.seq)", note: .introductionRequested, at: r.at), r)
             case .bot: break        // the mail's own item shows it (spec §6)
+            case .routine: break    // the run's header shows it (spec §4 of 0.6)
             case .chat, .terminal: add(.user(id: "u-\(r.seq)", text: text, origin: origin, at: r.at), r)
             }
         case .assistantText(let id, _, let delta, let final, _):
@@ -166,6 +169,16 @@ public struct Transcript: Equatable, Sendable {
                 items[i] = .task(id: id, card: card)
             } else {
                 add(.task(id: "task-\(card.number)", card: card), r)
+            }
+        case .routineRun(let run):
+            // Recorded again with its outcome: the header shown at the start changes in place (spec §4 of 0.6).
+            let shown = items.lastIndex {
+                if case let .routineRun(_, s) = $0 { s.routineId == run.routineId && s.startedAt == run.startedAt } else { false }
+            }
+            if let i = shown, case let .routineRun(id, _) = items[i] {
+                items[i] = .routineRun(id: id, run: run)
+            } else {
+                add(.routineRun(id: "run-\(r.seq)", run: run), r)
             }
         }
     }

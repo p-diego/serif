@@ -280,3 +280,17 @@
 "Deny and stop" = "Deny and stop";
 "The terminal opens after the first message" = "The terminal opens after the first message";
 "This message may not have reached Codex: %@" = "This message may not have reached Codex: %@";
+"Withdrawn" = "Withdrawn";
+"Decision #%lld" = "Decision #%lld";
+"recommended" = "recommended";
+"Or tell the bot in your own words" = "Or tell the bot in your own words";
+"Reply" = "Reply";
+"From you" = "From you";
+"From you: %@" = "From you: %@";
+"Routine «%@» · %@" = "Routine «%1$@» · %2$@";
+"signal «%@» from %@" = "signal «%1$@» from %2$@";
+"Routine.done" = "finished";
+"stopped after %lld min" = "stopped after %lld min";
+"Routine.failed" = "crashed";
+"Routine.interrupted" = "interrupted";
+"Routine.running" = "running";

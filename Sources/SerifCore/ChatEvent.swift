@@ -1,9 +1,9 @@
 import Foundation
 
 /// Where a user message came from: typed in the Serif chat or in the bot's terminal, Serif's own first message to a new
-/// bot (spec §5 of 0.3), which the chat shows as a system line rather than as yours, or mail from another bot (spec §6
-/// of 0.5), which the chat shows as its `mail` item.
-public enum MessageOrigin: String, Codable, Sendable { case chat, terminal, introduction, bot }
+/// bot (spec §5 of 0.3), which the chat shows as a system line rather than as yours, mail from another bot (spec §6
+/// of 0.5), which the chat shows as its `mail` item, or a routine's run (spec §4 of 0.6), shown as its `routineRun`.
+public enum MessageOrigin: String, Codable, Sendable { case chat, terminal, introduction, bot, routine }
 
 /// Informational lines shown in the chat timeline. `introductionRequested` is never stored: `Transcript` shows the
 /// introduction's user message as this line.
@@ -100,6 +100,7 @@ public enum ChatEvent: Codable, Equatable, Sendable {
     case system(SystemNote)
     case mail(MailNote)             // a mail message sent or received (spec §6)
     case task(TaskCard)             // a task, recorded again at every change of its status (spec §6)
+    case routineRun(RoutineRun)     // a routine's run: at its start, and again with its outcome (spec §4 of 0.6)
 }
 
 /// A chat event with its per-bot sequence number and time.

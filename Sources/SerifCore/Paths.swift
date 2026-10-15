@@ -33,6 +33,11 @@ public struct SerifPaths: Sendable {
         shared(project).deletingLastPathComponent().appendingPathComponent("mail.json")
     }
 
+    /// A project's routines (spec §4 of 0.6), next to its mail.
+    public func routines(_ project: UUID) -> URL {
+        shared(project).deletingLastPathComponent().appendingPathComponent("routines.json")
+    }
+
     public func bot(_ id: UUID) -> BotPaths {
         BotPaths(dir: root.appendingPathComponent("bots").appendingPathComponent(id.uuidString))
     }

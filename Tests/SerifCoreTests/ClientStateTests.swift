@@ -127,6 +127,34 @@ final class ClientStateTests: XCTestCase {
         XCTAssertEqual(s.pinned.map(\.bot.name), ["Gardener"])
     }
 
+    func testRoutinesByProjectAndTheCardsWaitingForYou() {
+        // Spec §4 and §7 of 0.6: the snapshot's routines land under their bot's project; the open cards of live bots count.
+        let p = Project(name: "Work", createdAt: t0)
+        let a = Bot(projectId: p.id, name: "Alpha", face: face, createdAt: t0)
+        var gone = Bot(projectId: p.id, name: "Gone", face: face, createdAt: t0)
+        gone.archivedAt = t0
+        let tidy = Routine(botId: a.id, name: "Tidy", trigger: .every(minutes: 30), prompt: "x", createdBy: .user, createdAt: t0)
+        let other = Routine(botId: UUID(), name: "Elsewhere", trigger: .every(minutes: 30), prompt: "x", createdBy: .user, createdAt: t0)
+        let older = PendingRequest(botId: a.id, kind: .decision, toolName: "decision", input: [:], toolUseId: nil, promptId: nil,
+                                   suggestions: nil, openedAt: t0)
+        let newer = PendingRequest(botId: a.id, kind: .permission, toolName: "Bash", input: [:], toolUseId: nil, promptId: nil,
+                                   suggestions: nil, openedAt: t0.addingTimeInterval(1))
+        let archived = PendingRequest(botId: gone.id, kind: .permission, toolName: "Bash", input: [:], toolUseId: nil, promptId: nil,
+                                      suggestions: nil, openedAt: t0)
+        var s = ClientState()
+        s.apply(snapshot: Snapshot(projects: [p], bots: [summary(a), summary(gone)], requests: [newer, archived, older],
+                                   routines: [tidy, other], engineVersion: "1"))
+        XCTAssertEqual(s.routines[p.id], [tidy])
+        XCTAssertEqual(s.routines(of: a.id), [tidy])
+        XCTAssertEqual(s.waitingForYou.map(\.id), [older.id, newer.id])
+        var renamed = tidy; renamed.name = "Clean"
+        s.apply(.routinesChanged(projectId: p.id, routines: [renamed]))
+        XCTAssertEqual(s.routines(of: a.id), [renamed])
+        s.apply(.requestClosed(requestId: older.id, botId: a.id, resolution: .answeredInApp, answer: .decision(option: 0, text: nil)))
+        XCTAssertEqual(s.waitingForYou.map(\.id), [newer.id])
+        XCTAssertEqual(s.waitingCount, 0)                 // the Dock badge still counts bots that wait, not cards
+    }
+
     func testTiesBreakByNameAndArchivedDoNotWait() {
         let p = Project(name: "Work", createdAt: t0)
         let b = Bot(projectId: p.id, name: "Bravo", face: face, createdAt: t0)

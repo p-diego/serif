@@ -68,7 +68,8 @@ public struct StateTracker: Sendable {
             // A Codex command left running when its turn ended closes later (spec §3.3): the bot stays ready.
             if state.inTurn { state = .working(.thinking) }
         case let .requestOpened(request):
-            open.append((request.id, request.kind))
+            // A decision card never holds the bot (spec §6 of 0.6): it goes on, the answer comes later as mail.
+            if request.kind != .decision { open.append((request.id, request.kind)) }
         case let .requestClosed(requestId, _, _):
             guard let i = open.firstIndex(where: { $0.id == requestId }) else { break }
             open.remove(at: i)
@@ -76,7 +77,7 @@ public struct StateTracker: Sendable {
         case .turnEnded, .turnFailed, .turnInterrupted:
             open = []
             state = .ready
-        case .assistantTextReplaced, .subagent, .system, .mail, .task:
+        case .assistantTextReplaced, .subagent, .system, .mail, .task, .routineRun:
             break
         }
         if let oldest = open.first { state = .waiting(kind: oldest.kind, requestId: oldest.id) }

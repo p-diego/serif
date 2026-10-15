@@ -1,7 +1,8 @@
 import SwiftUI
 import SerifCore
 
-/// Permission, question and plan cards (UI-APP §5). The same prompt is open in the bot's terminal: the first answer wins.
+/// Permission, question, plan and decision cards (UI-APP §5, spec §6 of 0.6). The same prompt is open in the bot's
+/// terminal: the first answer wins. A decision's card has no prompt behind it: the engine answers it.
 struct RequestCard: View {
     let request: PendingRequest
     let resolution: RequestResolution?
@@ -68,9 +69,10 @@ struct RequestCard: View {
             case .permission: PermissionBody(request: request, busy: busy, error: error, submit: submit, fieldOpen: $denyFieldOpen)
             case .question: QuestionBody(questions: questions, chosen: chosen, needsSend: needsSend, busy: busy, error: error, pick: pick, send: sendAnswers)
             case .plan: PlanBody(request: request, busy: busy, error: error, submit: submit)
+            case .decision: DecisionBody(request: request, busy: busy, error: error, submit: submit)
             }
         }
-        .padding(12).frame(maxWidth: request.kind == .question ? 560 : 420, alignment: .leading)
+        .padding(12).frame(maxWidth: [.question, .decision].contains(request.kind) ? 560 : 420, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Theme.botBubble))
         .focusable().focused($focused).focusEffectDisabled()
         .onTapGesture { focused = true }
@@ -102,7 +104,7 @@ struct RequestCard: View {
     private func resolvedLabel(_ resolution: RequestResolution) -> (String, StatusPill.Kind) {
         switch resolution {
         case .answeredInTerminal: return (String(localized: "Resolved in the terminal"), .neutral)
-        case .cancelled: return (String(localized: "Cancelled"), .neutral)
+        case .cancelled: return (request.kind == .decision ? String(localized: "Withdrawn") : String(localized: "Cancelled"), .neutral)
         case .answeredInApp: break
         }
         switch given {
@@ -113,6 +115,10 @@ struct RequestCard: View {
         case .denyAndStop?: return (String(localized: "Denied and stopped"), .failed)
         case .answers(let a)?:
             return (String(localized: "Answered: \(a.values.flatMap { $0 }.joined(separator: ", "))"), .done)
+        case .decision(let option, let text)?:
+            let options = request.input["options"]?.array?.compactMap(\.string) ?? []
+            let parts = [option.flatMap { options.indices.contains($0) ? options[$0] : nil }, text].compactMap { $0 }
+            return (String(localized: "Answered: \(parts.joined(separator: " — "))"), .done)
         case nil: return (String(localized: "Answered"), .done)    // answered before this session of the app
         }
     }
@@ -122,6 +128,7 @@ private func cardTitle(_ r: PendingRequest) -> String {
     switch r.kind {
     case .plan: return String(localized: "Plan")
     case .question: return String(localized: "Question")
+    case .decision: return String(localized: "Decision #\(r.input["number"]?.int ?? 0)")
     case .permission:
         switch r.toolName {
         case "Write", "Edit", "MultiEdit", "NotebookEdit": return String(localized: "Edit file")
@@ -366,6 +373,74 @@ private struct PlanBody: View {
             }
             ErrorLine(text: error)
         }
+    }
+}
+
+// MARK: - Decision (spec §6 of 0.6)
+
+/// The question, its context, the options as buttons (the recommended one marked), a field for your own words, and
+/// Reply: an option, words, or both.
+private struct DecisionBody: View {
+    let request: PendingRequest, busy: Bool, error: String?
+    let submit: (RequestAnswer) -> Void
+    @State private var chosen: Int?
+    @State private var text = ""
+
+    private var options: [String] { request.input["options"]?.array?.compactMap(\.string) ?? [] }
+    private var recommended: Int? { request.input["recommendation"]?.int }
+    private var words: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            CardHeader(title: cardTitle(request))
+            Text(request.input["question"]?.string ?? "").font(.system(size: Theme.Size.body, weight: .medium))
+                .textSelection(.enabled)
+            if let context = request.input["context"]?.string, !context.isEmpty {
+                Text(context).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary).textSelection(.enabled)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(options.enumerated()), id: \.offset) { i, option in
+                    if i > 0 { Divider().overlay(Theme.borderTertiary) }
+                    Button { chosen = chosen == i ? nil : i } label: {
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(String(UnicodeScalar(UInt8(65 + min(i, 25)))))
+                                .font(.system(size: Theme.Size.caption, weight: .medium)).foregroundStyle(Theme.textSecondary)
+                                .frame(minWidth: 18).padding(.vertical, 1).padding(.horizontal, 4)
+                                .background(RoundedRectangle(cornerRadius: 4).stroke(Theme.border, lineWidth: 1))
+                            Text(option).font(.system(size: Theme.Size.body, weight: i == recommended ? .medium : .regular))
+                            if i == recommended {
+                                Text(String(localized: "recommended")).font(.system(size: Theme.Size.caption, weight: .medium))
+                                    .foregroundStyle(Theme.green).padding(.vertical, 2).padding(.horizontal, 6)
+                                    .background(Capsule().fill(Theme.greenTint))
+                            }
+                            Spacer(minLength: 4)
+                            if chosen == i { Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold)) }
+                        }
+                        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(chosen == i ? Theme.active : .clear).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).disabled(busy)
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.elevated))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.borderTertiary, lineWidth: 0.5))
+            HStack(spacing: 8) {
+                TextField(String(localized: "Or tell the bot in your own words"), text: $text).textFieldStyle(.plain)
+                    .font(.system(size: Theme.Size.body)).onSubmit(reply)
+                    .padding(.horizontal, 12).frame(height: 32)
+                    .background(Capsule().fill(Theme.composerFill))
+                    .overlay(Capsule().stroke(Theme.composerBorder, lineWidth: 1))
+                CardButton(title: String(localized: "Reply"), style: .primary, enabled: !busy && (chosen != nil || !words.isEmpty),
+                           action: reply)
+            }
+            ErrorLine(text: error)
+        }
+    }
+
+    private func reply() {
+        guard chosen != nil || !words.isEmpty else { return }
+        submit(.decision(option: chosen, text: words.isEmpty ? nil : words))
     }
 }
 
