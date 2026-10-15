@@ -186,9 +186,13 @@ public struct Mailbox: Codable, Equatable, Sendable {
     }
 
     /// The open tasks past their deadline expire and their requesters are told (spec §5). Messages delivered more than
-    /// 8 days ago go too: every task ends within 7 days, so no card needs them any more.
+    /// 8 days ago go too, unless their task is still open (after a long downtime its card must still be found).
     public mutating func expire(at now: Date) -> [MailTask] {
-        messages.removeAll { $0.deliveredAt.map { now.timeIntervalSince($0) > 8 * 86_400 } ?? false }
+        let open = Set(tasks.filter { $0.status == .open }.map(\.number))
+        messages.removeAll { m in
+            m.deliveredAt.map { now.timeIntervalSince($0) > 8 * 86_400 } == true
+                && !(m.kind == .task && m.taskId.map(open.contains) == true)
+        }
         var expired: [MailTask] = []
         for i in tasks.indices where tasks[i].status == .open && tasks[i].deadline <= now {
             close(i, .expired, at: now)

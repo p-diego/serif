@@ -162,6 +162,17 @@ final class MailTests: XCTestCase {
         XCTAssertEqual(box.expire(at: t0.addingTimeInterval(7200)), [])               // once
     }
 
+    func testThePurgeKeepsAnOpenTasksMessageUntilTheTaskIsClosed() throws {
+        var box = Mailbox()
+        _ = try box.sendTask(from: cody, to: milo, text: "x", hours: 1, turnTask: nil, at: t0)
+        box.markDelivered(box.waiting(for: milo)[0].id, at: t0)
+        let late = t0.addingTimeInterval(9 * 86_400)                    // the engine was off for 9 days
+        XCTAssertEqual(box.expire(at: late).map(\.status), [.expired])
+        XCTAssertTrue(box.delivered(task: 1))                           // the recipient's card can still be changed
+        _ = box.expire(at: late.addingTimeInterval(60))                 // closed and old: purged now
+        XCTAssertFalse(box.delivered(task: 1))
+    }
+
     func testAnArchivedBotsMailIsDroppedAndItsTasksCancelled() throws {
         var box = Mailbox()
         _ = try box.sendTask(from: cody, to: milo, text: "given", hours: nil, turnTask: nil, at: t0)
