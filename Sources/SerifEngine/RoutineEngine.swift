@@ -20,7 +20,7 @@ extension Engine {
     }
 
     /// Every 60 s (spec §4): a run now due waits for its bot (one at most per routine); a run past its routine's time
-    /// limit is stopped as your Stop would.
+    /// limit is stopped as your Stop would (again at every sweep until the turn ends).
     func routineSweep() {
         let now = now()
         for project in store.projects {
@@ -37,10 +37,13 @@ extension Engine {
             deliverMail(in: project.id)
         }
         for rt in bots.values {
-            guard let run = rt.run, rt.tracker.state.inTurn, rt.runEnding == nil,
+            guard let run = rt.run, rt.tracker.state.inTurn,
                   now.timeIntervalSince(run.startedAt) >= Double(run.maxMinutes) * 60 else { continue }
-            log("bot \(rt.bot.id): routine «\(run.name)» stopped after \(run.maxMinutes) min")
-            rt.runEnding = .stopped
+            // Repeated at every sweep while the turn goes on, in case the Esc never got through (plan note 19).
+            if rt.runEnding == nil {
+                log("bot \(rt.bot.id): routine «\(run.name)» stopped after \(run.maxMinutes) min")
+                rt.runEnding = .stopped
+            }
             stopTurn(rt)
         }
     }

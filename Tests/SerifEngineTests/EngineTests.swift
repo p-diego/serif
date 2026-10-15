@@ -756,7 +756,6 @@ final class EngineTests: XCTestCase {
                        + "Stay within this job and finish within 30 minutes.\n\nClean up")
         XCTAssertEqual([run.maxMinutes, run.notifies ? 1 : 0], [30, 1])
         XCTAssertNil(run.signal)
-        XCTAssertEqual(client.all.summaries(bob.id).last?.unread, true)             // a run is always something to read
         let after = try XCTUnwrap(try Store(paths: paths).routines(bob.projectId).first)
         XCTAssertEqual([after.runs, after.pending == nil ? 1 : 0], [1, 1])
         XCTAssertEqual(after.lastOutcome, .done)
@@ -771,6 +770,21 @@ final class EngineTests: XCTestCase {
         XCTAssertNil(routines(client.all, bob.projectId).first?.pending)
         XCTAssertEqual(routines(client.all, bob.projectId).first?.runs, 1)
         XCTAssertEqual(runs(client.all, bob).count, 2)                              // started, done: still one run
+    }
+
+    func testARoutineTurnIsAlwaysUnread() throws {
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "Tidied."))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(request(client, .markRead(botId: bob.id, seq: Int.max / 2)), .ok)    // no chat turn after this
+        waitFor(client, "read") { $0.summaries(bob.id).last?.unread == false }
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Tidy", .every(minutes: 5), notifies: false))), .ok)
+        sweep(engine, at: 301)
+        waitFor(client, "its outcome") { self.runs($0, bob).last?.outcome == .done }
+        XCTAssertEqual(client.all.summaries(bob.id).last?.unread, true)             // a run is always something to read
     }
 
     func testMailGoesBeforeADueRun() throws {
@@ -810,6 +824,29 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(client.all.chatEvents(bob.id).contains(.turnInterrupted))
         XCTAssertEqual(try Store(paths: paths).routines(bob.projectId).first?.lastOutcome, .stopped)
         XCTAssertTrue(try String(contentsOf: paths.log, encoding: .utf8).contains("routine «Slow» stopped after 1 min"))
+        waitFor(client, "ready") { $0.summaries(bob.id).last?.state == .ready }
+    }
+
+    func testAnIgnoredStopIsRepeatedAtTheNextSweep() throws {
+        // Plan note 19: the first Esc never reaches the screen; the next sweep presses it again, and logs only once.
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
+                 + [["waitInput": "\u{1B}"], ["waitInput": "\u{1B}"],
+                    ["print": "⎿  Interrupted · What should Claude do instead?\r\n"]])
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Slow", .every(minutes: 5), maxMinutes: 1))), .ok)
+        sweep(engine, at: 301)
+        waitFor(client, "the run") { self.runText($0, bob) != nil }
+        sweep(engine, at: 362)                                                       // first Esc: ignored by the fake
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertNotEqual(runs(client.all, bob).last?.outcome, .stopped)
+        sweep(engine, at: 423)                                                       // second Esc: taken
+        waitFor(client, "stopped") { self.runs($0, bob).last?.outcome == .stopped }
+        let log = try String(contentsOf: paths.log, encoding: .utf8)
+        XCTAssertEqual(log.components(separatedBy: "routine «Slow» stopped after 1 min").count - 1, 1)
         waitFor(client, "ready") { $0.summaries(bob.id).last?.state == .ready }
     }
 
