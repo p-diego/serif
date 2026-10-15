@@ -1033,6 +1033,27 @@ final class EngineTests: XCTestCase {
         waitFor(again, "closed") { $0.closed(card.id) == .answeredInApp }
     }
 
+    func testATriggerFieldOfTheWrongTypeIsRefusedByName() throws {
+        let turns = [sessionStart] + prompt("p0") + stop("p0")
+        let (_, bob, _) = try twoBots(bob: turns, ada: turns)
+        let weekdays = "weekdays_at needs days (1 = Monday … 7 = Sunday) and time \"HH:MM\""
+        let cases: [(JSONValue, String)] = [
+            (["daily_at": 900], "daily_at must be HH:MM"),
+            (["every_minutes": "x"], "every_minutes must be a whole number"),
+            (["every_minutes": true], "every_minutes must be a whole number"),
+            (["weekdays_at": ["days": [1, "x"], "time": "09:00"]], weekdays),
+            (["weekdays_at": ["days": "1", "time": "09:00"]], weekdays),
+            (["weekdays_at": ["days": [1], "time": 900]], weekdays),
+            (["signal": 7], "signal must be text"),
+            (["cron": 7], "cron must be text"),
+        ]
+        for (trigger, error) in cases {
+            guard case .object(var args) = trigger else { return XCTFail() }
+            args["name"] = "Tidy"; args["prompt"] = "x"
+            XCTAssertEqual(callTool(engines[0], as: bob, "create_routine", .object(args)), ToolResult(error, isError: true), "\(trigger)")
+        }
+    }
+
     func testTheRoutineToolsFollowTheRules() throws {
         let turns = [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "Deployed.")
         let (client, bob, ada) = try twoBots(bob: turns, ada: turns)

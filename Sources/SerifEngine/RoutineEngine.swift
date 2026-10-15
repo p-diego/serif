@@ -191,20 +191,27 @@ extension Engine {
     private func trigger(in a: JSONValue) throws -> RoutineTrigger {
         var found: [RoutineTrigger] = []
         if let m = try number(a["every_minutes"], "every_minutes") { found.append(.every(minutes: m)) }
-        if let t = a["daily_at"]?.string {
-            guard let (h, m) = clockTime(t) else { throw MailError("daily_at must be HH:MM") }
+        if let t = a["daily_at"], t != .null {
+            guard let (h, m) = t.string.flatMap(clockTime) else { throw MailError("daily_at must be HH:MM") }
             found.append(.dailyAt(hour: h, minute: m))
         }
         if let w = a["weekdays_at"], w != .null {
-            guard let days = w["days"]?.array?.compactMap(\.int), let t = w["time"]?.string, let (h, m) = clockTime(t) else {
+            guard let list = w["days"]?.array, case let days = list.compactMap(\.int), days.count == list.count,
+                  let (h, m) = w["time"]?.string.flatMap(clockTime) else {
                 throw MailError("weekdays_at needs days (1 = Monday … 7 = Sunday) and time \"HH:MM\"")
             }
             found.append(.weekdaysAt(days: Set(days), hour: h, minute: m))
         }
-        if let s = a["signal"]?.string { found.append(.signal(name: s)) }
-        if let c = a["cron"]?.string { found.append(.cron(expression: c)) }
+        if let s = a["signal"], s != .null { found.append(.signal(name: try text(s, "signal"))) }
+        if let c = a["cron"], c != .null { found.append(.cron(expression: try text(c, "cron"))) }
         guard found.count == 1 else { throw MailError("give exactly one of every_minutes, daily_at, weekdays_at, signal or cron") }
         return found[0]
+    }
+
+    /// A trigger field that must be text: a number or a list is refused by name, never coerced.
+    private func text(_ v: JSONValue, _ field: String) throws -> String {
+        guard let s = v.string else { throw MailError("\(field) must be text") }
+        return s
     }
 
     func listRoutines(for rt: BotRuntime) -> String {
