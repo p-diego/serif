@@ -34,8 +34,20 @@ public struct RunSignal: Codable, Equatable, Sendable {
 public struct PendingRun: Codable, Equatable, Sendable {
     public var dueAt: Date
     public var signal: RunSignal?
+    /// How many runs of this kind led here (spec §5): 0 for the clock and "Run now", one more for each signal or
+    /// `run_routine` of a run that is itself a link.
+    public var chain: Int
 
-    public init(dueAt: Date, signal: RunSignal? = nil) { self.dueAt = dueAt; self.signal = signal }
+    public init(dueAt: Date, signal: RunSignal? = nil, chain: Int = 0) {
+        self.dueAt = dueAt; self.signal = signal; self.chain = chain
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        dueAt = try c.decode(Date.self, forKey: .dueAt)
+        signal = try c.decodeIfPresent(RunSignal.self, forKey: .signal)
+        chain = try c.decodeIfPresent(Int.self, forKey: .chain) ?? signal?.chain ?? 0
+    }
 }
 
 /// A job a bot runs by itself (spec §4), saved in its project's `routines.json`.

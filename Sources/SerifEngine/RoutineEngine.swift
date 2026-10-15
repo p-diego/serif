@@ -71,7 +71,7 @@ extension Engine {
         push(.routinesChanged(projectId: rt.bot.projectId, routines: routines))
         let run = RoutineRun(routineId: routine.id, name: routine.name, startedAt: started, maxMinutes: routine.maxMinutes,
                              notifies: routine.notifies, signal: pending.signal)
-        (rt.run, rt.runEnding, rt.turnChain, rt.turnTask) = (run, nil, pending.signal?.chain ?? 0, nil)
+        (rt.run, rt.runEnding, rt.turnChain, rt.turnTask) = (run, nil, pending.chain, nil)
         record(.routineRun(run), rt)
         let text = routineTurnText(routine, run: routine.runs, startedAt: started, signal: pending.signal)
         if rt.bot.agent == .codex {
@@ -97,10 +97,10 @@ extension Engine {
     }
 
     /// A run now, as "Run now" and `run_routine` ask (spec §4–5): one waiting run at most.
-    func queueRun(_ id: UUID, in project: UUID, signal: RunSignal? = nil) {
+    func queueRun(_ id: UUID, in project: UUID, chain: Int = 0) {
         var routines = store.routines(project)
         guard let i = routines.firstIndex(where: { $0.id == id }), routines[i].pending == nil else { return }
-        routines[i].pending = PendingRun(dueAt: now(), signal: signal)
+        routines[i].pending = PendingRun(dueAt: now(), chain: chain)
         save(routines, project)
         push(.routinesChanged(projectId: project, routines: routines))
         bots[routines[i].botId].map(deliverMail)
@@ -241,7 +241,8 @@ extension Engine {
     func runRoutine(_ a: JSONValue, from rt: BotRuntime) throws -> String {
         let routines = store.routines(rt.bot.projectId)
         let routine = routines[try own(a["name"], in: routines, rt)]
-        queueRun(routine.id, in: rt.bot.projectId)
+        guard rt.turnChain < RoutineRules.maxSignalChain else { throw MailError("routine chain too long") }
+        queueRun(routine.id, in: rt.bot.projectId, chain: rt.turnChain + 1)
         return "Routine «\(routine.name)» will run as soon as you are free"
     }
 
@@ -271,7 +272,8 @@ extension Engine {
             hit += 1
             if routines[i].pending == nil {
                 routines[i].pending = PendingRun(dueAt: now(), signal: RunSignal(name: name, text: text, from: rt.bot.name,
-                                                                                 chain: rt.turnChain + 1))
+                                                                                 chain: rt.turnChain + 1),
+                                                     chain: rt.turnChain + 1)
             }
         }
         if hit > 0 {

@@ -916,6 +916,26 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(callTool(engine, as: ada, "emit_signal", ["name": "build-done"]), ToolResult("signal chain too long", isError: true))
     }
 
+    func testARoutineThatRunsItselfStopsAtTheChainLimit() throws {
+        let again = tool("run_routine", ["name": "Loop"])
+        var lines = [sessionStart] + prompt("p0") + stop("p0")
+        for i in 1...6 { lines += prompt("p\(i)") + [again] + stop("p\(i)") }
+        try play(lines)
+        try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Loop", .dailyAt(hour: 3, minute: 0)))), .ok)
+        let id = try XCTUnwrap(routines(client.all, bob.projectId).first?.id)
+        XCTAssertEqual(request(client, .runRoutine(id: id)), .ok)
+        waitFor(client, "five runs") { self.runs($0, bob).filter { $0.outcome == .done }.count == 5 }
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertEqual(runs(client.all, bob).filter { $0.outcome == .done }.count, 5)   // chains 0...4, the fifth call refused
+        XCTAssertNil(routines(client.all, bob.projectId).first?.pending)
+        guard case .terminal = request(client, .attachTerminal(botId: bob.id)) else { return XCTFail("no terminal") }
+        waitFor(client, "the refusal") { $0.terminalText.contains("TOOL-OUT:routine chain too long") }
+    }
+
     func testADecisionIsACardThatDoesNotHoldTheBotAndYourAnswerComesBackAsMail() throws {
         let (client, bob, ada) = try twoBots(
             bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
