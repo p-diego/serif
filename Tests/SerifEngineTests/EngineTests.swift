@@ -238,18 +238,30 @@ final class EngineTests: XCTestCase {
     }
 
     /// A bot in `projectId`, or in a new project "P"; returns the bot as the engine created it.
-    private func createBot(_ client: TestClient, in projectId: UUID? = nil, agent: Agent = .claude, connectors: Bool = false,
-                           skills: [String] = [], plugins: [String] = [], freedom: Freedom = .ask) throws -> Bot {
+    private func createBot(_ client: TestClient, in projectId: UUID? = nil, name: String = "Bob", agent: Agent = .claude,
+                           connectors: Bool = false, skills: [String] = [], plugins: [String] = [],
+                           freedom: Freedom = .ask) throws -> Bot {
         let project: UUID
         if let projectId { project = projectId } else {
             guard case let .project(p) = request(client, .createProject(name: "P", linkedFolder: nil, readLinkedInstructions: true))
             else { throw XCTSkip("createProject failed") }
             project = p.id
         }
-        let new = NewBot(projectId: project, name: "Bob", face: randomFace(existing: []), agent: agent, model: nil,
+        let new = NewBot(projectId: project, name: name, face: randomFace(existing: []), agent: agent, model: nil,
                          instructions: "Help.", freedom: freedom, skills: skills, plugins: plugins, connectors: connectors)
         guard case let .bot(bot) = request(client, .createBot(new)) else { throw XCTSkip("createBot failed") }
         return bot
+    }
+
+    func testTheSystemPromptNamesTheColleagues() throws {
+        try makeEngine("basic").start()
+        let client = try connect()
+        let bob = try createBot(client)
+        let ada = try createBot(client, in: bob.projectId, name: "Ada")
+        _ = try launches(2)
+        let prompt = try String(contentsOf: paths.bot(ada.id).systemPrompt, encoding: .utf8)
+        XCTAssertTrue(prompt.contains("Your colleagues in this project: Bob."))
+        XCTAssertTrue(prompt.contains("complete_task"))
     }
 
     func testNewBotIntroducesItselfAndOnlyAProjectsFirstBotGivesTheTour() throws {

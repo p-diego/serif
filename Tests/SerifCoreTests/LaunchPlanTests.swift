@@ -63,6 +63,25 @@ final class LaunchPlanTests: XCTestCase {
         XCTAssertFalse(systemPrompt(bot: bot, project: proj, paths: paths, linkedInstructions: nil).contains("Instructions from"))
     }
 
+    func testSystemPromptNamesColleaguesTheLeadAndTheTools() {
+        var proj = Project(name: "P")
+        let face = BotFace(shape: .allCases[0], body: 1, eyes: 2)
+        let ada = Bot(projectId: proj.id, name: "Ada", face: face)
+        let milo = Bot(projectId: proj.id, name: "Milo", face: face)
+        let old = Bot(projectId: proj.id, name: "Old", face: face, archivedAt: Date())
+        let paths = SerifPaths(root: URL(fileURLWithPath: "/tmp/s"))
+        proj.leadBotId = milo.id
+        let s = systemPrompt(bot: ada, project: proj, paths: paths, linkedInstructions: nil, bots: [ada, milo, old])
+        XCTAssertTrue(s.contains("Your colleagues in this project: Milo (the project's lead)."))
+        XCTAssertFalse(s.contains("Old"))
+        XCTAssertTrue(s.contains(serifToolsGuide))
+        XCTAssertTrue(serifToolsGuide.contains("complete_task") && serifToolsGuide.contains("shared folder"))
+        XCTAssertTrue(systemPrompt(bot: milo, project: proj, paths: paths, linkedInstructions: nil, bots: [ada, milo])
+            .contains("You are the project's lead"))
+        XCTAssertTrue(systemPrompt(bot: ada, project: proj, paths: paths, linkedInstructions: nil, bots: [ada])
+            .contains("No other bot is in this project yet."))
+    }
+
     func testPluginsAndConnectors() {
         let proj = Project(name: "P")
         var bot = Bot(projectId: proj.id, name: "B", face: BotFace(shape: .allCases[0], body: 1, eyes: 2))

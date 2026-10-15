@@ -222,7 +222,8 @@ public final class Engine {
         do {
             try store.prepareFolders(for: rt.bot)
             let instructions = linkedExists && project.readLinkedInstructions ? linkedInstructions(in: project.linkedFolder!) : nil
-            prompt = systemPrompt(bot: rt.bot, project: project, paths: paths, linkedInstructions: instructions)
+            prompt = systemPrompt(bot: rt.bot, project: project, paths: paths, linkedInstructions: instructions,
+                                  bots: store.bots.filter { $0.projectId == project.id })
             if rt.bot.agent == .claude {
                 let files = paths.bot(rt.bot.id)
                 try prompt.write(to: files.systemPrompt, atomically: true, encoding: .utf8)

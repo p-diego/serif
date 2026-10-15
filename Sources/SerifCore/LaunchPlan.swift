@@ -62,11 +62,20 @@ public func claudeHookSettings(hookCommand: String) -> Data {
     return (try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])) ?? Data()
 }
 
-public func systemPrompt(bot: Bot, project: Project, paths: SerifPaths, linkedInstructions: String?) -> String {
+/// `bots` are the project's bots (the colleagues and the lead come from them, spec §8-9), read at every launch: a new
+/// colleague or lead reaches the prompt at the bot's next start.
+public func systemPrompt(bot: Bot, project: Project, paths: SerifPaths, linkedInstructions: String?,
+                         bots: [Bot] = []) -> String {
     var s = "You are \(bot.name), a bot in the project \"\(project.name)\".\n"
     if !bot.instructions.isEmpty { s += "\nYour role:\n\(bot.instructions)\n" }
     s += "\nThe folder shared by all bots of this project: \(paths.shared(project.id).path)\n"
     if let linked = project.linkedFolder { s += "The project's linked folder: \(linked)\n" }
+    let others = bots.filter { $0.id != bot.id && $0.archivedAt == nil }
+        .map { $0.id == project.leadBotId ? "\($0.name) (the project's lead)" : $0.name }
+    s += "\n" + (others.isEmpty ? "No other bot is in this project yet."
+        : "Your colleagues in this project: " + others.joined(separator: ", ") + ".")
+    if project.leadBotId == bot.id { s += " You are the project's lead: you get a copy of every task the bots finish." }
+    s += "\n\n" + serifToolsGuide + "\n"
     // Each agent reads its own memory file from the working folder by itself (spec §4).
     s += "\nYour memory is \(bot.agent == .codex ? "AGENTS.md" : "CLAUDE.md") in your working folder: keep it up to date.\n"
     if let linkedInstructions { s += "\nInstructions from the linked folder:\n" + linkedInstructions + "\n" }
