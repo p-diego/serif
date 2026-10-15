@@ -98,6 +98,11 @@ extension Engine {
         let plugins = catalog.plugins.filter { !catalog.remotePlugins.contains($0.id) }.map { (id: $0.id, enabled: chosen.contains($0.id)) }
         let hidden = catalog.remotePlugins.filter { !chosen.contains($0) }.flatMap { catalog.remoteSkills[$0] ?? [] }
         let token = codexToken()
+        rt.token = UUID().uuidString                    // the tools' secret, new at every start (spec §4)
+        var environment = codexEnvironment(environment)
+        environment["SERIF_BOT_ID"] = bot.id.uuidString
+        environment["SERIF_TOKEN"] = rt.token
+        environment["SERIF_HOOK_SOCKET"] = paths.hookSocket.path
         let server = CodexServer(queue: queue)          // a new one at every start: nothing of an earlier one carries over
         (rt.codex, rt.codexToken, rt.codexReady, rt.thread, rt.turnId) = (server, token, false, nil, nil)
         (rt.sending, rt.interruptPending, rt.settingsRestored) = (false, false, false)
@@ -123,9 +128,13 @@ extension Engine {
         }
         let files = paths.bot(bot.id)
         server.start(CodexServer.Launch(executable: codexPath,
-                                        args: { codexServerArgs(listen: "ws://127.0.0.1:\($0)", tokenHash: codexTokenHash(token), plugins: plugins,
-                                                                hiddenSkills: hidden, connectors: bot.connectors) },
-                                        environment: codexEnvironment(environment), cwd: workspace.path, token: token,
+                                        args: { [toolsCommand] port in
+                                            codexServerArgs(listen: "ws://127.0.0.1:\(port)",
+                                                            tokenHash: codexTokenHash(token), tools: toolsCommand,
+                                                            plugins: plugins, hiddenSkills: hidden,
+                                                            connectors: bot.connectors)
+                                        },
+                                        environment: environment, cwd: workspace.path, token: token,
                                         log: files.dir.appendingPathComponent("codex.log"),
                                         pidFile: files.dir.appendingPathComponent("codex.pid"))) { [weak self, weak rt] failure in
             guard let self, let rt, rt.codex === server else { return }
@@ -178,6 +187,10 @@ extension Engine {
         if let problem = codexIsolationProblem(features: try? features.get(), mcpServers: try? mcp?.get(), connectors: rt.bot.connectors) {
             log("bot \(rt.bot.id): \(CodexText.isolation): \(problem)")
             return codexStopped(rt, reason: CodexText.isolation)
+        }
+        // Without its tools a bot still runs (spec §10): the log says so.
+        if let servers = try? mcp?.get(), let problem = codexToolsProblem(servers) {
+            log("bot \(rt.bot.id): \(problem)")
         }
         then()
     }
@@ -309,6 +322,9 @@ extension Engine {
                 // Cards still open when a turn stops short are gone; after a normal end `record` closes them.
                 if p["turn"]?["status"]?.string != "completed" { closeRequests(of: rt, .cancelled) }
                 finished = true
+            case "mcpServer/startupStatus/updated":
+                guard p["name"]?.string == "serif", p["status"]?.string == "failed" else { break }
+                log("bot \(rt.bot.id): Serif's tools failed to start: \(p["error"]?.string ?? "no reason given")")
             case "thread/settings/updated":
                 // The terminal can change the thread's settings: whatever changed, the isolation must still show, and the
                 // bot's approval and sandbox go back (spec §5). Still not the bot's right after that: the bot stops.

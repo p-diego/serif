@@ -56,6 +56,19 @@ public func codexIsolationProblem(features: JSONValue?, mcpServers: JSONValue?, 
     return servers.contains { $0["name"]?.string == "codex_apps" } ? "the account's connectors are on" : nil
 }
 
+/// Why a bot's Serif tools are missing, from `mcpServerStatus/list` (spec §10): nil when the "serif" server is listed
+/// without an error. Only logged: the bot runs anyway (the author's choice, spec §2).
+public func codexToolsProblem(_ mcpServers: JSONValue) -> String? {
+    guard let serif = mcpServers["data"]?.array?.first(where: { $0["name"]?.string == "serif" }) else {
+        return "Serif's tools are not loaded"
+    }
+    if let error = serif["toolsError"]?.string { return "Serif's tools failed: \(error)" }
+    if let status = serif["runtimeStatus"]?.string, ["failed", "cancelled", "disabled"].contains(status) {
+        return "Serif's tools are \(status)"
+    }
+    return nil
+}
+
 /// A Codex model a bot can run (`model/list`).
 public struct CodexModel: Codable, Equatable, Sendable {
     public let id: String

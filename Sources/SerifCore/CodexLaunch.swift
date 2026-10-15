@@ -20,15 +20,23 @@ public func codexTokenHash(_ token: String) -> String {
 }
 
 /// The arguments of a Codex app-server of Serif's (spec §4, §6): listening on `listen` (a bot's server with its token),
-/// with Siigil's hooks and the notify program off for this process; for a bot, every installed plugin on or off by name
-/// (the key without quotes: quoted, Codex ignores it, spec §3.8), the skills of the account's remote plugins it did not
-/// choose hidden, and the account's connectors off unless it has them on. Everything that isolates a bot is here, never in
-/// a thread's `config`, which would replace it (spec §3.6).
-public func codexServerArgs(listen: String, tokenHash: String?, plugins: [(id: String, enabled: Bool)] = [],
-                            hiddenSkills: [String] = [], connectors: Bool = true) -> [String] {
+/// with Siigil's hooks and the notify program off for this process; for a bot, Serif's tools (`tools`, the serif-tools
+/// executable, spec §4 of 0.5) that never ask and get the bot and its secret by the names of variables in the server's
+/// environment, every installed plugin on or off by name (the key without quotes: quoted, Codex ignores it, spec §3.8),
+/// the skills of the account's remote plugins it did not choose hidden, and the account's connectors off unless it has
+/// them on. Everything that isolates a bot is here, never in a thread's `config`, which would replace it (spec §3.6).
+public func codexServerArgs(listen: String, tokenHash: String?, tools: String? = nil,
+                            plugins: [(id: String, enabled: Bool)] = [], hiddenSkills: [String] = [],
+                            connectors: Bool = true) -> [String] {
     var args = ["app-server", "--listen", listen]
     if let tokenHash { args += ["--ws-auth", "capability-token", "--ws-token-sha256", tokenHash] }
     args += ["--disable", "hooks", "-c", "notify=[]"]
+    if let tools {
+        args += ["-c", "mcp_servers.serif.command=\(JSONValue.string(tools).compactText)",
+                 "-c", "mcp_servers.serif.args=[]",
+                 "-c", #"mcp_servers.serif.env_vars=["SERIF_BOT_ID","SERIF_TOKEN","SERIF_HOOK_SOCKET"]"#,
+                 "-c", #"mcp_servers.serif.default_tools_approval_mode="auto""#]
+    }
     // ponytail: plugin ids have no dots (Codex 0.160); a dotted one would need a quoted key, which -c ignores.
     for p in plugins { args += ["-c", "plugins.\(p.id).enabled=\(p.enabled)"] }
     if !hiddenSkills.isEmpty {

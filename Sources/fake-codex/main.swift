@@ -69,8 +69,9 @@ if let delay = env["SERIF_FAKE_CODEX_DELAY"].flatMap(Double.init) { usleep(UInt3
 
 // The scenario: lines {"reply": method, "result"|"error": …} answer that method's next request instead of the default,
 // "delay" seconds later if given (that request's "after" too), or with "exit": code never (the server exits at once);
-// {"after": method|"answer", "send": [messages], "exit": code} act once after the next such request (or answer to a
-// server request). In what is sent, "$THREAD", "$TURN" and "$INPUT" are the thread, the last turn and the last text sent.
+// {"after": method|"answer", "tool": call, "send": [messages], "exit": code} act once after the next such request (or
+// answer to a server request), calling Serif's tool first when given. In what is sent, "$THREAD", "$TURN", "$INPUT" and
+// "$TOOL_OUT" are the thread, the last turn, the last text sent and the last tool's answer.
 var replies: [(method: String, line: JSONValue)] = []
 var afters: [(method: String, line: JSONValue)] = []
 if let path = env["SERIF_FAKE_CODEX_SCENARIO"], let text = try? String(contentsOfFile: path, encoding: .utf8) {
@@ -82,7 +83,13 @@ if let path = env["SERIF_FAKE_CODEX_SCENARIO"], let text = try? String(contentsO
 }
 
 let disabled = Set(args.indices.filter { args[$0] == "--disable" && $0 + 1 < args.count }.map { args[$0 + 1] })
-var thread = "thr-1", turn = "", input = "", turns = 0
+// Serif's tools as Codex gets them (spec §4): the -c mcp_servers.serif.* settings; their TOML values are JSON here.
+var serifTools: [String: JSONValue] = [:]
+for (flag, value) in zip(args, args.dropFirst()) where flag == "-c" && value.hasPrefix("mcp_servers.serif.") {
+    let setting = value.dropFirst("mcp_servers.serif.".count).split(separator: "=", maxSplits: 1).map(String.init)
+    if setting.count == 2, let v = try? JSONValue.parse(Data(setting[1].utf8)) { serifTools[setting[0]] = v }
+}
+var thread = "thr-1", turn = "", input = "", turns = 0, toolOut = ""
 var hooksOn = !disabled.contains("hooks")
 var connection: NWConnection?
 
@@ -95,6 +102,35 @@ func send(_ text: String) {
 func fill(_ v: JSONValue) -> String {
     v.compactText.replacingOccurrences(of: "$THREAD", with: thread).replacingOccurrences(of: "$TURN", with: turn)
         .replacingOccurrences(of: "$INPUT", with: String(JSONValue.string(input).compactText.dropFirst().dropLast()))
+        .replacingOccurrences(of: "$TOOL_OUT",
+                              with: String(JSONValue.string(toolOut).compactText.dropFirst().dropLast()))
+}
+
+/// Calls one of Serif's tools as Codex does (spec §4): the -c command, with only the variables env_vars names from
+/// this server's environment; initialize, then the call. Its text ("$TOOL_OUT" in what is sent next), " (error)" for
+/// an error.
+func runTool(_ call: JSONValue) -> String {
+    guard let command = serifTools["command"]?.string else { return "no serif server" }
+    let names = Set(serifTools["env_vars"]?.array?.compactMap(\.string) ?? [])
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: command)
+    p.environment = env.filter { names.contains($0.key) }
+    let inPipe = Pipe(), outPipe = Pipe()
+    p.standardInput = inPipe
+    p.standardOutput = outPipe
+    guard (try? p.run()) != nil else { return "cannot start \(command)" }
+    let lines: [JSONValue] = [
+        ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["protocolVersion": "2025-06-18"]],
+        ["jsonrpc": "2.0", "method": "notifications/initialized"],
+        ["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": call]]
+    inPipe.fileHandleForWriting.write(Data(lines.map { $0.compactText + "\n" }.joined().utf8))
+    try? inPipe.fileHandleForWriting.close()
+    let replies = outPipe.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    let result = replies.split(separator: 0x0A).compactMap { try? JSONValue.parse(Data($0)) }
+        .first { $0["id"] == 2 }?["result"]
+    let text = result?["content"]?.array?.first?["text"]?.string ?? "no answer"
+    return text + (result?["isError"] == true ? " (error)" : "")
 }
 
 /// Codex's answer when the scenario gives none. Isolation is reported from this server's own flags, and a thread's
@@ -109,7 +145,10 @@ func defaultResult(_ method: String, _ p: JSONValue) -> JSONValue? {
     case "experimentalFeature/list":
         return ["data": [["name": "hooks", "enabled": .bool(hooksOn)], ["name": "apps", "enabled": .bool(!disabled.contains("apps"))]]]
     case "mcpServerStatus/list":
-        return ["data": disabled.contains("apps") ? [] : [["name": "codex_apps", "pluginId": .null]]]
+        let apps: [JSONValue] = disabled.contains("apps") ? [] : [["name": "codex_apps", "pluginId": .null]]
+        let serif: [JSONValue] = serifTools["command"] == nil ? []
+            : [["name": "serif", "tools": [:], "toolsError": .null]]
+        return ["data": .array(apps + serif)]
     case "turn/start":
         turns += 1
         turn = "turn-\(turns)"
@@ -161,6 +200,7 @@ func received(_ data: Data) {
 func act(after method: String) {
     guard let i = afters.firstIndex(where: { $0.method == method }) else { return }
     let line = afters.remove(at: i).line
+    if let call = line["tool"] { toolOut = runTool(call) }
     for message in line["send"]?.array ?? [] { send(fill(message)) }
     if let code = line["exit"]?.int { queue.asyncAfter(deadline: .now() + 0.2) { exit(Int32(code)) } }
 }

@@ -807,7 +807,8 @@ final class EngineTests: XCTestCase {
     }
 
     func testCodexBotStartsOnAnIsolatedServerOfItsOwn() throws {
-        try makeEngine("basic").start()
+        let engine = try makeEngine("basic")
+        try engine.start()
         let skill = root.appendingPathComponent("my-skills/tidy")
         try FileManager.default.createDirectory(at: skill, withIntermediateDirectories: true)
         try "---\nname: tidy\n---\n".write(to: skill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
@@ -815,14 +816,24 @@ final class EngineTests: XCTestCase {
         let bot = try createBot(client, agent: .codex, skills: [skill.path])
         waitFor(client, "ready") { $0.summaries(bot.id).contains { $0.state == .ready } }
         let server = try XCTUnwrap(codexServers(bot).first)
-        // Every installed plugin off but the chosen (none here), the remote one's skills hidden, the account's connectors off.
-        XCTAssertEqual(Array(server.args.suffix(12)), ["--disable", "hooks", "-c", "notify=[]",
+        // Serif's tools; every installed plugin off but the chosen (none here), the remote one's skills hidden, the account's
+        // connectors off.
+        let tools = binDir.appendingPathComponent("serif-tools").path
+        XCTAssertEqual(Array(server.args.suffix(20)), ["--disable", "hooks", "-c", "notify=[]",
+                                                        "-c", "mcp_servers.serif.command=\"\(tools)\"", "-c", "mcp_servers.serif.args=[]",
+                                                        "-c", #"mcp_servers.serif.env_vars=["SERIF_BOT_ID","SERIF_TOKEN","SERIF_HOOK_SOCKET"]"#,
+                                                        "-c", #"mcp_servers.serif.default_tools_approval_mode="auto""#,
                                                         "-c", "plugins.browser@openai-bundled.enabled=false",
                                                         "-c", "plugins.visualize@openai-bundled.enabled=false",
                                                         "-c", #"skills.config=[{name="work-pets:pets",enabled=false}]"#,
                                                         "--disable", "apps"])
         XCTAssertEqual(server.args.firstIndex(of: "--ws-token-sha256").map { server.args[$0 + 1].count }, 64)   // the hash, not the secret
         XCTAssertNil(server.env["CLAUDECODE"])
+        XCTAssertEqual(server.env["SERIF_BOT_ID"], bot.id.uuidString)
+        XCTAssertEqual(server.env["SERIF_TOKEN"], engine.queue.sync { engine.bots[bot.id]?.token })
+        XCTAssertFalse(server.args.joined().contains(server.env["SERIF_TOKEN"] ?? "-"))      // the secret only by name
+        // The catalog's own server gets no tools (spec §4).
+        XCTAssertTrue(try launches(1).contains { $0.args.first == "app-server" && !$0.args.joined().contains("mcp_servers") })
         let workspace = paths.bot(bot.id).workspace.path
         let start = try XCTUnwrap(codexRequests("thread/start").first)
         XCTAssertEqual(start["cwd"]?.string, workspace)
@@ -835,6 +846,30 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(codexRequests("mcpServerStatus/list").first?["threadId"], "thr-1")
         let link = paths.bot(bot.id).workspace.appendingPathComponent(".agents/skills/tidy").path
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link), skill.path)
+    }
+
+    func testACodexBotCallsItsToolsWithoutAsking() throws {
+        try makeEngine("basic", codex: "codex-tools").start()
+        let client = try connect()
+        let bob = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bob.id).contains { label($0) == "turnEnded" } }
+        let output = client.all.chatEvents(bob.id).compactMap { if case let .toolFinished(_, _, out, _) = $0 { out } else { nil } }
+        XCTAssertEqual(output, ["Bots of this project:\n- Bob (you): Help. [ready, Codex]"])
+        XCTAssertTrue(client.all.chatEvents(bob.id).contains {
+            if case let .toolStarted(_, name, _, _) = $0 { name == "mcp__serif__list_bots" } else { false }
+        })
+        XCTAssertTrue(client.all.openedRequests.isEmpty)                                  // no card for Serif's tools
+        let log = (try? String(contentsOf: paths.log, encoding: .utf8)) ?? ""
+        XCTAssertFalse(log.contains("Serif's tools"))
+    }
+
+    func testACodexBotWithoutItsToolsStillRuns() throws {
+        // Codex did not load them (spec §10): a line in the log, the bot runs.
+        try makeEngine("basic", codex: "codex-no-tools").start()
+        let client = try connect()
+        let bob = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bob.id).contains { label($0) == "turnEnded" } }
+        XCTAssertTrue(try String(contentsOf: paths.log, encoding: .utf8).contains("bot \(bob.id): Serif's tools are not loaded"))
     }
 
     func testEveryTurnPassesTheBotsFreedomAgain() throws {
@@ -1096,7 +1131,7 @@ final class EngineTests: XCTestCase {
         waitFor(client, "ready") { $0.summaries(bot.id).contains { $0.state == .ready } }
         // The bot's and the project's plugins on; the chosen remote plugin's skills not hidden.
         let args = try XCTUnwrap(codexServers(bot).first).args
-        XCTAssertEqual(Array(args.suffix(8)), ["-c", "notify=[]", "-c", "plugins.browser@openai-bundled.enabled=true",
+        XCTAssertEqual(Array(args.suffix(6)), ["-c", "plugins.browser@openai-bundled.enabled=true",
                                                "-c", "plugins.visualize@openai-bundled.enabled=true", "--disable", "apps"])
         let skills = paths.bot(bot.id).workspace.appendingPathComponent(".agents/skills")
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: skills.appendingPathComponent("docs").path), docs.path)

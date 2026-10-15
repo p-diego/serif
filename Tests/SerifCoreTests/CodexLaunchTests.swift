@@ -15,11 +15,16 @@ final class CodexLaunchTests: XCTestCase {
     }
 
     func testABotsServerIsIsolatedByItsCommandLine() {
-        let args = codexServerArgs(listen: "ws://127.0.0.1:4000", tokenHash: "h",
+        let args = codexServerArgs(listen: "ws://127.0.0.1:4000", tokenHash: "h", tools: "/My Apps/Serif.app/Contents/MacOS/serif-tools",
                                    plugins: [(id: "browser@openai-bundled", enabled: false), (id: "pdf@openai-primary-runtime", enabled: true)],
                                    hiddenSkills: ["work-pets:pets", "work-pets:create-pet"], connectors: false)
         XCTAssertEqual(args, ["app-server", "--listen", "ws://127.0.0.1:4000", "--ws-auth", "capability-token", "--ws-token-sha256", "h",
                               "--disable", "hooks", "-c", "notify=[]",
+                              // Serif's tools: never asking, the bot and its secret by name from the server's environment.
+                              "-c", #"mcp_servers.serif.command="/My Apps/Serif.app/Contents/MacOS/serif-tools""#,
+                              "-c", "mcp_servers.serif.args=[]",
+                              "-c", #"mcp_servers.serif.env_vars=["SERIF_BOT_ID","SERIF_TOKEN","SERIF_HOOK_SOCKET"]"#,
+                              "-c", #"mcp_servers.serif.default_tools_approval_mode="auto""#,
                               "-c", "plugins.browser@openai-bundled.enabled=false",          // no quotes: quoted, Codex ignores it
                               "-c", "plugins.pdf@openai-primary-runtime.enabled=true",
                               "-c", #"skills.config=[{name="work-pets:pets",enabled=false},{name="work-pets:create-pet",enabled=false}]"#,
@@ -30,6 +35,14 @@ final class CodexLaunchTests: XCTestCase {
         let bot = codexServerArgs(listen: "ws://127.0.0.1:4000", tokenHash: "h", connectors: true)
         XCTAssertFalse(bot.contains("apps"))
         XCTAssertEqual(Array(bot.suffix(4)), ["--disable", "hooks", "-c", "notify=[]"])      // hooks off whatever else
+        XCTAssertFalse(bot.joined().contains("mcp_servers"))                                 // no tools without a bot
+    }
+
+    func testToolsProblems() {
+        XCTAssertNil(codexToolsProblem(["data": [["name": "codex_apps"], ["name": "serif", "tools": [:], "toolsError": .null]]]))
+        XCTAssertEqual(codexToolsProblem(["data": [["name": "codex_apps"]]]), "Serif's tools are not loaded")
+        XCTAssertEqual(codexToolsProblem(["data": [["name": "serif", "toolsError": "spawn failed"]]]), "Serif's tools failed: spawn failed")
+        XCTAssertEqual(codexToolsProblem(["data": [["name": "serif", "runtimeStatus": "failed"]]]), "Serif's tools are failed")
     }
 
     func testThreadConfigNeverReplacesTheCommandLine() {
