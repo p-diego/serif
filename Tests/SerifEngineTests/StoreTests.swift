@@ -149,6 +149,40 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(try store.mailbox(project), Mailbox())          // memory matches the disk, which has nothing
     }
 
+    func testRoutinesAreKeptPerProjectAndABadFileSetAside() throws {
+        let (project, other) = (UUID(), UUID())
+        let routine = Routine(botId: UUID(), name: "Tidy", trigger: .every(minutes: 30), prompt: "Tidy up", createdBy: .user, createdAt: t0)
+        try Store(paths: paths).save([routine], project: project)
+        XCTAssertEqual(paths.routines(project).deletingLastPathComponent(), paths.mail(project).deletingLastPathComponent())
+        XCTAssertEqual(try Store(paths: paths).routines(project), [routine])         // read back by a new engine
+        XCTAssertEqual(try Store(paths: paths).routines(other), [])
+        // A file that does not decode: set aside, the routines start empty (spec §9).
+        try FileManager.default.createDirectory(at: paths.shared(other), withIntermediateDirectories: true)
+        try Data("{".utf8).write(to: paths.routines(other))
+        XCTAssertEqual(try Store(paths: paths).routines(other), [])
+        XCTAssertEqual(try String(contentsOf: paths.routines(other).appendingPathExtension("bad"), encoding: .utf8), "{")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.routines(other).path))
+        XCTAssertTrue(try String(contentsOf: paths.log, encoding: .utf8).contains("routines.json.bad"))
+        // A failed save leaves memory as the disk is; `keep` holds the engine's own move.
+        let store = try Store(paths: paths)
+        try Data().write(to: paths.routines(project).deletingLastPathComponent().appendingPathComponent("shared"))
+        XCTAssertEqual(store.routines(project), [routine])
+        var changed = routine; changed.enabled = false
+        store.keep([changed], project: project)
+        XCTAssertEqual(store.routines(project), [changed])
+    }
+
+    func testAMailJSONWrittenBy05Loads() throws {
+        // The decisions were added in 0.6: an older file must still be read, never set aside (spec §6 of 0.6).
+        let project = UUID()
+        let json = #"{"messages":[],"tasks":[],"lastTask":4}"#
+        try FileManager.default.createDirectory(at: paths.shared(project), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: paths.mail(project))
+        let box = try Store(paths: paths).mailbox(project)
+        XCTAssertEqual([box.lastTask, box.lastDecision, box.decisions.count], [4, 0, 0])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.mail(project).path))
+    }
+
     func testStateWrittenBy04Loads() throws {
         // As Serif 0.4 saved them: no lead, no creator (spec §7-8).
         let state = #"""

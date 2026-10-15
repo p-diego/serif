@@ -21,6 +21,7 @@ public final class Store {
     private let decoder = protocolDecoder()
     private var metas: [UUID: BotMeta] = [:]
     private var mailboxes: [UUID: Mailbox] = [:]
+    private var routineLists: [UUID: [Routine]] = [:]
     public private(set) var projects: [Project] = []
     public private(set) var bots: [Bot] = []
 
@@ -96,18 +97,7 @@ public final class Store {
     /// `mail.json.bad` and the mail starts empty (spec §10), with a line in the log.
     public func mailbox(_ project: UUID) -> Mailbox {
         if let cached = mailboxes[project] { return cached }
-        let url = paths.mail(project)
-        var mailbox = Mailbox()
-        if FileManager.default.fileExists(atPath: url.path) {
-            if let data = try? Data(contentsOf: url), let read = try? decoder.decode(Mailbox.self, from: data) {
-                mailbox = read
-            } else {
-                let bad = url.appendingPathExtension("bad")
-                try? FileManager.default.removeItem(at: bad)
-                try? FileManager.default.moveItem(at: url, to: bad)
-                Engine.log("mail of project \(project) unreadable: kept as mail.json.bad, starting empty", to: paths)
-            }
-        }
+        let mailbox = read(Mailbox.self, at: paths.mail(project), of: project) ?? Mailbox()
         mailboxes[project] = mailbox
         return mailbox
     }
@@ -121,6 +111,34 @@ public final class Store {
     /// The engine's own moves keep their change in memory when the write failed, so nothing repeats; the next
     /// successful save writes it (a restart before that may redo one delivery).
     public func keep(_ mailbox: Mailbox, project: UUID) { mailboxes[project] = mailbox }
+
+    /// A project's routines (spec §4 of 0.6), kept like its mail: read once, a bad file set aside as `routines.json.bad`.
+    public func routines(_ project: UUID) -> [Routine] {
+        if let cached = routineLists[project] { return cached }
+        let routines = read([Routine].self, at: paths.routines(project), of: project) ?? []
+        routineLists[project] = routines
+        return routines
+    }
+
+    public func save(_ routines: [Routine], project: UUID) throws {
+        try writeAtomically(try encoder.encode(routines), to: paths.routines(project))
+        routineLists[project] = routines
+    }
+
+    public func keep(_ routines: [Routine], project: UUID) { routineLists[project] = routines }
+
+    /// A project file that decodes; nil when there is none. One that cannot be read is kept as `<name>.bad` and the
+    /// project starts without it (spec §10 of 0.5, §9 of 0.6), with a line in the log.
+    private func read<T: Decodable>(_ type: T.Type, at url: URL, of project: UUID) -> T? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        if let data = try? Data(contentsOf: url), let value = try? decoder.decode(type, from: data) { return value }
+        let bad = url.appendingPathExtension("bad")
+        try? FileManager.default.removeItem(at: bad)
+        try? FileManager.default.moveItem(at: url, to: bad)
+        Engine.log("\(url.lastPathComponent) of project \(project) unreadable: kept as \(bad.lastPathComponent), starting empty",
+                   to: paths)
+        return nil
+    }
 
     public func prepareFolders(for bot: Bot) throws {
         try FileManager.default.createDirectory(at: paths.bot(bot.id).workspace, withIntermediateDirectories: true)
