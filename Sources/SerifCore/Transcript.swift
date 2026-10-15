@@ -33,11 +33,13 @@ public enum ChatItem: Equatable, Identifiable, Sendable {
     case steps(id: String, steps: [Step], status: StepsStatus)
     case request(id: String, request: PendingRequest, resolution: RequestResolution?, answer: RequestAnswer?)
     case system(id: String, note: SystemNote, at: Date)
+    case mail(id: String, note: MailNote, at: Date)
+    case task(id: String, card: TaskCard)
 
     public var id: String {
         switch self {
-        case .timestamp(let id, _), .user(let id, _, _, _), .assistant(let id, _, _, _),
-             .steps(let id, _, _), .request(let id, _, _, _), .system(let id, _, _): return id
+        case .timestamp(let id, _), .user(let id, _, _, _), .assistant(let id, _, _, _), .steps(let id, _, _),
+             .request(let id, _, _, _), .system(let id, _, _), .mail(let id, _, _), .task(let id, _): return id
         }
     }
 }
@@ -155,8 +157,16 @@ public struct Transcript: Equatable, Sendable {
             add(.system(id: "sys-\(r.seq)", note: note, at: r.at), r)
         case .subagent:
             break    // ignored in 0.1
-        case .mail, .task:
-            break    // no chat item yet
+        case .mail(let note):
+            add(.mail(id: "mail-\(r.seq)", note: note, at: r.at), r)
+        case .task(let card):
+            // Recorded again at every change of its state: the card already shown changes in place (spec §6).
+            let shown = items.lastIndex { if case let .task(_, c) = $0 { c.number == card.number } else { false } }
+            if let i = shown, case let .task(id, _) = items[i] {
+                items[i] = .task(id: id, card: card)
+            } else {
+                add(.task(id: "task-\(card.number)", card: card), r)
+            }
         }
     }
 

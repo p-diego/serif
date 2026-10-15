@@ -10,7 +10,26 @@ final class TranscriptTests: XCTestCase {
     func done(_ id: String, ok: Bool = true) -> ChatEvent { .toolFinished(toolUseId: id, ok: ok, output: "x", durationMs: 1) }
     func text(_ id: String, _ d: String, final: Bool = false) -> ChatEvent { .assistantText(messageId: id, index: 0, delta: d, final: final, promptId: nil) }
     func kinds(_ t: Transcript) -> [String] {
-        t.items.map { switch $0 { case .timestamp: "ts"; case .user: "user"; case .assistant: "asst"; case .steps: "steps"; case .request: "req"; case .system: "sys" } }
+        t.items.map {
+            switch $0 {
+            case .timestamp: "ts"; case .user: "user"; case .assistant: "asst"; case .steps: "steps"; case .request: "req"
+            case .system: "sys"; case .mail: "mail"; case .task: "task"
+            }
+        }
+    }
+
+    func testMailAndTaskCardsInPlace() {
+        // The card shows where the task first appeared and changes there; the mail is an item of its own (spec §6).
+        let open = TaskCard(number: 4, from: "Cody", to: "Milo", text: "Check", deadline: t0, status: .open)
+        var done = open
+        (done.status, done.result) = (.done, "Clean")
+        let note = MailNote(messageId: UUID(), kind: .task, from: "Cody", to: "Milo", direction: .received, text: "Check", taskNumber: 4)
+        var t = Transcript()
+        t.apply([rec(1, .task(open)), rec(2, .mail(note)), rec(3, .userMessage(text: "Task #4 from Cody", promptId: "p", origin: .bot)),
+                 rec(4, text("m", "ok", final: true)), rec(5, .task(done))])
+        XCTAssertEqual(kinds(t), ["ts", "task", "mail", "asst"])
+        XCTAssertEqual(t.items[1], .task(id: "task-4", card: done))
+        XCTAssertEqual(t.items[2], .mail(id: "mail-2", note: note, at: t0.addingTimeInterval(2)))
     }
 
     func testMailEchoIsNotShownAsYours() {

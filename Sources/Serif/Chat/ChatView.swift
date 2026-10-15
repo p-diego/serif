@@ -219,6 +219,8 @@ private struct ChatContent: View {
         case .request(_, let req, let resolution, let answer):
             RequestCard(request: req, resolution: resolution, given: answer, client: client)
         case .system(_, let note, _): SystemLine(note: note, botName: summary.bot.name)
+        case .mail(_, let note, _): MailRow(note: note, maxWidth: maxBubble)
+        case .task(_, let card): TaskCardView(card: card, projectId: summary.bot.projectId, client: client)
         }
     }
 }

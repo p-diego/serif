@@ -293,6 +293,9 @@ final class EngineClient {
     }
     func interrupt(bot: UUID) async throws { _ = try await send(.interrupt(botId: bot)) }
     func answer(request: UUID, _ answer: RequestAnswer) async throws { _ = try await send(.answer(requestId: request, answer: answer)) }
+    func cancelTask(project: UUID, number: Int) async throws {
+        _ = try await send(.cancelTask(projectId: project, number: number))
+    }
     func markRead(bot: UUID, seq: Int) async throws { _ = try await send(.markRead(botId: bot, seq: seq)) }
     func attachTerminal(bot: UUID) async throws -> ResponseBody { try await send(.attachTerminal(botId: bot)) }
     func detachTerminal(bot: UUID) async throws { _ = try await send(.detachTerminal(botId: bot)) }
