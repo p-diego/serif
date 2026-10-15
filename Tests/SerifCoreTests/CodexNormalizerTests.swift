@@ -48,6 +48,16 @@ private func shown(_ outputs: [NormalizerOutput]) -> [String] {
 private func notification(_ method: String, _ params: JSONValue) -> CodexMessage { .notification(method: method, params: params) }
 
 final class CodexNormalizerTests: XCTestCase {
+    func testAMessageWithFilesIsShownAsYourOwnWords() {
+        // Spec §4 of 0.7: Codex echoes the text item (the images carry no text); the chat keeps your words and the files.
+        var n = CodexNormalizer()
+        let sent = messageText("Look", attachments: ["allegati/2026-10-15/foto.png"])
+        n.expectChatMessage(sent, shown: "Look", attachments: ["allegati/2026-10-15/foto.png"])
+        let echo = notification("item/completed", ["threadId": "t", "turnId": "turn-1", "item": ["type": "userMessage", "id": "u-1",
+                                                                                                "content": [["type": "text", "text": .string(sent)]]]])
+        XCTAssertEqual(n.ingest(echo), [.event(.userMessage(text: "Look", promptId: "turn-1", origin: .chat, attachments: ["allegati/2026-10-15/foto.png"]))])
+    }
+
     func testATurnFromTheChat() throws {
         let sent = "Ricorda la parola segreta: GIRASOLE. Ora: scrivi una breve frase, poi esegui il comando shell `echo ciao`, poi scrivi una breve frase finale."
         XCTAssertEqual(try session(32...65, sent: [(sent, .introduction)]), [

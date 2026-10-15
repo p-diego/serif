@@ -16,17 +16,20 @@ public enum NormalizerOutput: Equatable, Sendable {
 }
 
 /// Texts Serif sent, waiting for the agent to report them as user messages: a match takes the origin it was sent with,
-/// anything else was typed in the terminal. Compared trimmed (Claude Code trims); earlier entries never arrived.
+/// anything else was typed in the terminal. Compared trimmed (Claude Code trims); earlier entries never arrived. A text
+/// sent with files or headed by new instructions (spec §4, §6 of 0.7) is shown as your own words (`shown`).
 struct SentMessages {
-    private var pending: [(text: String, origin: MessageOrigin)] = []
-    mutating func expect(_ text: String, origin: MessageOrigin) { pending.append((text, origin)) }
-    mutating func origin(of text: String) -> MessageOrigin {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let i = pending.firstIndex(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) else {
-            return .terminal
+    private var pending: [(sent: String, shown: String?, origin: MessageOrigin, attachments: [String]?)] = []
+    mutating func expect(_ sent: String, origin: MessageOrigin, shown: String? = nil, attachments: [String]? = nil) {
+        pending.append((sent, shown, origin, attachments))
+    }
+    mutating func match(_ echo: String) -> (text: String, origin: MessageOrigin, attachments: [String]?) {
+        let trimmed = echo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let i = pending.firstIndex(where: { $0.sent.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed }) else {
+            return (echo, .terminal, nil)
         }
         defer { pending.removeSubrange(0...i) }
-        return pending[i].origin
+        return (pending[i].shown ?? echo, pending[i].origin, pending[i].attachments)
     }
 }
 
@@ -64,7 +67,12 @@ public struct ClaudeNormalizer {
 
     public init() {}
 
-    public mutating func expectChatMessage(_ text: String, origin: MessageOrigin = .chat) { sent.expect(text, origin: origin) }
+    /// A text Serif is sending: its user message gets `origin`; `shown` (your own words) and `attachments` when the text
+    /// the agent gets carries files or a notice (spec §4, §6 of 0.7).
+    public mutating func expectChatMessage(_ text: String, origin: MessageOrigin = .chat, shown: String? = nil,
+                                           attachments: [String]? = nil) {
+        sent.expect(text, origin: origin, shown: shown, attachments: attachments)
+    }
     public var nextDeadline: Date? { held.first?.deadline }
 
     public mutating func flush(now: Date) -> [NormalizerOutput] {
@@ -205,7 +213,8 @@ public struct ClaudeNormalizer {
         case "UserPromptSubmit":
             // Blank lines left at either end by an unwrapped paste are not the message.
             let text = unwrappingPastes(p["prompt"]?.string ?? "").trimmingCharacters(in: .newlines)
-            return [.event(.userMessage(text: text, promptId: promptId, origin: sent.origin(of: text)))]
+            let m = sent.match(text)
+            return [.event(.userMessage(text: m.text, promptId: promptId, origin: m.origin, attachments: m.attachments))]
         case "PermissionRequest":
             let input = p["tool_input"] ?? .null
             let match = started.last { !finished.contains($0.id) && $0.promptId == promptId && $0.input == input }

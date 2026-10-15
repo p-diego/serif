@@ -38,6 +38,20 @@ final class ClaudeNormalizerTests: XCTestCase {
         XCTAssertEqual(n.ingest(p1, at: Date()), [.event(.userMessage(text: "ciao ", promptId: "p", origin: .chat))])
         XCTAssertEqual(n.ingest(p2, at: Date()), [.event(.userMessage(text: "altro", promptId: "p", origin: .terminal))])
     }
+    func testAMessageWithFilesOrANoticeIsShownAsYourOwnWords() throws {
+        // Spec §4, §6 of 0.7: the agent echoes the whole text; the chat keeps what you typed and the files.
+        var n = ClaudeNormalizer()
+        let sent = messageText("Look", attachments: ["allegati/2026-10-15/foto.png"])
+        n.expectChatMessage(sent, shown: "Look", attachments: ["allegati/2026-10-15/foto.png"])
+        n.expectChatMessage(instructionsNotice("Be brief.", before: "and this"), shown: "and this")
+        let submit = { (prompt: String) in
+            n.ingest(.object(["hook_event_name": .string("UserPromptSubmit"), "prompt": .string(prompt), "prompt_id": .string("p")]), at: Date())
+        }
+        XCTAssertEqual(submit(sent), [.event(.userMessage(text: "Look", promptId: "p", origin: .chat, attachments: ["allegati/2026-10-15/foto.png"]))])
+        XCTAssertEqual(submit(instructionsNotice("Be brief.", before: "and this")), [.event(.userMessage(text: "and this", promptId: "p", origin: .chat))])
+        XCTAssertEqual(submit("typed"), [.event(.userMessage(text: "typed", promptId: "p", origin: .terminal))])
+    }
+
     func testPermissionRequestBindsToStartedTool() throws {
         var n = ClaudeNormalizer(); let t = Date()
         let input: JSONValue = .object(["command": .string("touch a.txt")])

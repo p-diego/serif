@@ -15,8 +15,12 @@ public struct CodexNormalizer {
 
     public init() {}
 
-    /// A text Serif is sending (spec §4): its user message gets `origin`; anything else was typed in the terminal.
-    public mutating func expectChatMessage(_ text: String, origin: MessageOrigin = .chat) { sent.expect(text, origin: origin) }
+    /// A text Serif is sending (spec §4): its user message gets `origin`; anything else was typed in the terminal. `shown`
+    /// (your own words) and `attachments` when the text carries files or a notice (spec §4, §6 of 0.7).
+    public mutating func expectChatMessage(_ text: String, origin: MessageOrigin = .chat, shown: String? = nil,
+                                           attachments: [String]? = nil) {
+        sent.expect(text, origin: origin, shown: shown, attachments: attachments)
+    }
 
     public mutating func ingest(_ message: CodexMessage) -> [NormalizerOutput] {
         switch message {
@@ -77,7 +81,8 @@ public struct CodexNormalizer {
         switch item["type"]?.string {
         case "userMessage":
             let text = (item["content"]?.array ?? []).compactMap { $0["text"]?.string }.joined(separator: "\n")
-            return [.event(.userMessage(text: text, promptId: turn, origin: sent.origin(of: text)))]
+            let m = sent.match(text)
+            return [.event(.userMessage(text: m.text, promptId: turn, origin: m.origin, attachments: m.attachments))]
         case "agentMessage":
             // Commentary and final answer are both the bot's messages (spec §4); the last answer closes the turn.
             let text = item["text"]?.string ?? ""
