@@ -128,8 +128,7 @@ struct TaskCardView: View {
         busy = true; error = nil
         Task {
             do { try await client.cancelTask(project: projectId, number: card.number) }
-            catch { self.error = error.localizedDescription }
-            busy = false
+            catch { self.error = error.localizedDescription; busy = false }      // else the card changes when recorded
         }
     }
 }

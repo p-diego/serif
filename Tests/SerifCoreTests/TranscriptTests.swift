@@ -32,6 +32,42 @@ final class TranscriptTests: XCTestCase {
         XCTAssertEqual(t.items[2], .mail(id: "mail-2", note: note, at: t0.addingTimeInterval(2)))
     }
 
+    func testTaskCardChangesInPlaceToCancelledAndExpired() {
+        let open = TaskCard(number: 4, from: "Cody", to: "Milo", text: "Check", deadline: t0, status: .open)
+        for status in [TaskStatus.cancelled, .expired] {
+            var closed = open
+            closed.status = status
+            var t = Transcript()
+            t.apply([rec(1, .task(open)), rec(2, text("m", "ok", final: true)), rec(3, .task(closed))])
+            XCTAssertEqual(kinds(t), ["ts", "task", "asst"])
+            XCTAssertEqual(t.items[1], .task(id: "task-4", card: closed))
+        }
+    }
+
+    func testTwoTasksKeepSeparateCards() {
+        let four = TaskCard(number: 4, from: "Cody", to: "Milo", text: "A", deadline: t0, status: .open)
+        let five = TaskCard(number: 5, from: "Cody", to: "Ada", text: "B", deadline: t0, status: .open)
+        var fiveDone = five
+        fiveDone.status = .done
+        var t = Transcript()
+        t.apply([rec(1, .task(four)), rec(2, .task(five)), rec(3, .task(fiveDone))])
+        XCTAssertEqual(kinds(t), ["ts", "task", "task"])
+        XCTAssertEqual(t.items[1], .task(id: "task-4", card: four))              // untouched by #5's change
+        XCTAssertEqual(t.items[2], .task(id: "task-5", card: fiveDone))
+    }
+
+    func testPrependKeepsTheLatestTaskStatus() {
+        let open = TaskCard(number: 4, from: "Cody", to: "Milo", text: "A", deadline: t0, status: .open)
+        var done = open
+        done.status = .done
+        let all = [rec(1, .task(open)), rec(2, text("m", "ok", final: true)), rec(3, .task(done))]
+        var whole = Transcript(); whole.apply(all)
+        var paged = Transcript(); paged.apply([all[2]])                          // only the last record loaded so far
+        paged.prepend(Array(all[0...1]))                                         // the history arrives afterwards
+        XCTAssertEqual(paged.items, whole.items)
+        XCTAssertEqual(paged.items[1], .task(id: "task-4", card: done))
+    }
+
     func testMailEchoIsNotShownAsYours() {
         // The text a bot gets from the mail is not the user's: the mail's own item shows it (spec §6).
         var t = Transcript()
