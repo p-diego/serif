@@ -159,8 +159,9 @@ extension Engine {
         case let .markRead(botId, seq):
             let rt = try runtime(botId)
             updateMeta(rt) { $0.lastReadSeq = max($0.lastReadSeq, seq) }
-            let lastRead = store.meta(botId).lastReadSeq
-            rt.unread = isUnread(lastReadSeq: lastRead, records: try store.records(bot: botId, afterSeq: lastRead))
+            // From the first record: whether the mail started a turn is told by its start (spec §6).
+            rt.unread = isUnread(lastReadSeq: store.meta(botId).lastReadSeq,
+                                 records: try store.records(bot: botId, afterSeq: 0))
             push(.botChanged(rt.summary))
             return .ok
         case let .attachTerminal(botId):

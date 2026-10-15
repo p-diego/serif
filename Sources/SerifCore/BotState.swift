@@ -83,10 +83,13 @@ public struct StateTracker: Sendable {
     }
 }
 
-/// True if a turn ended (normally, failed or interrupted) after the last read sequence number.
+/// True if a turn ended (normally, failed or interrupted) after the last read sequence number, unless the mail started
+/// it (spec §6 of 0.5): `records` from the turn's start on.
 public func isUnread(lastReadSeq: Int, records: [ChatEventRecord]) -> Bool {
-    records.contains { record in
-        guard record.seq > lastReadSeq else { return false }
+    var origin: MessageOrigin?
+    return records.contains { record in
+        if case let .userMessage(_, _, o) = record.event { origin = o }
+        guard record.seq > lastReadSeq, origin != .bot else { return false }
         switch record.event {
         case .turnEnded, .turnFailed, .turnInterrupted: return true
         default: return false

@@ -308,6 +308,17 @@ final class StateTrackerTests: XCTestCase {
         XCTAssertFalse(isUnread(lastReadSeq: 0, records: recs))
     }
 
+    func testATurnTheMailStartedIsNotUnread() {
+        // Spec §6: the bots' traffic is nothing for the user to read; the user's next turn is.
+        let recs = [record(1, .userMessage(text: "Task #1 from Cody", promptId: "p1", origin: .bot)),
+                    record(2, .turnEnded(promptId: "p1", lastMessage: "done")),
+                    record(3, .userMessage(text: "hi", promptId: "p2", origin: .chat)),
+                    record(4, .turnEnded(promptId: "p2", lastMessage: "hello"))]
+        XCTAssertFalse(isUnread(lastReadSeq: 0, records: Array(recs.prefix(2))))
+        XCTAssertTrue(isUnread(lastReadSeq: 2, records: recs))
+        XCTAssertFalse(isUnread(lastReadSeq: 4, records: recs))
+    }
+
     func testNotUnreadWhenNoRecords() {
         XCTAssertFalse(isUnread(lastReadSeq: 0, records: []))
     }

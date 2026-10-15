@@ -13,6 +13,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private var badge: Int?
     /// Last seq notified per bot: replays after a reconnect never notify twice.
     private var lastSeq: [UUID: Int] = [:]
+    /// Who started each bot's current turn: a turn the mail started ends without a notification (spec §6).
+    private var turnOrigin: [UUID: MessageOrigin] = [:]
 
     init(client: EngineClient) {
         self.client = client
@@ -41,11 +43,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         guard let center, let bot = client.state.bots[id]?.bot else { return }
         guard record.seq > (lastSeq[id] ?? -1) else { return }
         lastSeq[id] = record.seq
+        if case let .userMessage(_, _, origin) = record.event { turnOrigin[id] = origin }
         // "Not now" at first launch: macOS asks the first time a bot waits for you; this notification waits for the answer.
         var asking: Task<Void, Never>?
         if case .requestOpened = record.event { asking = Task { await Self.requestAuthorizationIfNeeded() } }
         let windowKey = NSApp.isActive && NSApp.keyWindow != nil
-        guard let kind = shouldNotify(event: record.event, bot: bot, viewingBot: client.selectedBot, windowKey: windowKey) else { return }
+        guard let kind = shouldNotify(event: record.event, bot: bot, viewingBot: client.selectedBot,
+                                      windowKey: windowKey, turnOrigin: turnOrigin[id]) else { return }
         let content = UNMutableNotificationContent()
         content.sound = .default
         content.userInfo = ["bot": id.uuidString]

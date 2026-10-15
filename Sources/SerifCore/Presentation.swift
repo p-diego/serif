@@ -136,12 +136,14 @@ public func requestSummary(_ r: PendingRequest) -> RequestSummary {
 /// Out-of-window signals; the app turns each into a localized notification.
 public enum NotificationKind: Equatable, Sendable { case waiting, finished, failed, rateLimited }
 
-/// Whether a chat event deserves a notification: never for muted bots, never while the user looks at that bot's chat.
-public func shouldNotify(event: ChatEvent, bot: Bot, viewingBot: UUID?, windowKey: Bool) -> NotificationKind? {
+/// Whether a chat event deserves a notification: never for muted bots, never while the user looks at that bot's chat,
+/// never "finished" for a turn the mail started (`turnOrigin`, spec §6 of 0.5); cards and errors always.
+public func shouldNotify(event: ChatEvent, bot: Bot, viewingBot: UUID?, windowKey: Bool,
+                         turnOrigin: MessageOrigin? = nil) -> NotificationKind? {
     guard bot.notifications, !(viewingBot == bot.id && windowKey) else { return nil }
     switch event {
     case .requestOpened: return .waiting
-    case .turnEnded: return .finished
+    case .turnEnded: return turnOrigin == .bot ? nil : .finished
     case .turnFailed(let reason):
         let r = reason.lowercased()
         return r.contains("rate_limit") || r.contains("rate limit") ? .rateLimited : .failed

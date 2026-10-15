@@ -111,5 +111,12 @@ final class RequestSummaryTests: XCTestCase {
             XCTAssertEqual(shouldNotify(event: event, bot: bot, viewingBot: UUID(), windowKey: true), kind)
             XCTAssertNil(shouldNotify(event: event, bot: quiet, viewingBot: nil, windowKey: false))
         }
+        // A turn the mail started ends quietly; its cards and errors still notify (spec §6).
+        XCTAssertNil(shouldNotify(event: .turnEnded(promptId: nil, lastMessage: "x"), bot: bot, viewingBot: nil, windowKey: false,
+                                  turnOrigin: .bot))
+        XCTAssertEqual(shouldNotify(event: .requestOpened(request), bot: bot, viewingBot: nil, windowKey: false, turnOrigin: .bot),
+                       .waiting)
+        XCTAssertEqual(shouldNotify(event: .turnFailed(reason: "boom"), bot: bot, viewingBot: nil, windowKey: false, turnOrigin: .bot),
+                       .failed)
     }
 }

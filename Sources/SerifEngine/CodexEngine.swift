@@ -203,6 +203,7 @@ extension Engine {
         push(.botChanged(rt.summary))
         if resumed { record(.system(.resumed), rt) }
         deliverCodex(rt)
+        deliverMail(rt)                 // mail that waited while it was down (spec §6)
         terminalViewersChanged(rt)      // an app that kept the terminal open across a restart
     }
 

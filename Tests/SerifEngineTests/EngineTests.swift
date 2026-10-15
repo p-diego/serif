@@ -323,6 +323,142 @@ final class EngineTests: XCTestCase {
         XCTAssertFalse(launch.args.joined().contains(launch.env["SERIF_TOKEN"] ?? "-"))     // never in the arguments
     }
 
+    // MARK: - Mail between bots
+
+    /// Bob and Ada in one project, each introduced: Bob plays `bob`, Ada `ada` (fake-claude scenarios) or the Codex
+    /// scenario `codex`. The engine is `engines[0]`.
+    private func twoBots(bob: [JSONValue], ada: [JSONValue], adaAgent: Agent = .claude,
+                         codex: String = "codex-basic") throws -> (TestClient, Bot, Bot) {
+        try play(bob)
+        try makeEngine("basic", codex: codex, env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        let first = try createBot(client)
+        waitFor(client, "Bob introduced") { $0.chatEvents(first.id).contains { label($0) == "turnEnded" } }
+        try play(ada)                               // read by Ada's fake when she starts
+        let second = try createBot(client, in: first.projectId, name: "Ada", agent: adaAgent)
+        waitFor(client, "Ada introduced") { $0.chatEvents(second.id).contains { label($0) == "turnEnded" } }
+        return (client, first, second)
+    }
+
+    private func turnsEnded(_ m: [EngineMessage], _ bot: Bot) -> Int { m.chatEvents(bot.id).filter { label($0) == "turnEnded" }.count }
+
+    private func mailText(_ m: [EngineMessage], _ bot: Bot) -> String? {
+        m.chatEvents(bot.id).lazy.compactMap { if case let .userMessage(text, _, .bot) = $0 { text } else { nil } }.last
+    }
+
+    func testATaskToAFreeBotStartsItsTurnAtOnce() throws {
+        let (client, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
+                + [tool("send_message", ["to": "ada", "body": "Check the logs", "kind": "task"])] + stop("p1"),
+            ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "Checked."))
+        XCTAssertEqual(request(client, .markRead(botId: ada.id, seq: Int.max / 2)), .ok)
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Give Ada the logs")), .ok)
+        waitFor(client, "Ada's task turn") { self.turnsEnded($0, ada) == 2 }
+        let card = client.all.chatEvents(ada.id).lazy.compactMap { if case let .task(c) = $0 { c } else { nil } }.first
+        XCTAssertEqual(card?.number, 1)
+        XCTAssertEqual([card?.from, card?.to, card?.text], ["Bob", "Ada", "Check the logs"])
+        XCTAssertEqual(card?.status, .open)
+        // Her card, then the bubble, then the turn the mail started (spec §6).
+        XCTAssertEqual(Array(client.all.chatEvents(ada.id).map(label).suffix(5)),
+                       ["task(#1 open)", "mail(received task)", "userMessage", "assistantText", "turnEnded"])
+        let text = try XCTUnwrap(mailText(client.all, ada))
+        XCTAssertTrue(text.hasPrefix("Task #1 from Bob, a bot of this project (deadline "))
+        XCTAssertTrue(text.hasSuffix("When done, call complete_task with task_id 1.\n\nCheck the logs"))
+        // Bob's chat: the card and the line, inside the turn the user started.
+        XCTAssertEqual(Array(client.all.chatEvents(bob.id).map(label).suffix(5)),
+                       ["userMessage", "task(#1 open)", "mail(sent task)", "assistantText", "turnEnded"])
+        // The mail turn is nothing to read; the user's is (spec §6).
+        XCTAssertEqual(client.all.summaries(ada.id).last?.unread, false)
+        XCTAssertEqual(client.all.summaries(bob.id).last?.unread, true)
+        let box = try Store(paths: paths).mailbox(bob.projectId)
+        XCTAssertNotNil(box.messages.first?.deliveredAt)
+        XCTAssertEqual(box.tasks.first?.status, .open)
+    }
+
+    func testABotOfAnotherProjectCannotBeReached() throws {
+        // Review Focus 2: a name that only another project has is no one here (spec §4).
+        try play([sessionStart] + prompt("p0") + stop("p0"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        let zed = try createBot(client, name: "Zed")                                  // a project of its own
+        for bot in [bob, zed] { waitFor(client, "introduced") { self.turnsEnded($0, bot) == 1 } }
+        XCTAssertEqual(callTool(engine, as: bob, "send_message", ["to": "Zed", "body": "hi", "kind": "note"]),
+                       ToolResult("no bot of this project is called Zed", isError: true))
+        XCTAssertEqual(try Store(paths: paths).mailbox(zed.projectId), Mailbox())
+        XCTAssertEqual(try Store(paths: paths).mailbox(bob.projectId), Mailbox())
+    }
+
+    func testAWholeMessageOf64KBArrivesAsMail() throws {
+        // Review Focus 4: the longest body, pasted into Claude Code, is still recognised as the mail it is.
+        let (client, bob, ada) = try twoBots(bob: [sessionStart] + prompt("p0") + stop("p0"),
+                                             ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1"))
+        let body = (0..<1024).map { "line \($0) " + String(repeating: "é", count: 26) }.joined(separator: "\n")
+        XCTAssertLessThanOrEqual(body.utf8.count, 65_536)
+        XCTAssertGreaterThan(body.utf8.count, 60_000)
+        XCTAssertFalse(callTool(engines[0], as: bob, "send_message", ["to": "Ada", "body": .string(body), "kind": "note"]).isError)
+        waitFor(client, "Ada's mail turn") { self.turnsEnded($0, ada) == 2 }
+        XCTAssertEqual(mailText(client.all, ada), "Note from Bob:\n\n" + body)
+        XCTAssertFalse(client.all.chatEvents(ada.id).contains { if case .userMessage(_, _, .terminal) = $0 { true } else { false } })
+    }
+
+    func testAPasteThatNeverArrivedDoesNotHoldBackTheNextMail() throws {
+        // Review Focus 1: Claude Code swallowed the first paste (no UserPromptSubmit); the user's next message unblocks it.
+        let (client, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0"),
+            ada: [sessionStart] + prompt("p0") + stop("p0") + [["waitPaste": true]] + prompt("p1") + stop("p1")
+                + prompt("p2") + stop("p2"))
+        let engine = engines[0]
+        XCTAssertFalse(callTool(engine, as: bob, "send_message", ["to": "Ada", "body": "one", "kind": "note"]).isError)
+        XCTAssertFalse(callTool(engine, as: bob, "send_message", ["to": "Ada", "body": "two", "kind": "note"]).isError)
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "hello")), .ok)
+        waitFor(client, "the second note's turn") { self.turnsEnded($0, ada) == 3 }
+        XCTAssertEqual(mailText(client.all, ada), "Note from Bob:\n\ntwo")
+        XCTAssertTrue(client.all.chatEvents(ada.id).contains(.userMessage(text: "hello", promptId: "p1", origin: .chat)))
+    }
+
+    func testMailForABusyBotWaitsForTheEndOfItsTurn() throws {
+        let (client, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
+                + [tool("send_message", ["to": "Ada", "body": "When you can", "kind": "note"])] + stop("p1"),
+            // Ada's second turn runs until the test types GO; a paste before that prints EARLY.
+            ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "GO", "unexpected": "EARLY"]]
+                + stop("p1") + prompt("p2") + stop("p2", "Noted."))
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "Work long")), .ok)
+        waitFor(client, "Ada working") { $0.chatEvents(ada.id).filter { label($0) == "userMessage" }.count == 2 }
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Tell Ada")), .ok)
+        waitFor(client, "Bob wrote") { $0.chatEvents(bob.id).contains { label($0) == "mail(sent note)" } }
+        Thread.sleep(forTimeInterval: 0.5)                          // a delivery into her turn would be here by now
+        XCTAssertFalse(client.all.chatEvents(ada.id).contains { label($0).hasPrefix("mail") })
+        XCTAssertEqual(request(client, .terminalInput(botId: ada.id, data: Data("GO".utf8))), .ok)
+        waitFor(client, "the note's turn") { self.turnsEnded($0, ada) == 3 }
+        XCTAssertEqual(Array(client.all.chatEvents(ada.id).map(label).suffix(5)),
+                       ["turnEnded", "mail(received note)", "userMessage", "assistantText", "turnEnded"])
+        XCTAssertEqual(mailText(client.all, ada), "Note from Bob:\n\nWhen you can")
+        guard case .terminal = request(client, .attachTerminal(botId: ada.id)) else { return XCTFail("no terminal") }
+        XCTAssertFalse(client.all.terminalText.contains("EARLY"))
+    }
+
+    func testMailForABusyCodexBotNeverSteersItsTurn() throws {
+        let (client, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
+                + [tool("send_message", ["to": "Ada", "body": "Check the logs", "kind": "task", "deadline_hours": 2])] + stop("p1"),
+            ada: [], adaAgent: .codex, codex: "codex-mail-busy")
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "Work long")), .ok)
+        waitFor(client, "Ada working") { $0.chatEvents(ada.id).filter { label($0) == "userMessage" }.count == 2 }
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Delegate")), .ok)
+        waitFor(client, "Bob delegated") { $0.chatEvents(bob.id).contains { label($0) == "mail(sent task)" } }
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "Finish")), .ok)       // the user's message steers, as before
+        waitFor(client, "the task's turn") { self.turnsEnded($0, ada) == 3 }
+        XCTAssertEqual(codexRequests("turn/steer").compactMap { $0["input"]?.array?.first?["text"]?.string }, ["Finish"])
+        let text = try XCTUnwrap(codexRequests("turn/start").last?["input"]?.array?.first?["text"]?.string)
+        XCTAssertTrue(text.hasPrefix("Task #1 from Bob") && text.hasSuffix("Check the logs"))
+        XCTAssertEqual(mailText(client.all, ada), text)
+        XCTAssertEqual(client.all.summaries(ada.id).last?.state, .ready)
+    }
+
     func testTheSystemPromptNamesTheColleagues() throws {
         try makeEngine("basic").start()
         let client = try connect()

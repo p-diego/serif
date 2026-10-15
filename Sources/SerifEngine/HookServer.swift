@@ -67,6 +67,7 @@ extension Engine {
                 rt.tracker.sessionStarted()
                 if rt.tracker.state != state { push(.botChanged(rt.summary)) }
                 deliverOutbox(rt)
+                deliverMail(rt)                             // mail that waited while it was down (spec §6)
             case .rateLimited:
                 rt.tracker.rateLimited(until: nil)
                 push(.botChanged(rt.summary))
@@ -93,6 +94,7 @@ extension Engine {
     /// Types a message into the bot's terminal; the normalizer then gives its UserPromptSubmit this origin.
     func type(_ text: String, origin: MessageOrigin = .chat, into rt: BotRuntime) {
         rt.normalizer.expectChatMessage(text, origin: origin)
+        rt.awaitingEcho = true
         rt.host.typeMessage(text)
     }
 
@@ -121,16 +123,17 @@ extension Engine {
         if !replied, case let .hook(hook) = open.asker { reply(hook, nil) }
         record(.requestClosed(requestId: id, resolution: how, answer: answer), rt)
         push(.requestClosed(requestId: id, botId: rt.bot.id, resolution: how, answer: answer))
-        guard rt.bot.agent == .claude, !rt.outbox.isEmpty, !hasOpenRequest(rt) else { return }    // Codex texts never wait on cards
-        // Texts held during the request. Claude Code drops its dialog only after it has read the hook's answer: typed at
-        // once, the Enter could still land in it. Sent 1 s later, unless a new request opened or the bot went down (then
-        // the next SessionStart delivers them).
+        guard !hasOpenRequest(rt) else { return }
+        guard rt.bot.agent == .claude else { return deliverMail(rt) }      // Codex texts never wait on cards
+        // Texts held during the request, then mail. Claude Code drops its dialog only after it has read the hook's
+        // answer: typed at once, the Enter could still land in it. Sent 1 s later, unless a new request opened or the
+        // bot went down (then the next SessionStart delivers them).
         // ponytail: fixed 1 s delay; read the screen for the dialog if a slow Mac ever lets it through.
         queue.asyncAfter(deadline: .now() + 1) { [weak self, weak rt] in
             guard let self, let rt, rt.host.isRunning, !rt.stopping, !hasOpenRequest(rt) else { return }
             switch rt.tracker.state {
             case .starting, .crashed, .stopped: return
-            default: deliverOutbox(rt)
+            default: deliverOutbox(rt); deliverMail(rt)
             }
         }
     }

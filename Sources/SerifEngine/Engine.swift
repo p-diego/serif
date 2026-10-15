@@ -24,6 +24,10 @@ final class BotRuntime {
     var resumed = false                       // the running launch used --resume
     var unread = false
     var lastEvent: ChatEventRecord?
+    // Mail (spec §6)
+    var turnOrigin: MessageOrigin?            // who started the current (or last) turn: a mail turn is not news
+    var turnTask: Int?                        // the task whose delivery started the current turn: heads its chain
+    var awaitingEcho = false                  // a text typed into Claude Code whose UserPromptSubmit has not come yet
     // A Codex bot (spec §4)
     var codex: CodexServer?                   // its own app-server, while it runs
     var codexNormalizer = CodexNormalizer()
@@ -59,8 +63,10 @@ final class BotRuntime {
             previewMessage = nil
             let detail = request.input["command"]?.string ?? request.input["questions"]?.array?.first?["question"]?.string
             preview = [request.toolName, detail].compactMap { $0 }.joined(separator: ": ")
+        case let .userMessage(_, _, origin):
+            turnOrigin = origin
         case .turnEnded, .turnFailed, .turnInterrupted:
-            unread = true
+            if turnOrigin != .bot { unread = true }          // the bots' own traffic is nothing to read (spec §6)
         default:
             break
         }
@@ -105,6 +111,8 @@ public final class Engine {
     let store: Store
     let encoder = protocolEncoder()
     let decoder = protocolDecoder()
+    /// The engine's clock for the mail (deadlines, expiry); tests move it.
+    var now: () -> Date = { Date() }
     var bots: [UUID: BotRuntime] = [:]
     /// Who waits for a card's answer: Claude Code's serif-hook, or the Codex server's request id.
     enum Asker { case hook(LineConnection), codex(JSONValue) }
@@ -248,6 +256,7 @@ public final class Engine {
             log("bot \(rt.bot.id): \(problem)")
         }
         rt.normalizer = ClaudeNormalizer()
+        rt.awaitingEcho = false
         rt.resumed = store.meta(rt.bot.id).hasStarted
         // The project's plugins and the bot's, each folder once; one no longer on this Mac is left out (spec §6.2-6.3).
         let plugins = ClaudeCatalog.pluginFolders(project.plugins + rt.bot.plugins,
@@ -386,15 +395,25 @@ public final class Engine {
         let (state, unread) = (rt.tracker.state, rt.unread)
         rt.tracker.apply(event)
         rt.note(record)
-        if case .userMessage = event { rt.turn = [] }
+        if case let .userMessage(_, _, origin) = event {
+            rt.turn = []
+            rt.awaitingEcho = false
+            if origin != .bot { rt.turnTask = nil }         // a turn the mail did not start carries no task's chain
+        }
         rt.turn.append(event)
         push(.chatEvent(botId: rt.bot.id, record: record))
         if rt.tracker.state != state || rt.unread != unread { push(.botChanged(rt.summary)) }
         // A user message means Claude Code saved a conversation: from now on launches use --resume.
         if case .userMessage = event, !store.meta(rt.bot.id).hasStarted { updateMeta(rt) { $0.hasStarted = true } }
-        if case .turnEnded = event {
+        switch event {
+        case .turnEnded:
             closeRequests(of: rt, .answeredInTerminal)      // safety net: nothing can still be waiting after the turn
             repairTranscript(rt)
+            deliverMail(rt)                                 // the next message waiting for it (spec §6)
+        case .turnFailed, .turnInterrupted:
+            deliverMail(rt)
+        default:
+            break
         }
     }
 
