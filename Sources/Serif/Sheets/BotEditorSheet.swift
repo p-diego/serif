@@ -10,6 +10,7 @@ struct BotEditorSheet: View {
     @State private var name: String
     @State private var face: BotFace
     @State private var agent: Agent
+    @State private var baseAgent: Agent                   // the bot's agent as the form knows it: a restore moves it
     @State private var model: BotModel                    // a Claude Code bot's
     @State private var codexModel: String?                // a Codex bot's (nil: Codex's default)
     @State private var instructions: String
@@ -47,6 +48,7 @@ struct BotEditorSheet: View {
         _name = State(initialValue: editing?.name ?? "")
         _face = State(initialValue: editing?.face ?? randomFace(existing: roster.bots.values.map(\.bot.face)))
         _agent = State(initialValue: editing?.agent ?? .claude)
+        _baseAgent = State(initialValue: editing?.agent ?? .claude)
         _model = State(initialValue: BotModel(value: editing?.agent == .codex ? nil : editing?.model))
         _codexModel = State(initialValue: editing?.agent == .codex ? editing?.model : nil)
         _instructions = State(initialValue: editing?.instructions ?? "")
@@ -111,7 +113,7 @@ struct BotEditorSheet: View {
                     }
                     .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
                 }
-                if let bot = editing, agent != bot.agent {
+                if let bot = editing, agent != baseAgent {
                     Text(String(localized: "\(bot.name) will start again with \(agentName(agent)) in a new conversation. The chat stays, the plugins are reset."))
                         .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -180,9 +182,13 @@ struct BotEditorSheet: View {
                     if changes.isEmpty {
                         Text(String(localized: "No changes yet")).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary)
                     }
-                    ForEach(Array(changes.reversed().enumerated()), id: \.offset) { i, change in
-                        ChangeRow(change: change, author: authorName(change.by)) { restore(change, bot) }
-                        if i < changes.count - 1 { Divider().overlay(Theme.borderTertiary) }
+                    let now = client.roster.bots[bot.id]?.bot.agent ?? bot.agent
+                    ForEach(Array(changes.enumerated().reversed()), id: \.element.rowId) { i, change in
+                        // A model or plugins value of the other agent cannot go back onto this one; skills are shared.
+                        let otherAgent = [.model, .plugins].contains(change.field) && (agentAtChange(i) ?? now) != now
+                        ChangeRow(change: change, author: authorName(change.by),
+                                  restore: otherAgent ? nil : { restore(change, bot) })
+                        if i > 0 { Divider().overlay(Theme.borderTertiary) }
                     }
                 }
                 // The bot's routines (spec §4 of 0.6): the live list, changed by the engine as runs go.
@@ -229,7 +235,8 @@ struct BotEditorSheet: View {
             model = .standard; codexModel = nil
             if template != nil { suggest(template) } else { plugins = [] }
             // A bot that exists: the switch is confirmed here and done on Save (spec §7 of 0.7).
-            if let bot = editing, agent != bot.agent, !confirmAgentChange(bot, to: agent) { agent = bot.agent }
+            // Against the form's own base, not `editing` (stale after a Restore of the agent, which sets `baseAgent` first).
+            if let bot = editing, agent != baseAgent, !confirmAgentChange(bot, to: agent) { agent = baseAgent }
         }
     }
 
@@ -259,6 +266,12 @@ struct BotEditorSheet: View {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    /// The agent the bot had when `changes[i]` was recorded, read from the agent entries; nil when the history has none.
+    private func agentAtChange(_ i: Int) -> Agent? {
+        let value = changes[..<i].last { $0.field == .agent }?.new ?? changes.first { $0.field == .agent }?.old
+        return value?.string.flatMap(Agent.init(rawValue:))
+    }
+
     private func authorName(_ by: ChangeAuthor) -> String {
         switch by {
         case .user: String(localized: "You")
@@ -278,7 +291,7 @@ struct BotEditorSheet: View {
                 if change.field == .agent {
                     guard confirmAgentChange(live, to: restored.agent) else { return }
                     try await client.changeAgent(bot: bot.id, to: restored.agent)
-                    agent = restored.agent
+                    baseAgent = restored.agent; agent = restored.agent       // done already: no second confirmation
                 } else {
                     try await client.updateBot(restored)
                     (name, face, instructions, freedom, notifications) =
@@ -424,7 +437,7 @@ private extension Freedom {
 private struct ChangeRow: View {
     let change: BotChange
     let author: String
-    let restore: () -> Void
+    let restore: (() -> Void)?                 // nil: the value is of the other agent (spec §5)
     @State private var open = false
 
     var body: some View {
@@ -433,7 +446,8 @@ private struct ChangeRow: View {
                 Text("\(change.at.formatted(date: .numeric, time: .shortened)) · \(author) · \(fieldLabel(change.field))")
                     .font(.system(size: Theme.Size.small, weight: .medium))
                 Spacer(minLength: 8)
-                CardButton(title: String(localized: "Restore"), style: .ghost, action: restore)
+                if let restore { CardButton(title: String(localized: "Restore"), style: .ghost, action: restore) }
+                else { Text(String(localized: "Other agent")).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textTertiary) }
             }
             HStack(alignment: .top, spacing: 6) {
                 value(change.old)
@@ -469,6 +483,11 @@ private struct ChangeRow: View {
         default: v.compactText
         }
     }
+}
+
+private extension BotChange {
+    /// A stable identity for the history list (the entry's time and field), so a row keeps its open state.
+    var rowId: String { "\(at.timeIntervalSince1970)-\(field.rawValue)" }
 }
 
 func fieldLabel(_ field: BotField) -> String {
