@@ -2597,7 +2597,29 @@ final class EngineTests: XCTestCase {
                        .error("big.mov is larger than 16 MB"))
         XCTAssertEqual(request(client, .send(botId: bob.id, text: "x", attachments: ["../mail.json"])), .error("Unknown attachment ../mail.json"))
         XCTAssertEqual(request(client, .send(botId: bob.id, text: "x", attachments: ["allegati/../../x"])), .error("Unknown attachment allegati/../../x"))
+        Thread.sleep(forTimeInterval: 0.5)                          // a typed send for a refused one would end a turn by now
         XCTAssertEqual(turnsEnded(client.all, bob), 3)
+        // `..` inside a name is fine; only a `..` path component is refused. A name that differs by case is another file.
+        let odd = [AttachedFile(name: "report..pdf", data: Data([1])), AttachedFile(name: "Foto.png", data: Data([2]))]
+        guard case let .attached(oddPaths)? = request(client, .attach(botId: bob.id, files: odd)) else { return XCTFail("attach refused") }
+        XCTAssertEqual(oddPaths, ["\(day)/report..pdf", "\(day)/Foto-4.png"])
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "odd", attachments: oddPaths)), .ok)
+        let lower = [AttachedFile(name: "readme.txt", data: Data([3])), AttachedFile(name: "README.txt", data: Data([4]))]
+        guard case let .attached(twins)? = request(client, .attach(botId: bob.id, files: lower)) else { return XCTFail("attach refused") }
+        XCTAssertEqual(twins, ["\(day)/readme.txt", "\(day)/README-2.txt"])
+        XCTAssertEqual(try Data(contentsOf: shared.appendingPathComponent(twins[0])), Data([3]))
+    }
+
+    func testALostMessageShowsOnlyTheUsersWords() throws {
+        // The "may not have arrived" note quotes the user's text, not the attachment list added for the bot.
+        try makeEngine("basic", codex: "codex-lost-turn").start()
+        let client = try connect()
+        let bot = try createBot(client, agent: .codex)
+        waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } }
+        guard case let .attached(paths)? = request(client, .attach(botId: bot.id, files: [AttachedFile(name: "a.png", data: Data([1]))]))
+        else { return XCTFail("attach refused") }
+        XCTAssertEqual(request(client, .send(botId: bot.id, text: "Ancora?", attachments: paths)), .ok)
+        waitFor(client, "noted") { $0.chatEvents(bot.id).contains(.system(.messageMayNotHaveArrived(text: "Ancora?"))) }
     }
 
     func testACodexBotGetsTheImagesAsLocalImageItems() throws {

@@ -135,7 +135,7 @@ extension Engine {
         case let .send(botId, text, attachments):
             let rt = try runtime(botId)
             // Only paths `attach` gave: in the shared folder's allegati/, never above it.
-            if let bad = attachments?.first(where: { !$0.hasPrefix(AttachmentRules.folder + "/") || $0.contains("..") }) {
+            if let bad = attachments?.first(where: { !$0.hasPrefix(AttachmentRules.folder + "/") || ($0 as NSString).pathComponents.contains("..") }) {
                 throw Refusal("Unknown attachment \(bad)")
             }
             let message = Outgoing(text: text, origin: .chat, attachments: attachments)
@@ -165,11 +165,13 @@ extension Engine {
             let folder = attachmentFolder(day: now())
             let dir = paths.shared(rt.bot.projectId).appendingPathComponent(folder)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            var taken = Set((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
+            var taken = Set((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])   // compared without case
             var saved: [String] = []
             for file in files {
                 let name = uniqueFileName(safeFileName(file.name), taken: taken)
-                try file.data.write(to: dir.appendingPathComponent(name), options: .atomic)
+                // Last guard: never over a file that is there (APFS ignores case); a failure is the clear error.
+                do { try file.data.write(to: dir.appendingPathComponent(name), options: .withoutOverwriting) }
+                catch { throw Refusal("Could not save \(name)") }
                 taken.insert(name)
                 saved.append("\(folder)/\(name)")
             }

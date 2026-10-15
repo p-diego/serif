@@ -290,7 +290,7 @@ extension Engine {
             case let .failure(f) where f.neverSent:
                 return back()
             case .failure:
-                return record(.system(.messageMayNotHaveArrived(text: sent)), rt)
+                return record(.system(.messageMayNotHaveArrived(text: message.text)), rt)
             }
             if rt.interruptPending { interruptCodex(rt) }
             deliverCodex(rt)
