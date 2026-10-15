@@ -14,7 +14,13 @@ public let serifToolsGuide = """
     chats: put everything the other bot needs in the message, and pass files through the project's shared folder, \
     naming their paths. A job that needs a bot of its own can get one with create_bot; you may change your own \
     instructions and those of the bots you created (update_instructions) and archive the bots you created \
-    (archive_bot).
+    (archive_bot). You can also work on your own: create_routine makes a job of yours run on a schedule (every N \
+    minutes, daily or on chosen weekdays at a time, or a cron expression) or when a signal comes; list_routines, \
+    set_routine_enabled, delete_routine and run_routine manage your own routines. emit_signal announces an event by \
+    name (say "build-done"): every routine of this project that waits for that signal runs. When a choice belongs to \
+    the user, raise_decision asks them with two to six short options and you go on with the rest of the work: the \
+    answer comes later as a message. Ask only for choices that are theirs to make, keep the options short, and never \
+    wait or poll for the answer.
     """
 
 /// A date as bots read it: "16 Oct 2026, 18:05", in the Mac's time zone.
