@@ -118,6 +118,8 @@ final class RoutineTests: XCTestCase {
         XCTAssertEqual(triggerProblem(.signal(name: String(repeating: "a", count: 65))), "the signal name must be 1 to 64 characters with no spaces")
         XCTAssertNil(triggerProblem(.signal(name: String(repeating: "a", count: 64))))
         XCTAssertEqual(triggerProblem(.cron(expression: "* * *")), "cron must have five fields: minute hour day month weekday")
+        XCTAssertEqual(triggerProblem(.cron(expression: "0 0 31 2 *")), "this cron expression never runs")
+        XCTAssertNil(triggerProblem(.cron(expression: "0 9 * * 1")))
         XCTAssertNil(routineLimitError(count: 19))
         XCTAssertEqual(routineLimitError(count: 20), "you already have 20 routines: delete one first")
         XCTAssertEqual(clockTime("09:05").map { [$0.hour, $0.minute] }, [9, 5])
@@ -147,6 +149,7 @@ final class RoutineTests: XCTestCase {
         XCTAssertEqual(triggerText(.every(minutes: 180)), "every 3 hours")
         XCTAssertEqual(triggerText(.dailyAt(hour: 9, minute: 5)), "daily at 09:05")
         XCTAssertEqual(triggerText(.weekdaysAt(days: [5, 1], hour: 18, minute: 0)), "on Mon, Fri at 18:00")
+        XCTAssertEqual(triggerText(.weekdaysAt(days: [0, 1, 9], hour: 18, minute: 0)), "on Mon at 18:00")   // corrupt file: no crash
         XCTAssertEqual(triggerText(.signal(name: "build-done")), "on the signal «build-done»")
         XCTAssertEqual(triggerText(.cron(expression: "0 9 * * 1-5")), "cron 0 9 * * 1-5")
     }

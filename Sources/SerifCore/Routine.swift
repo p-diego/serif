@@ -140,8 +140,14 @@ public func triggerProblem(_ t: RoutineTrigger) -> String? {
     case .weekdaysAt(let days, let h, let m):
         days.isEmpty || !days.isSubset(of: 1...7) ? "days must be between 1 (Monday) and 7 (Sunday)" : timeProblem(h, m)
     case .signal(let name): signalNameProblem(name)
-    case .cron(let e): CronSchedule(e) == nil ? "cron must have five fields: minute hour day month weekday" : nil
+    case .cron(let e): cronProblem(e)
     }
+}
+
+/// A cron that does not parse, or never fires within a year (say, 31 February), is refused at creation.
+private func cronProblem(_ e: String) -> String? {
+    guard let cron = CronSchedule(e) else { return "cron must have five fields: minute hour day month weekday" }
+    return cron.next(after: Date(), calendar: .current) == nil ? "this cron expression never runs" : nil
 }
 
 private func timeProblem(_ hour: Int, _ minute: Int) -> String? {

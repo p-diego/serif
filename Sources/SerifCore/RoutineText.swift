@@ -21,7 +21,9 @@ public func triggerText(_ t: RoutineTrigger) -> String {
     case .every(let m): m == 60 ? "every hour" : m % 60 == 0 ? "every \(m / 60) hours" : "every \(m) minutes"
     case .dailyAt(let h, let m): "daily at \(clockText(h, m))"
     case .weekdaysAt(let days, let h, let m):
-        "on " + days.sorted().map { ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][$0 - 1] }.joined(separator: ", ")
+        // A day outside 1–7 can only come from a corrupt routines.json: skipped, never a crash.
+        "on " + days.sorted().filter { (1...7).contains($0) }
+            .map { ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][$0 - 1] }.joined(separator: ", ")
             + " at \(clockText(h, m))"
     case .signal(let name): "on the signal «\(name)»"
     case .cron(let e): "cron \(e)"
