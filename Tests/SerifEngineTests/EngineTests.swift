@@ -253,6 +253,31 @@ final class EngineTests: XCTestCase {
         return bot
     }
 
+    /// One call of `bot`'s Serif tools on hook.sock, as serif-tools makes it, with the secret of its launch or `token`.
+    private func callTool(_ engine: Engine, as bot: Bot, _ name: String, _ arguments: JSONValue = [:],
+                          token: String? = nil) -> ToolResult {
+        let secret = token ?? engine.queue.sync { engine.bots[bot.id]?.token } ?? ""
+        return forwardTool(name, arguments, environment: ["SERIF_HOOK_SOCKET": paths.hookSocket.path,
+                                                           "SERIF_BOT_ID": bot.id.uuidString, "SERIF_TOKEN": secret])
+    }
+
+    func testToolsAnswerTheBotOfTheRunningLaunchOnly() throws {
+        let engine = try makeEngine("basic")
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        let ada = try createBot(client, in: bob.projectId, name: "Ada")
+        for bot in [bob, ada] { waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } } }
+        XCTAssertEqual(callTool(engine, as: ada, "list_bots"),
+                       ToolResult("Bots of this project:\n- Bob: Help. [ready, Claude Code]\n- Ada (you): Help. [ready, Claude Code]"))
+        XCTAssertEqual(callTool(engine, as: ada, "make_coffee"), ToolResult("Serif has no tool called make_coffee", isError: true))
+        // A secret from another launch, or an archived bot: dropped like a hook (spec §10).
+        XCTAssertEqual(callTool(engine, as: ada, "list_bots", token: "old"), .unreachable)
+        XCTAssertEqual(request(client, .archiveBot(id: ada.id)), .ok)
+        XCTAssertEqual(callTool(engine, as: ada, "list_bots"), .unreachable)
+        XCTAssertFalse(client.all.chatEvents(ada.id).contains { label($0) == "toolStarted" })     // never a hook event
+    }
+
     func testTheSystemPromptNamesTheColleagues() throws {
         try makeEngine("basic").start()
         let client = try connect()

@@ -17,6 +17,11 @@ extension Engine {
         // Unknown or archived bot, or a token from another launch: dropped.
         guard let id = UUID(uuidString: envelope.botId), let rt = bots[id], rt.bot.archivedAt == nil,
               rt.token == envelope.token else { return reply(connection, nil) }
+        // A call of the bot's Serif tools (spec §4), not a hook: its result goes back as JSON.
+        if let tool = envelope.payload["tool"]?.string {
+            let result = handleTool(tool, envelope.payload["arguments"] ?? [:], from: rt)
+            return reply(connection, (try? JSONEncoder().encode(result)).map { String(decoding: $0, as: UTF8.self) })
+        }
         let event = envelope.payload["hook_event_name"]?.string
         let waits = event == "PermissionRequest"
         if !waits { reply(connection, nil) }
