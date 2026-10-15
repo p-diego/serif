@@ -271,12 +271,23 @@ final class EngineTests: XCTestCase {
         for bot in [bob, ada] { waitFor(client, "first turn") { $0.chatEvents(bot.id).contains { label($0) == "turnEnded" } } }
         XCTAssertEqual(callTool(engine, as: ada, "list_bots"),
                        ToolResult("Bots of this project:\n- Bob: Help. [ready, Claude Code]\n- Ada (you): Help. [ready, Claude Code]"))
+        XCTAssertFalse(client.all.chatEvents(ada.id).contains { label($0) == "toolStarted" })     // live: never a hook event
+        // Not listed: an archived colleague and a bot of another project; the lead carries its marker.
+        let cleo = try createBot(client, in: bob.projectId, name: "Cleo")
+        _ = try createBot(client, name: "Zed")
+        XCTAssertEqual(request(client, .archiveBot(id: cleo.id)), .ok)
+        guard case let .snapshot(snapshot) = request(client, .snapshot),
+              var project = snapshot.projects.first(where: { $0.id == bob.projectId }) else { return XCTFail("no project") }
+        project.leadBotId = bob.id
+        guard case .project = request(client, .updateProject(project)) else { return XCTFail("lead refused") }
+        XCTAssertEqual(callTool(engine, as: ada, "list_bots"),
+                       ToolResult("Bots of this project:\n- Bob: Help. [ready, Claude Code, lead]\n"
+                                  + "- Ada (you): Help. [ready, Claude Code]"))
         XCTAssertEqual(callTool(engine, as: ada, "make_coffee"), ToolResult("Serif has no tool called make_coffee", isError: true))
         // A secret from another launch, or an archived bot: dropped like a hook (spec §10).
         XCTAssertEqual(callTool(engine, as: ada, "list_bots", token: "old"), .unreachable)
         XCTAssertEqual(request(client, .archiveBot(id: ada.id)), .ok)
         XCTAssertEqual(callTool(engine, as: ada, "list_bots"), .unreachable)
-        XCTAssertFalse(client.all.chatEvents(ada.id).contains { label($0) == "toolStarted" })     // never a hook event
     }
 
     // Scenarios written by a test: fake-claude reads the whole file when a bot starts, so a test can give each bot its own.
