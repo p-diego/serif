@@ -538,6 +538,114 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(callTool(engine, as: ada, "check_inbox"), ToolResult("No open tasks and no new messages."))
     }
 
+    func testTheUserCancelsATaskAndBothBotsAreTold() throws {
+        let turns = [sessionStart] + prompt("p0") + stop("p0") + (1...3).flatMap { prompt("p\($0)") + stop("p\($0)") }
+        let (client, bob, ada) = try twoBots(bob: turns, ada: turns)
+        let engine = engines[0]
+        XCTAssertFalse(callTool(engine, as: bob, "send_message", ["to": "Ada", "body": "Check the logs", "kind": "task"]).isError)
+        waitFor(client, "Ada's task turn") { self.turnsEnded($0, ada) == 2 }
+        XCTAssertEqual(request(client, .cancelTask(projectId: bob.projectId, number: 1)), .ok)
+        waitFor(client, "both told") { self.turnsEnded($0, bob) == 2 && self.turnsEnded($0, ada) == 3 }
+        XCTAssertEqual(mailText(client.all, bob), "Task #1 to Ada was cancelled by the user")
+        XCTAssertEqual(mailText(client.all, ada), "Task #1 from Bob was cancelled by the user")
+        for bot in [bob, ada] { XCTAssertTrue(client.all.chatEvents(bot.id).map(label).contains("task(#1 cancelled)")) }
+        XCTAssertEqual(request(client, .cancelTask(projectId: bob.projectId, number: 1)), .error("task #1 is already cancelled"))
+    }
+
+    func testAnExpiredTaskTellsItsRequesterOnly() throws {
+        let (client, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1"),
+            ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "GO"]] + stop("p1"))
+        let engine = engines[0]
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "Work long")), .ok)
+        waitFor(client, "Ada working") { $0.chatEvents(ada.id).filter { label($0) == "userMessage" }.count == 2 }
+        let sent = callTool(engine, as: bob, "send_message", ["to": "Ada", "body": "x", "kind": "task", "deadline_hours": 1])
+        XCTAssertFalse(sent.isError)
+        engine.queue.sync {
+            engine.expireTasks()                                        // not yet: nothing happens
+            engine.now = { Date().addingTimeInterval(3601) }
+            engine.expireTasks()
+        }
+        waitFor(client, "Bob told") { self.turnsEnded($0, bob) == 2 }
+        XCTAssertEqual(mailText(client.all, bob), "Task #1 to Ada expired without a reply")
+        XCTAssertTrue(client.all.chatEvents(bob.id).map(label).contains("task(#1 expired)"))
+        // Ada never had it: no card, no turn for it (spec §5).
+        XCTAssertEqual(request(client, .terminalInput(botId: ada.id, data: Data("GO".utf8))), .ok)
+        waitFor(client, "Ada's turn ended") { self.turnsEnded($0, ada) == 2 }
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertFalse(client.all.chatEvents(ada.id).contains { label($0).hasPrefix("task") || label($0).hasPrefix("mail") })
+    }
+
+    func testMailWaitingAtARestartIsDeliveredByTheNextEngine() throws {
+        let (first, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0"),
+            ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "NEVER"]])
+        XCTAssertEqual(request(first, .send(botId: ada.id, text: "Work long")), .ok)
+        waitFor(first, "Ada working") { $0.chatEvents(ada.id).filter { label($0) == "userMessage" }.count == 2 }
+        XCTAssertFalse(callTool(engines[0], as: bob, "send_message", ["to": "Ada", "body": "hi", "kind": "note"]).isError)
+        shutdown(engines[0])                                            // Ada never got it: it is only on disk
+        try play([sessionStart] + prompt("p9") + stop("p9"))
+        try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        waitFor(client, "delivered after the restart") { self.turnsEnded($0, ada) == 1 }
+        XCTAssertEqual(mailText(client.all, ada), "Note from Bob:\n\nhi")
+        XCTAssertTrue(client.all.chatEvents(ada.id).map(label).contains("mail(received note)"))
+
+    }
+
+    func testArchivingAProjectStartsNoTurnForItsBots() throws {
+        // Review Focus 3: a notice for a bot about to be archived never starts its turn.
+        let turns = [sessionStart] + prompt("p0") + stop("p0") + (1...3).flatMap { prompt("p\($0)") + stop("p\($0)") }
+        let (client, bob, ada) = try twoBots(bob: turns, ada: turns)
+        XCTAssertFalse(callTool(engines[0], as: bob, "send_message", ["to": "Ada", "body": "x", "kind": "task"]).isError)
+        waitFor(client, "Ada's task turn") { self.turnsEnded($0, ada) == 2 }
+        XCTAssertEqual(request(client, .archiveProject(id: bob.projectId)), .ok)
+        for bot in [bob, ada] { waitFor(client, "archived") { $0.summaries(bot.id).last?.state == .stopped } }
+        Thread.sleep(forTimeInterval: 0.5)
+        for bot in [bob, ada] { XCTAssertFalse(client.all.chatEvents(bot.id).map(label).contains("mail(received system)")) }
+        XCTAssertEqual(try Store(paths: paths).mailbox(bob.projectId).tasks.map(\.status), [.cancelled])
+    }
+
+    func testARestartInAMailTurnDeliversNothingTwiceAndTheTaskCanStillClose() throws {
+        // Review Focus 5: the engine restarts while Ada works on task #1.
+        let (first, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0"),
+            ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "NEVER"]])
+        XCTAssertFalse(callTool(engines[0], as: bob, "send_message", ["to": "Ada", "body": "x", "kind": "task"]).isError)
+        waitFor(first, "Ada on it") { $0.chatEvents(ada.id).contains { if case .userMessage(_, _, .bot) = $0 { true } else { false } } }
+        shutdown(engines[0])
+        try play([sessionStart] + prompt("p9") + stop("p9"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        waitFor(client, "Ada back") { $0.summaries(ada.id).last?.state == .ready }
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertNil(mailText(client.all, ada))                                       // delivered once, before the restart
+        XCTAssertEqual(callTool(engine, as: ada, "complete_task", ["task_id": 1, "result": "Done late"]),
+                       ToolResult("Task #1 closed; Bob has been told"))
+        waitFor(client, "Bob's reply") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(mailText(client.all, bob), "Reply from Ada to your task #1, now done:\n\nDone late")
+    }
+
+    func testArchivingABotCancelsItsTasksAndDropsItsMail() throws {
+        let (client, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1") + prompt("p2") + stop("p2"),
+            ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "NEVER"]])
+        let engine = engines[0]
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "Work long")), .ok)
+        waitFor(client, "Ada working") { $0.chatEvents(ada.id).filter { label($0) == "userMessage" }.count == 2 }
+        XCTAssertFalse(callTool(engine, as: ada, "send_message", ["to": "Bob", "body": "Check", "kind": "task"]).isError)
+        waitFor(client, "Bob's task turn") { self.turnsEnded($0, bob) == 2 }
+        XCTAssertFalse(callTool(engine, as: bob, "send_message", ["to": "Ada", "body": "hi", "kind": "note"]).isError)
+        XCTAssertEqual(request(client, .archiveBot(id: ada.id)), .ok)
+        waitFor(client, "Bob told") { self.turnsEnded($0, bob) == 3 }
+        XCTAssertEqual(mailText(client.all, bob), "Task #1 from Ada was cancelled: Ada was archived")
+        XCTAssertTrue(client.all.chatEvents(bob.id).map(label).contains("task(#1 cancelled)"))
+        XCTAssertTrue(try String(contentsOf: paths.log, encoding: .utf8).contains("bot \(ada.id) archived: a note from Bob dropped"))
+        XCTAssertEqual(callTool(engine, as: bob, "send_message", ["to": "Ada", "body": "?", "kind": "note"]),
+                       ToolResult("Ada is archived", isError: true))
+    }
+
     func testTheSystemPromptNamesTheColleagues() throws {
         try makeEngine("basic").start()
         let client = try connect()

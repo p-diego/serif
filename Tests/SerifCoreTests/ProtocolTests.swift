@@ -178,6 +178,7 @@ final class ProtocolTests: XCTestCase {
         try assertRoundTrip(AppRequest.agentStatus(.codex))
     }
     func testAppRequestShutdown() throws { try assertRoundTrip(AppRequest.shutdown) }
+    func testAppRequestCancelTask() throws { try assertRoundTrip(AppRequest.cancelTask(projectId: projectId, number: 17)) }
 
     // MARK: ResponseBody
 

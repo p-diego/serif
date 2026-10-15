@@ -156,6 +156,10 @@ extension Engine {
             return .ok
         case let .answer(requestId, answer):
             return try self.answer(requestId, answer)
+        case let .cancelTask(projectId, number):
+            do { try cancelTask(number, in: projectId, by: nil, reason: nil) }
+            catch let refusal as MailError { throw Refusal(refusal.text) }
+            return .ok
         case let .markRead(botId, seq):
             let rt = try runtime(botId)
             updateMeta(rt) { $0.lastReadSeq = max($0.lastReadSeq, seq) }

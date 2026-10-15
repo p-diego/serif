@@ -120,6 +120,7 @@ public final class Engine {
     var apps: [ObjectIdentifier: (connection: LineConnection, terminals: Set<UUID>)] = [:]
     var stopping = false
     private var servers: [LineServer] = []
+    private var mailSweep: DispatchSourceTimer?
     private var lockFD: Int32 = -1
 
     public init(paths: SerifPaths, locate: @escaping @Sendable (Agent) -> String?, hookCommand: String,
@@ -146,6 +147,11 @@ public final class Engine {
                 lockFD = fd
                 stopLeftoverCodexServers()
                 for bot in store.bots { launch(addRuntime(bot)) }
+                let sweep = DispatchSource.makeTimerSource(queue: queue)
+                sweep.schedule(deadline: .now() + 60, repeating: 60)
+                sweep.setEventHandler { [weak self] in self?.expireTasks() }
+                sweep.resume()
+                mailSweep = sweep
             }
         } catch {
             queue.sync { servers.forEach { $0.close() }; servers = [] }
@@ -161,6 +167,8 @@ public final class Engine {
             stopping = true
             servers.forEach { $0.close() }
             servers = []
+            mailSweep?.cancel()
+            mailSweep = nil
             let group = DispatchGroup()
             // A catalog being read: its waiters get nil, even while Codex is still being checked; its process goes.
             let catalogServer = codexCatalogServer
@@ -335,6 +343,7 @@ public final class Engine {
     func archive(_ rt: BotRuntime) throws {
         rt.bot.archivedAt = Date()
         try store.save(bot: rt.bot)
+        mailArchived(rt.bot)
         stop(rt) { [weak self] in
             rt.tracker.stopped()
             self?.push(.botChanged(rt.summary))

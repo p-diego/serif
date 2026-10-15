@@ -110,8 +110,9 @@ extension Engine {
     /// Free for mail (spec §6): running and ready, no turn on its way or running, no card open, nothing of the user's
     /// waiting to go in first.
     func isFree(_ rt: BotRuntime) -> Bool {
-        guard rt.bot.archivedAt == nil, !rt.stopping, rt.tracker.state == .ready, !hasOpenRequest(rt), rt.outbox.isEmpty
-        else { return false }
+        guard rt.bot.archivedAt == nil, !rt.stopping, rt.tracker.state == .ready, !hasOpenRequest(rt),
+              rt.outbox.isEmpty, store.projects.first(where: { $0.id == rt.bot.projectId })?.archivedAt == nil
+        else { return false }      // (an archived project: its bots are about to go)
         if rt.bot.agent == .codex { return rt.codexReady && !rt.sending && rt.turnId == nil }
         return rt.host.isRunning && !rt.awaitingEcho
     }
@@ -135,6 +136,31 @@ extension Engine {
         } else {
             type(text, origin: .bot, into: rt)
         }
+    }
+
+    /// The tasks past their deadline expire and their requesters are told (spec §5); every 60 s, on `now`.
+    func expireTasks() {
+        for project in store.projects {
+            var box = store.mailbox(project.id)
+            let before = box
+            let expired = box.expire(at: now())
+            guard box != before else { continue }
+            save(box, project.id)
+            expired.forEach { taskChanged($0, in: box) }
+            deliverMail(in: project.id)
+        }
+    }
+
+    /// A bot archived (spec §5, §10): its open tasks are cancelled with a notice to the other bot, the mail waiting for
+    /// it is dropped and logged.
+    func mailArchived(_ bot: Bot) {
+        var box = store.mailbox(bot.projectId)
+        let (closed, dropped) = box.archive(bot.id, at: now())
+        guard !closed.isEmpty || !dropped.isEmpty else { return }
+        save(box, bot.projectId)
+        for m in dropped { log("bot \(bot.id) archived: a \(m.kind.rawValue) from \(botName(m.from)) dropped") }
+        closed.forEach { taskChanged($0, in: box) }
+        deliverMail(in: bot.projectId)
     }
 
     /// Every free bot of the project gets what waits for it.
