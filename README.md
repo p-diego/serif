@@ -93,7 +93,7 @@ project, and can create bots for a job. They do it with Serif's own tools, the s
 | `cancel_task` | cancels a task the bot asked for |
 | `check_inbox` | the bot's open tasks, the tasks it asked for, and the messages that came while it was busy |
 | `list_bots` | the project's bots: name, first line of the instructions, state, agent, lead |
-| `create_bot` | a new bot in the project, with the creator's agent, model and freedom, no skills, plugins or connectors of its own |
+| `create_bot` | a new bot in the project, with the creator's agent, model and freedom, no skills, plugins or connectors of its own; at most 12 active bots per project this way |
 | `update_instructions` | the bot's own instructions, or those of a bot it created, from that bot's next start |
 | `archive_bot` | archives a bot it created |
 

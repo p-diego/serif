@@ -120,6 +120,7 @@ extension Engine {
             $0.archivedAt == nil && $0.name.caseInsensitiveCompare(name) == .orderedSame
         }
         guard !taken else { throw MailError("a bot called \(name) is already in this project") }
+        if let full = createBotLimitError(activeBots: projectBots(rt).filter { $0.archivedAt == nil }.count) { throw MailError(full) }
         let new = NewBot(projectId: rt.bot.projectId, name: name, face: randomFace(existing: store.bots.map(\.face)),
                          agent: rt.bot.agent, model: rt.bot.model, instructions: instructions, freedom: rt.bot.freedom)
         _ = try createBot(new, createdBy: rt.bot)

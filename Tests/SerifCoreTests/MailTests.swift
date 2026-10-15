@@ -202,4 +202,13 @@ final class MailTests: XCTestCase {
             XCTAssertEqual($0 as? MailError, MailError("no bot of this project is called Zed"))
         }
     }
+
+    func testABotCannotCreateTheThirteenthBotOfAProject() {
+        // Spec §7 (author ruling 15/10): 12 active bots per project when a bot creates one; the user's sheet has no cap.
+        XCTAssertEqual(maxBotsPerProject, 12)
+        XCTAssertNil(createBotLimitError(activeBots: 0))
+        XCTAssertNil(createBotLimitError(activeBots: 11))
+        XCTAssertEqual(createBotLimitError(activeBots: 12), "this project already has 12 bots: ask the user to create more")
+        XCTAssertEqual(createBotLimitError(activeBots: 40), "this project already has 12 bots: ask the user to create more")
+    }
 }

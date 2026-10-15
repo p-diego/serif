@@ -3,6 +3,16 @@ import Foundation
 // Mail between the bots of a project (spec §5–6).
 
 /// What a mail message is: a task, a reply about one, a note, or a notice of the engine's (spec §5).
+/// At most this many active bots in a project when a BOT creates one (spec §7, author ruling 15/10, Gravity's number):
+/// a runaway model cannot start dozens of agent processes. The user's own sheet has no cap.
+public let maxBotsPerProject = 12
+
+/// The error `create_bot` answers when the project is full, nil when there is room for one more.
+public func createBotLimitError(activeBots: Int) -> String? {
+    activeBots < maxBotsPerProject ? nil
+        : "this project already has \(maxBotsPerProject) bots: ask the user to create more"
+}
+
 public enum MailKind: String, Codable, Sendable { case task, reply, note, system }
 
 /// Where a task stands (spec §5); only an open one changes.
