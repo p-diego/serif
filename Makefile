@@ -17,7 +17,7 @@ build:
 	swift build -c release
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources $(APP)/Contents/Library/LaunchAgents
-	cp $(BIN)/Serif $(BIN)/serifd $(BIN)/serif-hook $(APP)/Contents/MacOS/
+	cp $(BIN)/Serif $(BIN)/serifd $(BIN)/serif-hook $(BIN)/serif-tools $(APP)/Contents/MacOS/
 	cp $(RES)/Info.plist $(APP)/Contents/Info.plist
 	cp $(RES)/com.serif.engine.plist $(APP)/Contents/Library/LaunchAgents/
 	cp -R $(RES)/*.lproj $(APP)/Contents/Resources/
@@ -30,6 +30,7 @@ build:
 	# Nested executables first, then the bundle (which signs Contents/MacOS/Serif); no --deep needed.
 	$(SIGN) --identifier com.serif.engine $(APP)/Contents/MacOS/serifd
 	$(SIGN) --identifier com.serif.hook $(APP)/Contents/MacOS/serif-hook
+	$(SIGN) --identifier com.serif.tools $(APP)/Contents/MacOS/serif-tools
 	$(SIGN) --identifier com.serif.app $(APP)
 
 # Quits the app (only Serif: -x is an exact name), replaces the installed copy and opens it; the app registers itself
