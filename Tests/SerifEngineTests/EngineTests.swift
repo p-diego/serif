@@ -890,7 +890,7 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Tidy", .every(minutes: 5)))), .ok)
         sweep(engine, at: 301)
         waitFor(client, "crashed in the run") { self.runs($0, bob).last?.outcome == .failed }
-        XCTAssertTrue(client.all.chatEvents(bob.id).contains(.system(.crashed(reason: "Exit code 3"))))
+        waitFor(client, "the crash line") { $0.chatEvents(bob.id).contains(.system(.crashed(reason: "Exit code 3"))) }
         XCTAssertEqual(try Store(paths: paths).routines(bob.projectId).first?.lastOutcome, .failed)
     }
 
@@ -2943,9 +2943,18 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(d.bots.first { $0.name == "Milo" }?.agent, .codex)
         let z = try XCTUnwrap(d.bots.first { $0.name == "Zed" })
         XCTAssertEqual(z.lastCrash?.reason, "Exit code 3")
+        XCTAssertEqual(engine.queue.sync { engine.store.meta(zed.id).lastCrash?.reason }, "Exit code 3")      // kept in the meta
         if case .crashed = z.state {} else { XCTFail("\(z.state)") }
         XCTAssertTrue(d.logTail.contains { $0.hasSuffix("bot \(ada.id): plugin gone@shop not found, left out") }, d.logTail.joined(separator: "\n"))
         XCTAssertTrue(d.logTail.allSatisfy { !$0.isEmpty })
+        // The tail is cut again for anything token-shaped, whoever wrote it (spec §8 of 0.7).
+        let token = String(repeating: "ab12", count: 16)
+        let handle = try FileHandle(forWritingTo: paths.log)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("probe \(token) Bearer abc.def SERIF_TOKEN=\(token) end\n".utf8))
+        try handle.close()
+        guard case let .diagnostics(again)? = request(client, .diagnostics) else { return XCTFail("no diagnostics") }
+        XCTAssertEqual(again.logTail.last, "probe [redacted] [redacted] [redacted] end")
         // No secret: neither the bots' launch tokens nor the Codex server's secret, in the page or its text.
         let json = String(decoding: try protocolEncoder().encode(d), as: UTF8.self)
         let secrets = engine.queue.sync { engine.bots.values.map(\.token) + engine.bots.values.map(\.codexToken) }.filter { !$0.isEmpty }
@@ -2956,5 +2965,35 @@ final class EngineTests: XCTestCase {
         }
         XCTAssertFalse(json.contains("Work long"))                                   // nor a chat's text
         XCTAssertTrue(diagnosticsText(d).contains("- Zed (P, Claude Code): crashed: Exit code 3, starting again;"))
+    }
+
+    func testDiagnosticsRecheckNeverRelaunchesABotAndIsBounded() throws {
+        // Spec §8: the page rechecks the agents but starts nothing; a recheck that hangs does not hold the answer back.
+        let (flag, slow) = (root.path + "/logged-out", root.path + "/slow")
+        let engine = try makeEngine("crash", env: ["SERIF_FAKE_LOGGED_OUT": flag, "SERIF_FAKE_SLOW": slow])
+        try engine.start()
+        engine.queue.sync { engine.diagnosticsBound = 0.5 }
+        let client = try connect()
+        let bot = try createBot(client)
+        _ = try launches(1)
+        FileManager.default.createFile(atPath: flag, contents: nil)
+        let stopped = BotState.crashed(reason: AgentProblem.claudeNotSignedIn.rawValue, retryAt: nil)
+        waitFor(client, "stopped: not signed in") { $0.summaries(bot.id).contains { $0.state == stopped } }
+        try FileManager.default.removeItem(atPath: flag)                             // signed in again
+        guard case .diagnostics = request(client, .diagnostics) else { return XCTFail("no diagnostics") }
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertEqual(client.all.summaries(bot.id).last?.state, stopped)            // looking is not starting
+        XCTAssertEqual(try launches(1).count, 1)
+        FileManager.default.createFile(atPath: slow, contents: nil)                  // now `--version` takes 2 s
+        let start = Date()
+        guard case .diagnostics = request(client, .diagnostics) else { return XCTFail("no diagnostics") }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1.5)
+    }
+
+    func testTheLogNeverGetsAMessageTextAndATokenIsRedacted() throws {
+        let engine = try makeEngine("basic")
+        XCTAssertEqual(engine.caseName(of: EngineMessage.response(id: 1, body: .error("secret chat text"))), "response")
+        XCTAssertEqual(redacted("Bearer abc SERIF_TOKEN=x \(String(repeating: "f", count: 64)) ok"), "[redacted] [redacted] [redacted] ok")
+        XCTAssertEqual(redacted("a 63-char hex stays: \(String(repeating: "f", count: 63))"), "a 63-char hex stays: \(String(repeating: "f", count: 63))")
     }
 }

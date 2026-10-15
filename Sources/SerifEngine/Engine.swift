@@ -109,6 +109,9 @@ public final class Engine {
     /// that agent crashes (its next launch checks anew).
     var statuses: [Agent: AgentStatus] = [:]
     private var statusWaiters: [Agent: [(AgentStatus) -> Void]] = [:]
+    private var relaunchAfterCheck: Set<Agent> = []       // a check someone wants the stopped bots relaunched after
+    /// How long the diagnostics wait for the agents' recheck before answering with the last known statuses (spec §8 of 0.7).
+    var diagnosticsBound: TimeInterval = 5
     /// Codex's catalog (spec §6) and when it was read; the calls waiting for one being read.
     var codexCatalogRead: (catalog: CodexCatalog, at: Date)?
     var codexCatalogWaiters: [(CodexCatalog?) -> Void] = []
@@ -329,7 +332,8 @@ public final class Engine {
     /// `statuses`; `then` runs on the queue with it. Calls made while a check of that agent runs share it. While the agent
     /// has not been found, or is no longer where it was, it is looked for again, so installing or moving it needs no engine
     /// restart.
-    func checkAgent(_ agent: Agent, then: @escaping (AgentStatus) -> Void) {
+    func checkAgent(_ agent: Agent, relaunching: Bool = true, then: @escaping (AgentStatus) -> Void) {
+        if relaunching { relaunchAfterCheck.insert(agent) }
         statusWaiters[agent, default: []].append(then)
         guard statusWaiters[agent]?.count == 1 else { return }
         let (known, locate, env) = (statuses[agent]?.path, locate, botEnvironment(environment))
@@ -342,7 +346,7 @@ public final class Engine {
                 let waiters = statusWaiters.removeValue(forKey: agent) ?? []
                 waiters.forEach { $0(status) }
                 // Fixed: the bots stopped for this agent start by themselves (the app's Retry only asks for a check).
-                guard status.problem == nil else { return }
+                guard relaunchAfterCheck.remove(agent) != nil, status.problem == nil else { return }
                 for rt in bots.values where rt.bot.agent == agent {
                     if case let .crashed(reason, nil) = rt.tracker.state, AgentProblem(rawValue: reason) != nil { launch(rt) }
                 }
@@ -473,6 +477,7 @@ public final class Engine {
         if rt.tracker.state != state || rt.unread != unread { push(.botChanged(rt.summary)) }
         // A user message means Claude Code saved a conversation: from now on launches use --resume.
         if case .userMessage = event, !store.meta(rt.bot.id).hasStarted { updateMeta(rt) { $0.hasStarted = true } }
+        if case let .system(.crashed(reason)) = event { updateMeta(rt) { $0.lastCrash = .init(at: record.at, reason: reason) } }
         switch event {
         case .turnEnded:
             closeRequests(of: rt, .answeredInTerminal)      // safety net: nothing can still be waiting after the turn
@@ -504,7 +509,8 @@ public final class Engine {
 
     func send(_ message: EngineMessage, to connections: [LineConnection]) {
         guard !connections.isEmpty else { return }
-        guard let line = try? encoder.encode(message) else { return log("cannot encode \(message)") }
+        // Only the case's name: the message may carry a chat's text, which must not reach the log (spec §8 of 0.7).
+        guard let line = try? encoder.encode(message) else { return log("cannot encode \(caseName(of: message))") }
         for connection in connections {
             connection.send(line)
             if connection.pendingBytes > Self.maxPendingOutput {
@@ -513,6 +519,9 @@ public final class Engine {
             }
         }
     }
+
+    /// The name of an enum value's case, without its contents.
+    func caseName(of value: Any) -> String { Mirror(reflecting: value).children.first?.label ?? "\(value)" }
 
     /// Appends one line to `serifd.log`.
     func log(_ message: String) { Self.log(message, to: paths) }

@@ -8,6 +8,8 @@ public struct BotMeta: Codable, Equatable, Sendable {
     public var crashCount: Int = 0
     /// True after the first SessionStart (the next launch uses --resume).
     public var hasStarted: Bool = false
+    /// The last crash the engine recorded (spec §8 of 0.7): the diagnostics read it here, not from the chat. Nil in an old meta.json.
+    public var lastCrash: BotDiagnostics.Crash?
     public init() {}
 }
 

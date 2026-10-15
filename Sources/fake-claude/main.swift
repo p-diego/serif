@@ -8,6 +8,7 @@ let env = ProcessInfo.processInfo.environment
 // and the launch log. Signed out while the file SERIF_FAKE_LOGGED_OUT names exists.
 switch Array(CommandLine.arguments.dropFirst()) {
 case ["--version"]:
+    if let flag = env["SERIF_FAKE_SLOW"], FileManager.default.fileExists(atPath: flag) { Thread.sleep(forTimeInterval: 2) }
     print("2.1.296 (Claude Code)")
     exit(0)
 case ["auth", "status"]:

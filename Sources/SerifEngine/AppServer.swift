@@ -55,14 +55,19 @@ extension Engine {
                 send(.response(id: envelope.id, body: body), to: [connection])
             }
         }
-        // Both agents are checked anew, so the page says how they are now (spec §8 of 0.7).
+        // Both agents are checked anew, so the page says how they are now (spec §8 of 0.7); read-only (no bot is relaunched
+        // by it) and bounded: past `diagnosticsBound` the last known statuses stand.
         if case .diagnostics = envelope.request {
             let checks = DispatchGroup()
-            for agent in Agent.allCases { checks.enter(); checkAgent(agent) { _ in checks.leave() } }
-            return checks.notify(queue: queue) { [weak self] in
-                guard let self else { return }
+            var answered = false
+            let answer = { [weak self] in
+                guard let self, !answered else { return }
+                answered = true
                 send(.response(id: envelope.id, body: .diagnostics(diagnostics())), to: [connection])
             }
+            for agent in Agent.allCases { checks.enter(); checkAgent(agent, relaunching: false) { _ in checks.leave() } }
+            checks.notify(queue: queue, execute: answer)
+            return queue.asyncAfter(deadline: .now() + diagnosticsBound, execute: answer)
         }
         let body: ResponseBody
         do { body = try respond(to: envelope.request, from: connection) } catch {
