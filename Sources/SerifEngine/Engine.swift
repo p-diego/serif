@@ -6,6 +6,13 @@ public enum EngineError: Error { case alreadyRunning }
 /// A request the app turned down, sent back as `ResponseBody.error`.
 struct Refusal: Error { let reason: String; init(_ reason: String) { self.reason = reason } }
 
+/// A text on its way to the bot: yours, the mail's or a routine's, with the files of a message of yours (spec §4 of 0.7).
+struct Outgoing {
+    var text: String
+    var origin: MessageOrigin
+    var attachments: [String]? = nil
+}
+
 /// One bot's live state. Only touched on the engine queue.
 final class BotRuntime {
     var bot: Bot
@@ -13,7 +20,7 @@ final class BotRuntime {
     var normalizer = ClaudeNormalizer()
     var tracker = StateTracker()
     var token = UUID().uuidString             // new at every launch: hooks from an older process are dropped
-    var outbox: [(text: String, origin: MessageOrigin)] = []   // texts held until SessionStart, or until the open requests close
+    var outbox: [Outgoing] = []               // texts held until SessionStart, or until the open requests close
     var transcriptPath: String?
     var turn: [ChatEvent] = []                // events since the userMessage that opened the current turn
     var flushTimer: DispatchSourceTimer?
@@ -32,6 +39,8 @@ final class BotRuntime {
     var run: RoutineRun?                      // the routine's run this turn is, from its start to its outcome
     var runEnding: RoutineOutcome?            // set before the engine itself ends a run (its time limit, a crash); Stop is yours
     var turnChain = 0                         // the signal chain of this turn: a run a signal started is one longer than its sender's
+    // Instructions and agent (spec §6–7 of 0.7)
+    var instructionsPending = false           // new instructions not yet in the running prompt: the next message carries them
     // A Codex bot (spec §4)
     var codex: CodexServer?                   // its own app-server, while it runs
     var codexNormalizer = CodexNormalizer()
@@ -229,7 +238,7 @@ public final class Engine {
         record(.system(creator.map { .createdBy(name: $0.name) } ?? .botCreated), rt)
         let intro = introductionPrompt(instructions: new.instructions, firstInProject: firstInProject,
                                        language: languageName(preferredLanguages: Locale.preferredLanguages))
-        rt.outbox.append((intro, .introduction))
+        rt.outbox.append(Outgoing(text: intro, origin: .introduction))
         launch(rt)
         return bot
     }
@@ -273,6 +282,7 @@ public final class Engine {
             let instructions = linkedExists && project.readLinkedInstructions ? linkedInstructions(in: project.linkedFolder!) : nil
             prompt = systemPrompt(bot: rt.bot, project: project, paths: paths, linkedInstructions: instructions,
                                   bots: store.bots.filter { $0.projectId == project.id })
+            rt.instructionsPending = false      // the prompt has them (spec §6 of 0.7)
             if rt.bot.agent == .claude {
                 let files = paths.bot(rt.bot.id)
                 rt.token = UUID().uuidString        // new at every launch: older hooks and tools are dropped

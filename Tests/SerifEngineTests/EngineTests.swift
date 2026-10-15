@@ -2545,4 +2545,72 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(codexRequests("turn/steer").isEmpty)
         XCTAssertFalse(codexMessages().contains { $0["id"] == 9 && $0["method"] == nil })     // neither answered nor refused
     }
+
+    // MARK: - Attachments, history, instructions, agent switch, diagnostics (spec §4–8 of 0.7)
+
+    /// The bot's history as the engine answers it.
+    private func changes(_ client: TestClient, _ bot: Bot) -> [BotChange] {
+        if case let .changes(list)? = request(client, .changes(botId: bot.id)) { list } else { [] }
+    }
+
+    /// The text the bot's reply echoes back: `stop(id, "$PASTE")` makes the fake answer with the whole paste it got.
+    private func replies(_ m: [EngineMessage], _ bot: Bot) -> [String] {
+        m.chatEvents(bot.id).compactMap { if case let .assistantText(_, _, delta, _, _) = $0 { delta } else { nil } }
+    }
+
+    func testAttachedFilesAreCopiedNamedUniquelyAndListedForTheBot() throws {
+        // Spec §4: allegati/<day>/<name>, -2 and -3 for a name already there, the list under the text, the bubble with the
+        // paths; the limits and a path the engine did not give are refused before anything reaches the bot.
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "$PASTE") + prompt("p2") + stop("p2", "$PASTE"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        let png = AttachedFile(name: "foto.png", data: Data([0x89, 0x50, 0x4E, 0x47]))
+        let pdf = AttachedFile(name: "/Users/x/Desktop/note.pdf", data: Data("%PDF".utf8))
+        guard case let .attached(first)? = request(client, .attach(botId: bob.id, files: [png, pdf, png])) else { return XCTFail("attach refused") }
+        let day = attachmentFolder(day: Date())
+        XCTAssertEqual(first, ["\(day)/foto.png", "\(day)/note.pdf", "\(day)/foto-2.png"])
+        guard case let .attached(again)? = request(client, .attach(botId: bob.id, files: [png])) else { return XCTFail("attach refused") }
+        XCTAssertEqual(again, ["\(day)/foto-3.png"])
+        let shared = paths.shared(bob.projectId)
+        XCTAssertEqual(try Data(contentsOf: shared.appendingPathComponent(first[2])), png.data)
+        XCTAssertEqual(try Data(contentsOf: shared.appendingPathComponent(first[1])), pdf.data)
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Look at these", attachments: [first[0], first[1]])), .ok)
+        waitFor(client, "the turn") { self.turnsEnded($0, bob) == 2 }
+        XCTAssertEqual(replies(client.all, bob).last, "Look at these\n\nAttached files (in the project's shared folder):\n- \(day)/foto.png (image)\n- \(day)/note.pdf")
+        XCTAssertTrue(client.all.chatEvents(bob.id).contains(.userMessage(text: "Look at these", promptId: "p1", origin: .chat,
+                                                                           attachments: [first[0], first[1]])))
+        // Files alone (spec §4): the list is the whole message.
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "", attachments: [again[0]])), .ok)
+        waitFor(client, "the second turn") { self.turnsEnded($0, bob) == 3 }
+        XCTAssertEqual(replies(client.all, bob).last, "Attached files (in the project's shared folder):\n- \(day)/foto-3.png (image)")
+        XCTAssertTrue(client.all.chatEvents(bob.id).contains(.userMessage(text: "", promptId: "p2", origin: .chat, attachments: [again[0]])))
+        // The limits (spec §4, §10), and never a path of the app's own choosing.
+        XCTAssertEqual(request(client, .attach(botId: bob.id, files: (1...11).map { AttachedFile(name: "f\($0)", data: Data()) })),
+                       .error("at most 10 files per message"))
+        XCTAssertEqual(request(client, .attach(botId: bob.id, files: [AttachedFile(name: "big.mov", data: Data(count: (16 << 20) + 1))])),
+                       .error("big.mov is larger than 16 MB"))
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "x", attachments: ["../mail.json"])), .error("Unknown attachment ../mail.json"))
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "x", attachments: ["allegati/../../x"])), .error("Unknown attachment allegati/../../x"))
+        XCTAssertEqual(turnsEnded(client.all, bob), 3)
+    }
+
+    func testACodexBotGetsTheImagesAsLocalImageItems() throws {
+        // Spec §4: the same text, and each image also as a `localImage` by its absolute path, in the same input.
+        try makeEngine("basic", codex: "codex-two-turns").start()
+        let client = try connect()
+        let ada = try createBot(client, agent: .codex)
+        waitFor(client, "introduced") { self.turnsEnded($0, ada) == 1 }
+        let files = [AttachedFile(name: "foto.png", data: Data([1])), AttachedFile(name: "note.pdf", data: Data([2]))]
+        guard case let .attached(paths)? = request(client, .attach(botId: ada.id, files: files)) else { return XCTFail("attach refused") }
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "Describe", attachments: paths)), .ok)
+        waitFor(client, "the turn") { self.turnsEnded($0, ada) == 2 }
+        let text = messageText("Describe", attachments: paths)
+        XCTAssertEqual(codexRequests("turn/start").last?["input"],
+                       [["type": "text", "text": .string(text)],
+                        ["type": "localImage", "path": .string(self.paths.shared(ada.projectId).appendingPathComponent(paths[0]).path)]])
+        XCTAssertTrue(client.all.chatEvents(ada.id).contains(.userMessage(text: "Describe", promptId: "turn-2", origin: .chat, attachments: paths)))
+    }
 }

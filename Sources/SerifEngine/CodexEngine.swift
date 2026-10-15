@@ -257,15 +257,21 @@ extension Engine {
     func deliverCodex(_ rt: BotRuntime) {
         guard rt.codexReady, !rt.sending, !rt.outbox.isEmpty else { return }
         let message = rt.outbox.removeFirst()
-        rt.codexNormalizer.expectChatMessage(message.text, origin: message.origin)
-        sendTurn(message, to: rt, steering: rt.turnId)
+        let noticed = rt.instructionsPending
+        let sent = outgoingText(message, rt)
+        rt.codexNormalizer.expectChatMessage(sent, origin: message.origin, shown: sent == message.text ? nil : message.text,
+                                             attachments: message.attachments)
+        sendTurn(message, sent: sent, noticed: noticed, to: rt, steering: rt.turnId)
     }
 
     /// A text whose request never left (its server is going: restarted, crashed) goes back to the front of the outbox, for
-    /// the next launch. One that left and got no answer is not sent again, Codex may have taken it: the chat says so.
-    private func sendTurn(_ message: (text: String, origin: MessageOrigin), to rt: BotRuntime, steering turn: String?) {
-        guard let server = rt.codex, let thread = rt.thread else { return rt.outbox.insert(message, at: 0) }
-        let input: JSONValue = [["type": "text", "text": .string(message.text)]]
+    /// the next launch, with the instructions notice it carried (`noticed`) due again. One that left and got no answer is
+    /// not sent again, Codex may have taken it: the chat says so.
+    private func sendTurn(_ message: Outgoing, sent: String, noticed: Bool, to rt: BotRuntime, steering turn: String?) {
+        let back = { rt.outbox.insert(message, at: 0); if noticed { rt.instructionsPending = true } }
+        guard let server = rt.codex, let thread = rt.thread else { return back() }
+        let input = codexInput(text: sent, attachments: message.attachments ?? [],
+                               sharedFolder: paths.shared(rt.bot.projectId).path)
         let params: [String: JSONValue] = turn.map { ["threadId": .string(thread), "expectedTurnId": .string($0), "input": input] }
             ?? rt.turnPolicies.merging(["threadId": .string(thread), "input": input]) { $1 }
         rt.sending = true
@@ -278,13 +284,13 @@ extension Engine {
             case let .failure(f) where f.fromCodex && turn != nil:
                 // The turn ended before the steer: the text opens a new one, still ahead of the others.
                 if rt.turnId == turn { rt.turnId = nil }
-                rt.outbox.insert(message, at: 0)
+                back()
             case let .failure(f) where f.fromCodex:
                 record(.turnFailed(reason: "Codex: \(f.message)"), rt)
             case let .failure(f) where f.neverSent:
-                return rt.outbox.insert(message, at: 0)
+                return back()
             case .failure:
-                return record(.system(.messageMayNotHaveArrived(text: message.text)), rt)
+                return record(.system(.messageMayNotHaveArrived(text: sent)), rt)
             }
             if rt.interruptPending { interruptCodex(rt) }
             deliverCodex(rt)

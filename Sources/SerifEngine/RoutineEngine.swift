@@ -75,7 +75,7 @@ extension Engine {
         record(.routineRun(run), rt)
         let text = routineTurnText(routine, run: routine.runs, startedAt: started, signal: pending.signal)
         if rt.bot.agent == .codex {
-            rt.outbox.append((text, .routine))
+            rt.outbox.append(Outgoing(text: text, origin: .routine))
             deliverCodex(rt)
         } else {
             type(text, origin: .routine, into: rt)

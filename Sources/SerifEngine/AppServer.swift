@@ -120,27 +120,50 @@ extension Engine {
             return .ok
         case let .history(botId, beforeSeq, limit):
             return .history(try store.history(bot: botId, beforeSeq: beforeSeq, limit: limit))
-        case let .send(botId, text, _):
+        case let .send(botId, text, attachments):
             let rt = try runtime(botId)
+            // Only paths `attach` gave: in the shared folder's allegati/, never above it.
+            if let bad = attachments?.first(where: { !$0.hasPrefix(AttachmentRules.folder + "/") || $0.contains("..") }) {
+                throw Refusal("Unknown attachment \(bad)")
+            }
+            let message = Outgoing(text: text, origin: .chat, attachments: attachments)
             if rt.bot.agent == .codex {
                 if case .stopped = rt.tracker.state { throw Refusal("The bot is archived") }
                 // A new turn, or added to the running one; while its server starts, once it is ready (spec §4).
-                rt.outbox.append((text, .chat))
+                rt.outbox.append(message)
                 deliverCodex(rt)
                 return .ok
             }
-            if rt.stopping { rt.outbox.append((text, .chat)); return .ok }  // restart window: the relaunch's SessionStart delivers it
+            if rt.stopping { rt.outbox.append(message); return .ok }  // restart window: the relaunch's SessionStart delivers it
             switch rt.tracker.state {
-            case .starting, .crashed: rt.outbox.append((text, .chat))       // delivered on the next SessionStart
+            case .starting, .crashed: rt.outbox.append(message)       // delivered on the next SessionStart
             case .stopped: throw Refusal("The bot is archived")
             default:
                 // Enter would answer an open dialog ("Yes", approve the plan, option A): the text waits for the bot's last
                 // request to close, and behind texts already waiting so the order holds.
-                if hasOpenRequest(rt) || !rt.outbox.isEmpty { rt.outbox.append((text, .chat)) } else { type(text, into: rt) }
+                if hasOpenRequest(rt) || !rt.outbox.isEmpty { rt.outbox.append(message) }
+                else { type(text, attachments: attachments, into: rt) }
             }
             return .ok
-        case .attach, .changes:
-            throw Refusal("Not yet")       // served by Tasks 3 and 5
+        case let .attach(botId, files):
+            // The files go into the shared folder under today's allegati/ (spec §4 of 0.7), each with a name no file there
+            // has; a file that cannot be written refuses the whole message (spec §10): the app sends nothing then.
+            let rt = try runtime(botId)
+            if let problem = attachmentProblem(files.map { ($0.name, $0.data.count) }) { throw Refusal(problem) }
+            let folder = attachmentFolder(day: now())
+            let dir = paths.shared(rt.bot.projectId).appendingPathComponent(folder)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            var taken = Set((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
+            var saved: [String] = []
+            for file in files {
+                let name = uniqueFileName(safeFileName(file.name), taken: taken)
+                try file.data.write(to: dir.appendingPathComponent(name), options: .atomic)
+                taken.insert(name)
+                saved.append("\(folder)/\(name)")
+            }
+            return .attached(saved)
+        case .changes:
+            throw Refusal("Not yet")       // served by Task 5
         case let .interrupt(botId):
             stopTurn(try runtime(botId))
             return .ok

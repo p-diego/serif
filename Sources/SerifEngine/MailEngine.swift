@@ -198,7 +198,7 @@ extension Engine {
         // ponytail: delivered once handed over; a Codex server that dies before taking the turn/start keeps the text
         // only in memory (sendTurn puts it back in the outbox), so an engine restart in that second loses it.
         if rt.bot.agent == .codex {
-            rt.outbox.append((text, .bot))
+            rt.outbox.append(Outgoing(text: text, origin: .bot))
             deliverCodex(rt)
         } else {
             type(text, origin: .bot, into: rt)

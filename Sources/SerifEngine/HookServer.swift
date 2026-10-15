@@ -92,17 +92,29 @@ extension Engine {
     }
 
     /// Types a message into the bot's terminal; the normalizer then gives its UserPromptSubmit this origin.
-    func type(_ text: String, origin: MessageOrigin = .chat, into rt: BotRuntime) {
-        rt.normalizer.expectChatMessage(text, origin: origin)
+    func type(_ text: String, origin: MessageOrigin = .chat, attachments: [String]? = nil, into rt: BotRuntime) {
+        let sent = outgoingText(Outgoing(text: text, origin: origin, attachments: attachments), rt)
+        rt.normalizer.expectChatMessage(sent, origin: origin, shown: sent == text ? nil : text, attachments: attachments)
         rt.awaitingEcho = true
-        rt.host.typeMessage(text)
+        rt.host.typeMessage(sent)
+    }
+
+    /// The text as the agent gets it (spec §4, §6 of 0.7): the message with its files, headed by the new instructions
+    /// when they changed since the bot's start; that notice goes once, with whatever message comes first.
+    func outgoingText(_ m: Outgoing, _ rt: BotRuntime) -> String {
+        var sent = messageText(m.text, attachments: m.attachments ?? [])
+        if rt.instructionsPending {
+            sent = instructionsNotice(rt.bot.instructions, before: sent)
+            rt.instructionsPending = false
+        }
+        return sent
     }
 
     /// Types the texts held back (before SessionStart, or while a request was open), in order.
     func deliverOutbox(_ rt: BotRuntime) {
         let queued = rt.outbox
         rt.outbox = []
-        queued.forEach { type($0.text, origin: $0.origin, into: rt) }
+        queued.forEach { type($0.text, origin: $0.origin, attachments: $0.attachments, into: rt) }
     }
 
     /// A card that holds the bot; a decision's never does (spec §6 of 0.6).
