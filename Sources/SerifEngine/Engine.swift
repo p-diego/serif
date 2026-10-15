@@ -99,6 +99,8 @@ public final class Engine {
     /// How long a Codex server has to get ready (spec §8); shorter in tests.
     var codexStartupTimeout: TimeInterval = 15
     let hookCommand: String
+    /// serif-tools, the bots' own tools (spec §4), next to serifd like serif-hook.
+    let toolsCommand: String
     let environment: [String: String]
     let store: Store
     let encoder = protocolEncoder()
@@ -113,10 +115,11 @@ public final class Engine {
     private var lockFD: Int32 = -1
 
     public init(paths: SerifPaths, locate: @escaping @Sendable (Agent) -> String?, hookCommand: String,
-                environment: [String: String]) throws {
+                toolsCommand: String, environment: [String: String]) throws {
         self.paths = paths
         self.locate = locate
         self.hookCommand = hookCommand
+        self.toolsCommand = toolsCommand
         self.environment = environment
         store = try Store(paths: paths)
     }
@@ -226,8 +229,11 @@ public final class Engine {
                                   bots: store.bots.filter { $0.projectId == project.id })
             if rt.bot.agent == .claude {
                 let files = paths.bot(rt.bot.id)
+                rt.token = UUID().uuidString        // new at every launch: older hooks and tools are dropped
                 try prompt.write(to: files.systemPrompt, atomically: true, encoding: .utf8)
                 try claudeHookSettings(hookCommand: hookCommand).write(to: files.settings, options: .atomic)
+                try claudeToolsConfig(command: toolsCommand, bot: rt.bot.id, token: rt.token,
+                                      hookSocket: paths.hookSocket.path).write(to: files.mcpConfig, options: .atomic)
             }
         } catch {
             return crashed(rt, "Cannot prepare the bot's folder: \(error.localizedDescription)")
@@ -241,7 +247,6 @@ public final class Engine {
             + linkSkills(project.skills, into: paths.shared(project.id)) {
             log("bot \(rt.bot.id): \(problem)")
         }
-        rt.token = UUID().uuidString
         rt.normalizer = ClaudeNormalizer()
         rt.resumed = store.meta(rt.bot.id).hasStarted
         // The project's plugins and the bot's, each folder once; one no longer on this Mac is left out (spec §6.2-6.3).

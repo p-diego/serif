@@ -49,6 +49,7 @@ public struct BotPaths: Sendable {
     public var workspace: URL { dir.appendingPathComponent("workspace") }
     public var systemPrompt: URL { dir.appendingPathComponent("system.md") }
     public var settings: URL { dir.appendingPathComponent("settings.json") }
+    public var mcpConfig: URL { dir.appendingPathComponent("mcp.json") }
     public var events: URL { dir.appendingPathComponent("events.jsonl") }
     public var meta: URL { dir.appendingPathComponent("meta.json") }
 }

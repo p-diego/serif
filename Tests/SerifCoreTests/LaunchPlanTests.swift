@@ -29,6 +29,17 @@ final class LaunchPlanTests: XCTestCase {
         XCTAssertTrue(plan.args.containsSequence(["--session-id", bot.sessionId.uuidString]))
         XCTAssertTrue(plan.args.containsSequence(["--add-dir", "/Users/x/repo"]))
         XCTAssertTrue(plan.args.containsSequence(["--model", "haiku"]))
+        XCTAssertTrue(plan.args.containsSequence(["--mcp-config", paths.bot(bot.id).mcpConfig.path]))
+        XCTAssertFalse(plan.args.contains("--strict-mcp-config"))
+    }
+
+    func testToolsConfigCarriesTheSecretInItsEnvironment() throws {
+        let bot = UUID()
+        let v = try JSONValue.parse(claudeToolsConfig(command: "/My Apps/Serif.app/Contents/MacOS/serif-tools", bot: bot, token: "t",
+                                                      hookSocket: "/tmp/s/hook.sock"))
+        XCTAssertEqual(v, ["mcpServers": ["serif": ["command": "/My Apps/Serif.app/Contents/MacOS/serif-tools",
+                                                     "env": ["SERIF_BOT_ID": .string(bot.uuidString), "SERIF_TOKEN": "t",
+                                                             "SERIF_HOOK_SOCKET": "/tmp/s/hook.sock"]]]])
     }
 
     func testResumeUsesResume() {
@@ -45,6 +56,7 @@ final class LaunchPlanTests: XCTestCase {
         }
         XCTAssertEqual(v["hooks"]?["PermissionRequest"]?.array?[0]["hooks"]?.array?[0]["timeout"]?.int, 3600)
         XCTAssertEqual(v["crossSessionInbound"]?.string, "refuse")
+        XCTAssertEqual(v["permissions"], ["allow": ["mcp__serif"]])       // Serif's tools never ask (spec §4)
     }
 
     func testHookCommandIsShellQuoted() throws {

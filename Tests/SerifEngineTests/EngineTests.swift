@@ -137,7 +137,8 @@ final class EngineTests: XCTestCase {
                    "CLAUDE_CONFIG_DIR": root.path + "/claude",      // the engine's catalog: never the real ~/.claude
                    "SERIF_FAKE_CODEX_SCENARIO": scenarios.appendingPathComponent("\(codex).jsonl").path, "SERIF_FAKE_CODEX_RPC": codexRPC]
             .merging(extra) { $1 }
-        let engine = try Engine(paths: paths, locate: locate ?? { $0 == .claude ? fake : fakeCodex }, hookCommand: hook, environment: env)
+        let engine = try Engine(paths: paths, locate: locate ?? { $0 == .claude ? fake : fakeCodex }, hookCommand: hook,
+                                toolsCommand: binDir.appendingPathComponent("serif-tools").path, environment: env)
         engines.append(engine)
         return engine
     }
@@ -276,6 +277,50 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(request(client, .archiveBot(id: ada.id)), .ok)
         XCTAssertEqual(callTool(engine, as: ada, "list_bots"), .unreachable)
         XCTAssertFalse(client.all.chatEvents(ada.id).contains { label($0) == "toolStarted" })     // never a hook event
+    }
+
+    // Scenarios written by a test: fake-claude reads the whole file when a bot starts, so a test can give each bot its own.
+    private var scenarioFile: String { root.path + "/scenario.jsonl" }
+
+    private func play(_ lines: [JSONValue]) throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try lines.map(\.compactText).joined(separator: "\n").write(toFile: scenarioFile, atomically: true, encoding: .utf8)
+    }
+
+    private let sessionStart: JSONValue = ["hook": ["hook_event_name": "SessionStart", "source": "startup"]]
+
+    /// The next pasted text opens prompt `id` (the bot's first one is its introduction).
+    private func prompt(_ id: String) -> [JSONValue] {
+        [["waitPaste": true], ["hook": ["hook_event_name": "UserPromptSubmit", "prompt": "$PASTE", "prompt_id": .string(id)]]]
+    }
+
+    /// Prompt `id` says `reply` and ends.
+    private func stop(_ id: String, _ reply: String = "Done.") -> [JSONValue] {
+        [["hook": ["hook_event_name": "MessageDisplay", "message_id": .string("m-\(id)"), "index": 0, "delta": .string(reply),
+                   "final": true, "prompt_id": .string(id)]],
+         ["hook": ["hook_event_name": "Stop", "prompt_id": .string(id), "last_assistant_message": .string(reply)]]]
+    }
+
+    private func tool(_ name: String, _ arguments: JSONValue = [:]) -> JSONValue {
+        ["tool": ["name": .string(name), "arguments": arguments]]
+    }
+
+    func testAClaudeBotGetsItsToolsFromItsOwnMCPConfig() throws {
+        try play([sessionStart] + prompt("p0") + [tool("list_bots")] + stop("p0"))
+        try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { $0.chatEvents(bob.id).contains { label($0) == "turnEnded" } }
+        guard case .terminal = request(client, .attachTerminal(botId: bob.id)) else { return XCTFail("no terminal") }
+        waitFor(client, "tool answered") { $0.terminalText.contains("TOOL-OUT:Bots of this project:") }
+        XCTAssertTrue(client.all.terminalText.contains("- Bob (you): Help."))
+        // The secret reaches serif-tools through mcp.json, the same as the launch's (spec §4).
+        let launch = try XCTUnwrap(launches(1).first)
+        let config = try JSONValue.parse(Data(contentsOf: paths.bot(bob.id).mcpConfig))
+        XCTAssertEqual(config["mcpServers"]?["serif"]?["env"]?["SERIF_TOKEN"]?.string, launch.env["SERIF_TOKEN"])
+        XCTAssertEqual(config["mcpServers"]?["serif"]?["command"]?.string, binDir.appendingPathComponent("serif-tools").path)
+        XCTAssertEqual(launch.args.firstIndex(of: "--mcp-config").map { launch.args[$0 + 1] }, paths.bot(bob.id).mcpConfig.path)
+        XCTAssertFalse(launch.args.joined().contains(launch.env["SERIF_TOKEN"] ?? "-"))     // never in the arguments
     }
 
     func testTheSystemPromptNamesTheColleagues() throws {

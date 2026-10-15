@@ -1,4 +1,5 @@
 import Foundation
+import SerifCore
 
 // Scenario player standing in for the interactive `claude` TUI (tests only).
 let env = ProcessInfo.processInfo.environment
@@ -74,6 +75,37 @@ func runHook(_ payload: Any, started: (Process) -> Void = { _ in }) {
     if !result.isEmpty { out("HOOK-OUT:" + String(decoding: result, as: UTF8.self)) }
 }
 
+/// Calls one of Serif's tools as Claude Code does (spec §4): the "serif" server of the `--mcp-config` file, started
+/// with that file's environment in place of this process's SERIF_* variables; initialize, then the call. Prints
+/// "TOOL-OUT:<text>", with " (error)" for an error.
+func runTool(_ call: JSONValue) {
+    let args = Array(CommandLine.arguments.dropFirst())
+    guard let i = args.firstIndex(of: "--mcp-config"), i + 1 < args.count,
+          let data = FileManager.default.contents(atPath: args[i + 1]),
+          let serif = (try? JSONValue.parse(data))?["mcpServers"]?["serif"], let command = serif["command"]?.string
+    else { return out("TOOL-OUT:no serif server\r\n") }
+    let own = serif["env"]?.object?.compactMapValues(\.string) ?? [:]
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: command)
+    p.environment = env.filter { !$0.key.hasPrefix("SERIF_") }.merging(own) { $1 }
+    let inPipe = Pipe(), outPipe = Pipe()
+    p.standardInput = inPipe
+    p.standardOutput = outPipe
+    guard (try? p.run()) != nil else { return out("TOOL-OUT:cannot start \(command)\r\n") }
+    let lines: [JSONValue] = [
+        ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["protocolVersion": "2025-06-18"]],
+        ["jsonrpc": "2.0", "method": "notifications/initialized"],
+        ["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": call]]
+    inPipe.fileHandleForWriting.write(Data(lines.map { $0.compactText + "\n" }.joined().utf8))
+    try? inPipe.fileHandleForWriting.close()
+    let replies = outPipe.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    let result = replies.split(separator: 0x0A).compactMap { try? JSONValue.parse(Data($0)) }
+        .first { $0["id"] == 2 }?["result"]
+    let text = result?["content"]?.array?.first?["text"]?.string ?? "no answer"
+    out("TOOL-OUT:\(text)\(result?["isError"] == true ? " (error)" : "")\r\n")
+}
+
 if let path = env["SERIF_FAKE_SCENARIO"], let text = try? String(contentsOfFile: path, encoding: .utf8) {
     for line in text.split(separator: "\n") {
         guard let obj = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] else { continue }
@@ -102,6 +134,8 @@ if let path = env["SERIF_FAKE_SCENARIO"], let text = try? String(contentsOfFile:
         }
         else if let n = obj["flood"] as? Int { out(String(repeating: "x", count: n)) }
         else if let h = obj["hook"] { runHook(h) }
+        else if let call = obj["tool"], let data = try? JSONSerialization.data(withJSONObject: call),
+                let value = try? JSONValue.parse(data) { runTool(value) }
         else if let h = obj["hookAsync"] {   // e.g. a permission left waiting
             Thread.detachNewThread { runHook(h) { p in asyncHooksLock.withLock { asyncHooks.append(p) } } }
         }

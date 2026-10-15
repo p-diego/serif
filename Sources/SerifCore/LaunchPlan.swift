@@ -23,6 +23,7 @@ public func claudeLaunchPlan(bot: Bot, project: Project, paths: SerifPaths, clau
     let botPaths = paths.bot(bot.id)
     var args = ["--setting-sources", "project,local",
                 "--settings", botPaths.settings.path,
+                "--mcp-config", botPaths.mcpConfig.path,       // added to the user's servers, never instead of them
                 "--permission-mode", bot.freedom.claudePermissionMode,
                 "--append-system-prompt-file", botPaths.systemPrompt.path,
                 "--add-dir", paths.shared(project.id).path]
@@ -45,7 +46,8 @@ public func claudeLaunchPlan(bot: Bot, project: Project, paths: SerifPaths, clau
     return LaunchPlan(executable: claudePath, args: args, environment: env, cwd: botPaths.workspace.path)
 }
 
-/// The contents of the bot's `settings.json`: every hook event runs `hookCommand`.
+/// The contents of the bot's `settings.json`: every hook event runs `hookCommand`, and Serif's tools never ask (spec §4
+/// of 0.5).
 public func claudeHookSettings(hookCommand: String) -> Data {
     let events = ["SessionStart", "SessionEnd", "UserPromptSubmit", "MessageDisplay", "PreToolUse", "PostToolUse",
                   "PostToolUseFailure", "PostToolBatch", "PermissionRequest", "Notification", "Stop", "StopFailure",
@@ -58,8 +60,18 @@ public func claudeHookSettings(hookCommand: String) -> Data {
         if e == "PermissionRequest" { entry["timeout"] = 3600 }
         hooks[e] = [["hooks": [entry]]]
     }
-    let root: [String: Any] = ["hooks": hooks, "crossSessionInbound": "refuse"]
+    let root: [String: Any] = ["hooks": hooks, "crossSessionInbound": "refuse",
+                               "permissions": ["allow": ["mcp__serif"]]]
     return (try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])) ?? Data()
+}
+
+/// The bot's `mcp.json` (spec §4): Serif's tools server, which learns its bot and this launch's secret from its
+/// environment, never from its arguments. Rewritten at every launch, since the secret changes.
+public func claudeToolsConfig(command: String, bot: UUID, token: String, hookSocket: String) -> Data {
+    let serif: JSONValue = ["command": .string(command),
+                            "env": ["SERIF_BOT_ID": .string(bot.uuidString), "SERIF_TOKEN": .string(token),
+                                    "SERIF_HOOK_SOCKET": .string(hookSocket)]]
+    return (try? (["mcpServers": ["serif": serif]] as JSONValue).encoded()) ?? Data()
 }
 
 /// `bots` are the project's bots (the colleagues and the lead come from them, spec §8-9), read at every launch: a new

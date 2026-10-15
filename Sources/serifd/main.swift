@@ -6,9 +6,11 @@ import SerifEngine
 var env = ProcessInfo.processInfo.environment
 // launchd's PATH is /usr/bin:/bin:/usr/sbin:/sbin: bots get the login shell's, or they miss Homebrew and the user's tools.
 if let path = LoginShell.run("printf '%s\\n' \"$PATH\""), path.hasPrefix("/") { env["PATH"] = path }
-// serif-hook sits next to serifd: Serif.app/Contents/MacOS in the bundle, the build folder in development.
+// serif-hook and serif-tools sit next to serifd: Serif.app/Contents/MacOS in the bundle, the build folder in
+// development.
 let executable = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])).resolvingSymlinksInPath()
 let hookCommand = executable.deletingLastPathComponent().appendingPathComponent("serif-hook").path
+let toolsCommand = executable.deletingLastPathComponent().appendingPathComponent("serif-tools").path
 
 // launchd throws stderr away: the reason also goes to serifd.log in the data folder.
 func fail(_ error: Error) -> Never {
@@ -23,7 +25,7 @@ do {
     // An agent is looked for when its first bot launches, and again while it is missing (it may be installed later) or
     // gone from where it was; it is checked again after one of its bots crashes.
     engine = try Engine(paths: .standard(), locate: { AgentLocator.find($0, override: overrides[$0]) },
-                        hookCommand: hookCommand, environment: env)
+                        hookCommand: hookCommand, toolsCommand: toolsCommand, environment: env)
 } catch { fail(error) }
 
 // Ready for SIGTERM before any bot starts. A no-op handler, not SIG_IGN: an ignored signal stays ignored across exec,
