@@ -271,6 +271,8 @@ public final class Engine {
                 try claudeHookSettings(hookCommand: hookCommand).write(to: files.settings, options: .atomic)
                 try claudeToolsConfig(command: toolsCommand, bot: rt.bot.id, token: rt.token,
                                       hookSocket: paths.hookSocket.path).write(to: files.mcpConfig, options: .atomic)
+                // It holds the launch token: owner only, set after the move (.atomic keeps the default mode).
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: files.mcpConfig.path)
             }
         } catch {
             return crashed(rt, "Cannot prepare the bot's folder: \(error.localizedDescription)")

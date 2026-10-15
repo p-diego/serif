@@ -329,6 +329,8 @@ final class EngineTests: XCTestCase {
         let launch = try XCTUnwrap(launches(1).first)
         let config = try JSONValue.parse(Data(contentsOf: paths.bot(bob.id).mcpConfig))
         XCTAssertEqual(config["mcpServers"]?["serif"]?["env"]?["SERIF_TOKEN"]?.string, launch.env["SERIF_TOKEN"])
+        let mode = try FileManager.default.attributesOfItem(atPath: paths.bot(bob.id).mcpConfig.path)[.posixPermissions] as? Int
+        XCTAssertEqual(mode, 0o600)                                                       // the token is a secret
         XCTAssertEqual(config["mcpServers"]?["serif"]?["command"]?.string, binDir.appendingPathComponent("serif-tools").path)
         XCTAssertEqual(launch.args.firstIndex(of: "--mcp-config").map { launch.args[$0 + 1] }, paths.bot(bob.id).mcpConfig.path)
         XCTAssertFalse(launch.args.joined().contains(launch.env["SERIF_TOKEN"] ?? "-"))     // never in the arguments
