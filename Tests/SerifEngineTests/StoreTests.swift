@@ -164,12 +164,14 @@ final class StoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: paths.routines(other).path))
         XCTAssertTrue(try String(contentsOf: paths.log, encoding: .utf8).contains("routines.json.bad"))
         // A failed save leaves memory as the disk is; `keep` holds the engine's own move.
-        let store = try Store(paths: paths)
-        try Data().write(to: paths.routines(project).deletingLastPathComponent().appendingPathComponent("shared"))
-        XCTAssertEqual(store.routines(project), [routine])
-        var changed = routine; changed.enabled = false
-        store.keep([changed], project: project)
-        XCTAssertEqual(store.routines(project), [changed])
+        let (store, broken) = (try Store(paths: paths), UUID())
+        try FileManager.default.createDirectory(at: paths.routines(broken).deletingLastPathComponent().deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data().write(to: paths.routines(broken).deletingLastPathComponent())       // a file where the folder should be
+        XCTAssertThrowsError(try store.save([routine], project: broken))
+        XCTAssertEqual(store.routines(broken), [])                                      // memory matches the disk, which has nothing
+        store.keep([routine], project: broken)
+        XCTAssertEqual(store.routines(broken), [routine])
     }
 
     func testAMailJSONWrittenBy05Loads() throws {

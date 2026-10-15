@@ -120,11 +120,13 @@ public final class Store {
         return routines
     }
 
+    /// Written whole and atomically like the mail; memory changes only once the write worked.
     public func save(_ routines: [Routine], project: UUID) throws {
         try writeAtomically(try encoder.encode(routines), to: paths.routines(project))
         routineLists[project] = routines
     }
 
+    /// The engine's own moves keep their change in memory when the write failed, as for the mail.
     public func keep(_ routines: [Routine], project: UUID) { routineLists[project] = routines }
 
     /// A project file that decodes; nil when there is none. One that cannot be read is kept as `<name>.bad` and the
