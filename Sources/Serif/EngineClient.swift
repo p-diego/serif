@@ -21,6 +21,7 @@ final class EngineClient {
                 onWaitingCount?(state.waitingCount)
             }
             if roster.requests != state.requests { roster.requests = state.requests }
+            if roster.routines != state.routines { roster.routines = state.routines }
             if roster.connected != state.connected { roster.connected = state.connected }
             refreshChat()
         }
@@ -296,6 +297,9 @@ final class EngineClient {
     func cancelTask(project: UUID, number: Int) async throws {
         _ = try await send(.cancelTask(projectId: project, number: number))
     }
+    func saveRoutine(_ routine: Routine) async throws { _ = try await send(.saveRoutine(routine)) }
+    func deleteRoutine(_ id: UUID) async throws { _ = try await send(.deleteRoutine(id: id)) }
+    func runRoutine(_ id: UUID) async throws { _ = try await send(.runRoutine(id: id)) }
     func markRead(bot: UUID, seq: Int) async throws { _ = try await send(.markRead(botId: bot, seq: seq)) }
     func attachTerminal(bot: UUID) async throws -> ResponseBody { try await send(.attachTerminal(botId: bot)) }
     func detachTerminal(bot: UUID) async throws { _ = try await send(.detachTerminal(botId: bot)) }

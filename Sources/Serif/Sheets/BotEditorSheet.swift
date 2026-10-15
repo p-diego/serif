@@ -27,7 +27,14 @@ struct BotEditorSheet: View {
     @State private var error: String?
     @State private var confirmArchive = false
     @State private var height = sheetHeight(1200)    // measured once: never re-derived while typing
+    @State private var routineEditor: RoutineEditing?   // the routine sheet over this one (spec §4 of 0.6)
     @FocusState private var nameFocused: Bool
+
+    /// What the routine sheet edits: nil is a new routine.
+    private struct RoutineEditing: Identifiable {
+        let id = UUID()
+        let routine: Routine?
+    }
 
     init(client: EngineClient, editing: Bot?, projectId: UUID?) {
         self.client = client
@@ -157,7 +164,19 @@ struct BotEditorSheet: View {
                     .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if editing != nil {
+            if let bot = editing {
+                // The bot's routines (spec §4 of 0.6): the live list, changed by the engine as runs go.
+                FieldGroup(label: String(localized: "Routines")) {
+                    let routines = client.roster.routines(of: bot.id)
+                    if routines.isEmpty {
+                        Text(String(localized: "No routines yet")).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary)
+                    }
+                    ForEach(routines) { routine in
+                        RoutineRow(routine: routine, client: client) { routineEditor = RoutineEditing(routine: routine) }
+                        if routine.id != routines.last?.id { Divider().overlay(Theme.borderTertiary) }
+                    }
+                    Button(String(localized: "Add routine…")) { routineEditor = RoutineEditing(routine: nil) }
+                }
                 Toggle(String(localized: "Notifications"), isOn: $notifications).toggleStyle(.switch)
                 Button(String(localized: "Archive bot"), role: .destructive) { confirmArchive = true }
                     .confirmationDialog(String(localized: "Archive this bot?"), isPresented: $confirmArchive) {
@@ -166,6 +185,11 @@ struct BotEditorSheet: View {
             }
         }
         .frame(width: 560).frame(minHeight: 360, idealHeight: height, maxHeight: height)
+        .sheet(item: $routineEditor) { target in
+            if let bot = editing {
+                RoutineSheet(client: client, bot: bot, editing: target.routine) { routineEditor = nil }
+            }
+        }
         // Before the first frame: no pill drawn as missing for a moment, and a template picked at once finds its suggestions.
         .onAppear {
             let env = ProcessInfo.processInfo.environment
