@@ -7,7 +7,7 @@ import Foundation
 public func routineTurnText(_ r: Routine, run: Int, startedAt: Date, signal: RunSignal?,
                             timeZone: TimeZone = .current) -> String {
     var s = "Routine «\(r.name)» (run of \(mailDate(startedAt, timeZone: timeZone)); this is run #\(run)). "
-        + "Stay within this job and finish within \(r.maxMinutes) minutes.\n\n"
+        + "Stay within this job and finish within \(r.maxMinutes) minute\(r.maxMinutes == 1 ? "" : "s").\n\n"
     if let signal {
         s += "Started by the signal «\(signal.name)» from \(signal.from)" + (signal.text.map { ": \($0)" } ?? "") + "\n\n"
     }

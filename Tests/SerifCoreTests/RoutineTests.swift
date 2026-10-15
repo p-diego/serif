@@ -141,6 +141,9 @@ final class RoutineTests: XCTestCase {
         XCTAssertEqual(routineTurnText(r, run: 1, startedAt: started, signal: signal, timeZone: utc),
                        "Routine «Rassegna» (run of 15 Oct 2026, 09:00; this is run #1). Stay within this job and finish within "
                        + "30 minutes.\n\nStarted by the signal «build-done» from Cody: v0.6 built\n\nRead the news and write a summary.")
+        r.maxMinutes = 1
+        XCTAssertTrue(routineTurnText(r, run: 1, startedAt: started, signal: nil, timeZone: utc).contains("finish within 1 minute.\n"))
+        r.maxMinutes = 30
         let silent = RunSignal(name: "go", text: nil, from: "Cody", chain: 2)
         XCTAssertTrue(routineTurnText(r, run: 1, startedAt: started, signal: silent, timeZone: utc)
             .contains("\n\nStarted by the signal «go» from Cody\n\n"))
