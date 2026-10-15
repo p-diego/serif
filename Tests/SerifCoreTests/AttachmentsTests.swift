@@ -21,6 +21,13 @@ final class AttachmentsTests: XCTestCase {
         XCTAssertEqual(safeFileName("/Users/x/Desktop/foto.png"), "foto.png")
         XCTAssertEqual(safeFileName(" "), "file")
         XCTAssertEqual(safeFileName(".."), "file")
+        XCTAssertEqual(safeFileName("a\nb\tc.png"), "a b c.png")
+        let long = safeFileName(String(repeating: "x", count: 300) + ".png")
+        XCTAssertEqual(long.utf8.count, 200); XCTAssertTrue(long.hasSuffix("x.png"))
+        XCTAssertLessThanOrEqual(safeFileName(String(repeating: "é", count: 300) + ".png").utf8.count, 200)
+        // Case-insensitive, as APFS is by default.
+        XCTAssertEqual(uniqueFileName("Foto.png", taken: ["foto.png"]), "Foto-2.png")
+        XCTAssertEqual(uniqueFileName("Foto.png", taken: ["foto.png", "FOTO-2.png"]), "Foto-3.png")
     }
 
     func testTheLimits() {
@@ -47,6 +54,10 @@ final class AttachmentsTests: XCTestCase {
                                sharedFolder: "/data/projects/p/shared")
         XCTAssertEqual(input, [["type": "text", "text": "Look"],
                                ["type": "localImage", "path": "/data/projects/p/shared/allegati/2026-10-15/foto.png"]])
+        // heic, tiff and bmp stay a plain path (no "(image)"), so the bot knows it must convert them first.
+        XCTAssertEqual(codexInput(text: "x", attachments: ["a/foto.heic", "a/b.tiff", "a/c.bmp"], sharedFolder: "/s"),
+                       [["type": "text", "text": "x"]])
+        XCTAssertFalse(attachmentsText(["a/foto.heic"]).contains("(image)"))
         XCTAssertEqual(codexInput(text: "Hi", attachments: [], sharedFolder: "/s"), [["type": "text", "text": "Hi"]])
     }
 

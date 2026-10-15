@@ -11,6 +11,8 @@ public enum AttachmentRules {
     /// What the bots can look at as a picture (Claude Code's Read, Codex's `localImage`).
     public static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tiff", "tif",
                                                       "bmp"]
+    /// The pictures Codex takes as `localImage` and the text marks "(image)"; the others stay a plain path to convert.
+    public static let inputImageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp"]
 }
 
 /// Where a day's attachments go, relative to the shared folder: `allegati/2026-10-15`.
@@ -22,21 +24,32 @@ public func attachmentFolder(day: Date, timeZone: TimeZone = .current) -> String
     return "\(AttachmentRules.folder)/\(f.string(from: day))"
 }
 
-/// A file name as the engine writes it: its last path component only (never a path of its own), `file` when empty.
+/// A file name as the engine writes it: its last path component only (never a path of its own), `file` when empty,
+/// control characters and newlines turned into spaces, at most 200 UTF-8 bytes with the extension kept (APFS: 255).
 public func safeFileName(_ name: String) -> String {
-    let last = (name as NSString).lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
-    return last.isEmpty || last == "." || last == ".." ? "file" : last
+    let flat = String(String.UnicodeScalarView((name as NSString).lastPathComponent.unicodeScalars.map {
+        CharacterSet.controlCharacters.contains($0) || CharacterSet.newlines.contains($0) ? " " : $0
+    }))
+    let last = flat.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !last.isEmpty, last != ".", last != ".." else { return "file" }
+    guard last.utf8.count > 200 else { return last }
+    let ext = (last as NSString).pathExtension
+    let keep = ext.isEmpty || ext.utf8.count > 20 ? "" : "." + ext
+    var base = String(last.dropLast(keep.count))
+    while base.utf8.count + keep.utf8.count > 200 { base.removeLast() }
+    return base + keep
 }
 
-/// `name`, or `name-2`, `name-3`… before the extension: the first not in `taken` (spec §4).
+/// `name`, or `name-2`, `name-3`… before the extension: the first not in `taken`, compared without case as APFS does.
 public func uniqueFileName(_ name: String, taken: Set<String>) -> String {
-    guard taken.contains(name) else { return name }
+    let taken = Set(taken.map { $0.lowercased() })
+    guard taken.contains(name.lowercased()) else { return name }
     let ext = (name as NSString).pathExtension
     let base = ext.isEmpty ? name : String(name.dropLast(ext.count + 1))
     var n = 2
     while true {
         let candidate = ext.isEmpty ? "\(base)-\(n)" : "\(base)-\(n).\(ext)"
-        if !taken.contains(candidate) { return candidate }
+        if !taken.contains(candidate.lowercased()) { return candidate }
         n += 1
     }
 }
@@ -54,10 +67,15 @@ public func isImage(_ path: String) -> Bool {
     AttachmentRules.imageExtensions.contains((path as NSString).pathExtension.lowercased())
 }
 
+/// A picture the bots take as an image (Codex `localImage`, "(image)" in the text): not heic, tiff or bmp.
+public func isInputImage(_ path: String) -> Bool {
+    AttachmentRules.inputImageExtensions.contains((path as NSString).pathExtension.lowercased())
+}
+
 /// What the bot reads under its message (spec §4): the files by their path in the shared folder, images marked.
 public func attachmentsText(_ paths: [String]) -> String {
     "Attached files (in the project's shared folder):\n"
-        + paths.map { "- \($0)" + (isImage($0) ? " (image)" : "") }.joined(separator: "\n")
+        + paths.map { "- \($0)" + (isInputImage($0) ? " (image)" : "") }.joined(separator: "\n")
 }
 
 /// The message as the bot gets it: the text, then its files; the files alone when there is no text.
@@ -74,7 +92,7 @@ public func instructionsNotice(_ instructions: String, before message: String) -
 /// The `input` of a Codex turn (spec §4): the text, then each image as a `localImage` by its absolute path.
 public func codexInput(text: String, attachments: [String], sharedFolder: String) -> JSONValue {
     var items: [JSONValue] = [["type": "text", "text": .string(text)]]
-    for path in attachments where isImage(path) {
+    for path in attachments where isInputImage(path) {
         items.append(["type": "localImage", "path": .string((sharedFolder as NSString).appendingPathComponent(path))])
     }
     return .array(items)
