@@ -103,23 +103,31 @@ struct AttachmentChip: View {
     }
 }
 
-/// The files on the pasteboard, as the composer takes them on ⌘V (spec §4): files from the Finder, else a picture
-/// (a screenshot) as a PNG named by the time. Nothing for text, which the field pastes itself.
-func pastedFiles(_ pasteboard: NSPasteboard = .general) -> [AttachedFile] {
+/// What ⌘V brings (spec §4): files from the Finder (read later, off the main thread), else a picture (a screenshot)
+/// as a PNG named by the time. Nothing for text, which the field pastes itself, even when a picture comes with it.
+func pastedFiles(_ pasteboard: NSPasteboard = .general) -> (urls: [URL], image: AttachedFile?) {
     if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
-        return urls.compactMap(attachedFile)
+        return (urls, nil)
     }
-    guard let tiff = pasteboard.data(forType: .tiff) ?? pasteboard.data(forType: .png),
-          let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return [] }
+    guard pasteboard.types?.contains(.string) != true,
+          let tiff = pasteboard.data(forType: .tiff) ?? pasteboard.data(forType: .png),
+          let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return ([], nil) }
     let stamp = Date().formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute().second())
         .filter(\.isNumber)
-    return [AttachedFile(name: "clipboard-\(stamp).png", data: png)]
+    return ([], AttachedFile(name: "clipboard-\(stamp).png", data: png))
 }
 
-/// A file from the disk, read whole; nil for a folder or a file that cannot be read.
-func attachedFile(_ url: URL) -> AttachedFile? {
-    var isDirectory: ObjCBool = false
-    guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue,
-          let data = try? Data(contentsOf: url) else { return nil }
-    return AttachedFile(name: url.lastPathComponent, data: data)
+/// Reads `urls` off the main thread: folders and unreadable files are left out, files over 16 MB are not read at all
+/// (their names come back apart, for the error).
+func loadFiles(_ urls: [URL]) async -> (files: [AttachedFile], tooBig: [String]) {
+    await Task.detached {
+        var result: (files: [AttachedFile], tooBig: [String]) = ([], [])
+        for url in urls {
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+            guard values?.isDirectory == false, let size = values?.fileSize else { continue }
+            if size > AttachmentRules.maxBytes { result.tooBig.append(url.lastPathComponent); continue }
+            if let data = try? Data(contentsOf: url) { result.files.append(AttachedFile(name: url.lastPathComponent, data: data)) }
+        }
+        return result
+    }.value
 }

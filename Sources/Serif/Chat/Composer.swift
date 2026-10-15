@@ -13,6 +13,8 @@ struct Composer: View {
     @State private var text = ""
     @State private var files: [AttachedFile] = []
     @State private var pasteMonitor: Any?
+    @State private var composerWindow: NSWindow?          // the window the field had focus in: ⌘V is ours only there
+    @State private var tooBig: String?                    // a file over 16 MB, not read (spec §4)
     @FocusState private var focused: Bool
 
     private var empty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty }
@@ -29,6 +31,10 @@ struct Composer: View {
                 }
                 .padding(.horizontal, 10).padding(.top, 8)
                 if let problem { Text(problem).font(.system(size: Theme.Size.label)).foregroundStyle(Theme.red).padding(.horizontal, 10) }
+            }
+            if let tooBig {
+                Text(String(localized: "A file is larger than 16 MB: \(tooBig)")).font(.system(size: Theme.Size.label))
+                    .foregroundStyle(Theme.red).padding(.horizontal, 10).padding(.top, 8)
             }
             HStack(alignment: .bottom, spacing: 8) {
                 Button(action: chooseFiles) {
@@ -66,10 +72,10 @@ struct Composer: View {
         .background(RoundedRectangle(cornerRadius: Theme.Radius.composer).fill(Theme.composerFill))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.composer).stroke(Theme.composerBorder, lineWidth: 1))
         .dropDestination(for: URL.self) { urls, _ in
-            let dropped = urls.compactMap(attachedFile)
-            files += dropped
-            return !dropped.isEmpty
+            add(urls)
+            return !urls.isEmpty
         }
+        .onChange(of: focused) { if focused { composerWindow = NSApp.keyWindow } }
         .onAppear { focused = true; watchPaste() }
         .onDisappear { if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }; pasteMonitor = nil }
     }
@@ -79,11 +85,13 @@ struct Composer: View {
     private func watchPaste() {
         guard pasteMonitor == nil else { return }
         pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard focused, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+            guard focused, let window = event.window, window === composerWindow,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
                   event.charactersIgnoringModifiers == "v" else { return event }
             let pasted = pastedFiles()
-            guard !pasted.isEmpty else { return event }
-            files += pasted
+            guard !pasted.urls.isEmpty || pasted.image != nil else { return event }
+            if let image = pasted.image { files.append(image) }
+            add(pasted.urls)
             return nil
         }
     }
@@ -94,7 +102,18 @@ struct Composer: View {
         panel.canChooseDirectories = false
         panel.prompt = String(localized: "Attach")
         guard panel.runModal() == .OK else { return }
-        files += panel.urls.compactMap(attachedFile)
+        add(panel.urls)
+    }
+
+    /// The chips for `urls`, read off the main thread; a file over the limit is named instead (spec §4).
+    private func add(_ urls: [URL]) {
+        tooBig = nil
+        guard !urls.isEmpty else { return }
+        Task {
+            let loaded = await loadFiles(urls)
+            files += loaded.files
+            tooBig = loaded.tooBig.first
+        }
     }
 
     private func send() {
