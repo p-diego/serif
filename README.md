@@ -108,14 +108,14 @@ the bot that asked is told.
 
 A bot also works on its own. A **routine** is a prompt of a bot that runs as a turn of its own on a schedule (every N
 minutes, every day at a time, on chosen weekdays at a time) or when a **signal** comes; you make them in the bot's
-settings ("Routines"), the bots make their own with their tools (a cron expression too). A run starts only when the bot
-is free, after any mail waiting for it, one run at a time; a run past the routine's time limit (30 minutes by default) is
-stopped as with Stop. Runs always mark the chat unread and notify like a turn of yours, unless the routine's "Tell me
-when it finishes" is off. Runs whose time passes while the engine is off are not made up.
+settings ("Routines"), the bots make their own with their tools (a cron expression too). A run starts only when the
+bot is free, after any mail waiting for it, one run at a time; a run past the routine's time limit (30 minutes by
+default) is stopped as with Stop. Runs always mark the chat unread and notify like a turn of yours, unless the
+routine's "Tell me when it finishes" is off. Runs whose time passes while the engine is off are not made up.
 
 | Tool | What it does |
 |---|---|
-| `create_routine` | a routine of the bot's own: `every_minutes` (at least 5), `daily_at "HH:MM"`, `weekdays_at {days: [1–7], time}`, `signal`, or `cron`; at most 20 per bot |
+| `create_routine` | a routine of the bot's own: `every_minutes` (at least 5), `daily_at "HH:MM"`, `weekdays_at {days: [1–7], time}` (1 = Monday), `signal`, or `cron`; at most 20 per bot |
 | `list_routines`, `set_routine_enabled`, `delete_routine`, `run_routine` | the bot's own routines; `run_routine` runs one as soon as the turn ends |
 | `emit_signal` | announces an event by name: every routine of the project on that signal runs; chains of signals stop at 4 |
 | `raise_decision` | a choice that is yours: a question with 2–6 options, a recommendation, some context; the bot goes on and gets your answer as a message |
@@ -123,9 +123,9 @@ when it finishes" is off. Runs whose time passes while the engine is off are not
 
 A **decision** is a card in the bot's chat that does not hold the bot: it stays open across restarts until you answer it
 (an option, your own words, or both), the bot withdraws it or the bot is archived. Your answer reaches the bot as a
-message from you; the project's lead gets a copy with the question and the answer. The "N waiting for you" row above the
-projects opens a view with every open card of every bot, grouped by bot, answered there; the project settings list its
-decisions.
+message from you; the project's lead gets a copy with the question and the answer, when the lead is another bot. The
+"N waiting for you" row above the projects opens a view with every open card of every bot, grouped by bot, answered
+there; the project settings list its decisions.
 
 ## Requirements
 
