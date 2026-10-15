@@ -28,6 +28,10 @@ final class BotRuntime {
     var turnOrigin: MessageOrigin?            // who started the current (or last) turn: a mail turn is not news
     var turnTask: Int?                        // the task whose delivery started the current turn: heads its chain
     var awaitingEcho = false                  // a text typed into Claude Code whose UserPromptSubmit has not come yet
+    // Routines and signals (spec §4–5 of 0.6)
+    var run: RoutineRun?                      // the routine's run this turn is, from its start to its outcome
+    var runEnding: RoutineOutcome?            // set before the engine itself ends a run (its time limit, a crash); Stop is yours
+    var turnChain = 0                         // the signal chain of this turn: a run a signal started is one longer than its sender's
     // A Codex bot (spec §4)
     var codex: CodexServer?                   // its own app-server, while it runs
     var codexNormalizer = CodexNormalizer()
@@ -117,6 +121,8 @@ public final class Engine {
     /// Who waits for a card's answer: Claude Code's serif-hook, or the Codex server's request id.
     enum Asker { case hook(LineConnection), codex(JSONValue) }
     var requests: [UUID: (request: PendingRequest, asker: Asker)] = [:]
+    /// When this engine started (spec §4 of 0.6): runs due before it are not made up.
+    var routineFloor = Date()
     var apps: [ObjectIdentifier: (connection: LineConnection, terminals: Set<UUID>)] = [:]
     var stopping = false
     private var servers: [LineServer] = []
@@ -147,9 +153,10 @@ public final class Engine {
                 lockFD = fd
                 stopLeftoverCodexServers()
                 for bot in store.bots { launch(addRuntime(bot)) }
+                routinesStarted()
                 let sweep = DispatchSource.makeTimerSource(queue: queue)
                 sweep.schedule(deadline: .now() + 60, repeating: 60)
-                sweep.setEventHandler { [weak self] in self?.expireTasks() }
+                sweep.setEventHandler { [weak self] in self?.expireTasks(); self?.routineSweep() }
                 sweep.resume()
                 mailSweep = sweep
             }
@@ -373,6 +380,7 @@ public final class Engine {
             push(.projectChanged(project))
         }
         mailArchived(rt.bot)
+        routinesArchived(rt.bot)
         stop(rt) { [weak self] in
             rt.tracker.stopped()
             self?.push(.botChanged(rt.summary))
@@ -385,7 +393,9 @@ public final class Engine {
         rt.token = UUID().uuidString                                 // late hooks from the dead process are dropped
         handle(rt.normalizer.flush(now: .distantFuture), rt)       // what the dead process had already said
         closeRequests(of: rt, .cancelled)
-        // A turn cut short (crash, restart, shutdown) would stay "in progress" forever: close it as interrupted.
+        // A turn cut short (crash, restart, shutdown) would stay "in progress" forever: close it as interrupted; a
+        // routine's run cut so has failed, unless the engine was already stopping it (spec §4 of 0.6).
+        if rt.run != nil { rt.runEnding = rt.runEnding ?? .failed }
         if rt.tracker.state.inTurn { handle(rt.normalizer.interrupted(at: Date()), rt) }
         guard !rt.stopping, !stopping else { return }
         let reason = code.map { "Exit code \($0)" } ?? "Could not start"
@@ -437,6 +447,7 @@ public final class Engine {
             rt.turn = []
             rt.awaitingEcho = false
             if origin != .bot { rt.turnTask = nil }         // a turn the mail did not start carries no task's chain
+            if origin != .routine { (rt.run, rt.turnChain) = (nil, 0) }   // nor a routine's run and its signal chain
         }
         rt.turn.append(event)
         push(.chatEvent(botId: rt.bot.id, record: record))
@@ -447,8 +458,14 @@ public final class Engine {
         case .turnEnded:
             closeRequests(of: rt, .answeredInTerminal)      // safety net: nothing can still be waiting after the turn
             repairTranscript(rt)
+            runEnded(rt, .done)
             deliverMail(rt)                                 // the next message waiting for it (spec §6)
-        case .turnFailed, .turnInterrupted:
+        case .turnFailed:
+            runEnded(rt, .failed)
+            deliverMail(rt)
+        case .turnInterrupted:
+            // The engine's own stop (time limit) or a crash said so first; otherwise it was your Stop (spec §4 of 0.6).
+            runEnded(rt, rt.runEnding ?? .interrupted)
             deliverMail(rt)
         default:
             break

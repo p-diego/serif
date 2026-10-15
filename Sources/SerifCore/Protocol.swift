@@ -89,6 +89,9 @@ public enum AppRequest: Codable, Equatable, Sendable {
     case agentStatus(Agent)     // the agent installed and signed in? Checked again on every request (spec §4 of 0.3)
     case codexCatalog           // Codex's plugins and models for the sheets (spec §6), kept a few minutes
     case cancelTask(projectId: UUID, number: Int)   // the user's Cancel on a task's card (spec §9 of 0.5)
+    case saveRoutine(Routine)                       // the sheet's Save, new or changed (spec §4 of 0.6)
+    case deleteRoutine(id: UUID)
+    case runRoutine(id: UUID)                       // "Run now": a run as soon as the bot is free
     case shutdown
 }
 

@@ -163,6 +163,9 @@ final class ProtocolTests: XCTestCase {
         let routine = Routine(botId: botId, name: "Rassegna", trigger: .weekdaysAt(days: [1, 3], hour: 9, minute: 0), prompt: "Read",
                               createdBy: .bot, createdAt: at, lastRunAt: at, lastOutcome: .done,
                               pending: PendingRun(dueAt: at, signal: RunSignal(name: "go", text: nil, from: "Cody", chain: 1)), runs: 2)
+        try assertRoundTrip(AppRequest.saveRoutine(routine))
+        try assertRoundTrip(AppRequest.deleteRoutine(id: routine.id))
+        try assertRoundTrip(AppRequest.runRoutine(id: routine.id))
         try assertRoundTrip(Push.routinesChanged(projectId: projectId, routines: [routine]))
         try assertRoundTrip(ResponseBody.snapshot(Snapshot(projects: [project], bots: [], requests: [], routines: [routine],
                                                            engineVersion: SerifVersion.current)))

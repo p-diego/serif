@@ -56,6 +56,7 @@ extension Engine {
         case .snapshot:
             return .snapshot(Snapshot(projects: store.projects, bots: store.bots.compactMap { bots[$0.id]?.summary },
                                       requests: requests.values.map(\.request).sorted { $0.openedAt < $1.openedAt },
+                                      routines: store.projects.flatMap { store.routines($0.id) },
                                       engineVersion: SerifEngineVersion.current))
         case let .createProject(name, linkedFolder, readLinkedInstructions):
             let project = Project(name: name, linkedFolder: linkedFolder, readLinkedInstructions: readLinkedInstructions)
@@ -139,15 +140,22 @@ extension Engine {
             }
             return .ok
         case let .interrupt(botId):
-            let rt = try runtime(botId)
-            guard rt.bot.agent == .codex else { rt.host.pressEscape(); return .ok }
-            interruptCodex(rt)
+            stopTurn(try runtime(botId))
             return .ok
         case let .answer(requestId, answer):
             return try self.answer(requestId, answer)
         case let .cancelTask(projectId, number):
             do { try cancelTask(number, in: projectId, by: nil, reason: nil) }
             catch let refusal as MailError { throw Refusal(refusal.text) }
+            return .ok
+        case let .saveRoutine(routine):
+            try saveRoutine(routine)
+            return .ok
+        case let .deleteRoutine(id):
+            try deleteRoutine(id)
+            return .ok
+        case let .runRoutine(id):
+            try runRoutineNow(id)
             return .ok
         case let .markRead(botId, seq):
             let rt = try runtime(botId)

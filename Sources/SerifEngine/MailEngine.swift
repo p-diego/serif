@@ -174,11 +174,12 @@ extension Engine {
     }
 
     /// Starts a turn with the oldest message waiting for `rt` once it is free (spec §6): one at a time, the next at the
-    /// end of that turn. Never added to a running turn (`turn/steer`, or typed into Claude Code while it works).
+    /// end of that turn. Never added to a running turn (`turn/steer`, or typed into Claude Code while it works). With
+    /// no mail waiting, a routine's run that is due starts instead: mail first (spec §4 of 0.6).
     func deliverMail(_ rt: BotRuntime) {
         guard isFree(rt) else { return }
         var box = store.mailbox(rt.bot.projectId)
-        guard let message = box.waiting(for: rt.bot.id).first else { return }
+        guard let message = box.waiting(for: rt.bot.id).first else { return startPendingRun(rt) }
         let text = mailTurnText(message, task: message.taskId.flatMap(box.task), name: botName)
         received(message, by: rt, in: &box)
         save(box, rt.bot.projectId)

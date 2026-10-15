@@ -218,8 +218,10 @@ extension Engine {
         (rt.sending, rt.interruptPending, rt.settingsRestored) = (false, false, false)
         stopTerminal(rt)
         closeRequests(of: rt, .cancelled)
-        // Closed as Codex closes one it interrupts: what had streamed of the reply stays in the chat.
+        // Closed as Codex closes one it interrupts: what had streamed of the reply stays in the chat. A routine's run
+        // cut so has failed, unless the engine was already stopping it (spec §4 of 0.6).
         guard rt.tracker.state.inTurn else { return }
+        if rt.run != nil { rt.runEnding = rt.runEnding ?? .failed }
         let end: JSONValue = ["turn": ["id": turn.map(JSONValue.string) ?? .null, "status": "interrupted"]]
         handle(rt.codexNormalizer.ingest(.notification(method: "turn/completed", params: end)), rt)
     }
