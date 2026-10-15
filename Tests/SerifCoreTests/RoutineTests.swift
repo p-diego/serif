@@ -15,6 +15,17 @@ final class RoutineTests: XCTestCase {
         Routine(botId: bot, name: "R", trigger: trigger, prompt: "Do it", createdBy: .user, createdAt: createdAt, lastRunAt: lastRunAt)
     }
 
+    func testAnOldShapeRoutineLoadsWithTheDefaults() throws {
+        // Only the fields of the first version: the rest takes the sheet's defaults (spec §10).
+        let json = #"{"id":"\#(UUID().uuidString)","botId":"\#(bot.uuidString)","name":"R","trigger":{"every":{"minutes":5}},"prompt":"Do it"}"#
+        let r = try JSONDecoder().decode(Routine.self, from: Data(json.utf8))
+        XCTAssertEqual(r.maxMinutes, 30)
+        XCTAssertTrue(r.notifies)
+        XCTAssertTrue(r.enabled)
+        XCTAssertEqual(r.runs, 0)
+        XCTAssertEqual(r.trigger, .every(minutes: 5))
+    }
+
     // MARK: - Next run (spec §4)
 
     func testEveryKeepsItsCadenceFromTheLastRun() {

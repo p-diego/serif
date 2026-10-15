@@ -175,6 +175,9 @@ final class ProtocolTests: XCTestCase {
         let routine = Routine(botId: botId, name: "Rassegna", trigger: .weekdaysAt(days: [1, 3], hour: 9, minute: 0), prompt: "Read",
                               createdBy: .bot, createdAt: at, lastRunAt: at, lastOutcome: .done,
                               pending: PendingRun(dueAt: at, signal: RunSignal(name: "go", text: nil, from: "Cody", chain: 1)), runs: 2)
+        let triggers: [RoutineTrigger] = [.every(minutes: 5), .dailyAt(hour: 9, minute: 30), .weekdaysAt(days: [1, 7], hour: 8, minute: 0),
+                                          .signal(name: "go"), .cron(expression: "0 9 * * 1")]
+        for trigger in triggers { try assertRoundTrip(trigger) }
         try assertRoundTrip(AppRequest.saveRoutine(routine))
         try assertRoundTrip(AppRequest.deleteRoutine(id: routine.id))
         try assertRoundTrip(AppRequest.runRoutine(id: routine.id))
