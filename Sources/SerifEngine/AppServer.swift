@@ -95,22 +95,12 @@ extension Engine {
         case let .updateBot(update):
             let rt = try runtime(update.id)
             var bot = update
-            // The engine owns the conversation id, Codex's thread, the agent, the archive flag, the creation date (the
-            // app's copy went through JSON with millisecond dates: compared as is, a bot created in this engine run always
-            // looked changed) and the creator (spec §7). The agent never changes (spec §2).
+            // The engine owns the conversation id, Codex's thread, the agent (changed only by `changeAgent`, spec §7 of
+            // 0.7), the archive flag, the creation date (the app's copy went through JSON with millisecond dates: compared
+            // as is, a bot created in this engine run always looked changed) and the creator (spec §7 of 0.5).
             (bot.sessionId, bot.threadId, bot.agent, bot.archivedAt, bot.createdAt, bot.createdBy) =
                 (rt.bot.sessionId, rt.bot.threadId, rt.bot.agent, rt.bot.archivedAt, rt.bot.createdAt, rt.bot.createdBy)
-            // Model, instructions, freedom, skills, plugins and connectors relaunch the bot (spec §4.5 of 0.1, §6.2); the rest
-            // waits for the next launch (a new name or project reaches system.md and the folders then) or never reaches
-            // Claude Code at all.
-            var launchFields = bot
-            (launchFields.face, launchFields.pinned, launchFields.notifications, launchFields.name, launchFields.projectId) =
-                (rt.bot.face, rt.bot.pinned, rt.bot.notifications, rt.bot.name, rt.bot.projectId)
-            let relaunch = launchFields != rt.bot
-            try store.save(bot: bot)
-            rt.bot = bot
-            push(.botChanged(rt.summary))
-            if relaunch { restart(rt) }
+            try saveBot(bot, by: .user, rt)          // the history, the restart or the instructions notice (spec §5–6 of 0.7)
             return .bot(bot)
         case let .archiveBot(id):
             try archive(try runtime(id))
@@ -162,8 +152,9 @@ extension Engine {
                 saved.append("\(folder)/\(name)")
             }
             return .attached(saved)
-        case .changes:
-            throw Refusal("Not yet")       // served by Task 5
+        case let .changes(botId):
+            _ = try runtime(botId)
+            return .changes(store.changes(bot: botId))
         case let .interrupt(botId):
             stopTurn(try runtime(botId))
             return .ok

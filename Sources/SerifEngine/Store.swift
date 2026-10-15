@@ -64,13 +64,32 @@ public final class Store {
     public func append(_ event: ChatEvent, bot: UUID, at: Date) throws -> ChatEventRecord {
         var meta = self.meta(bot)
         let record = ChatEventRecord(seq: meta.lastSeq + 1, at: at, event: event)
-        let url = paths.bot(bot).events
+        try appendLine(try encoder.encode(record), to: paths.bot(bot).events)
+        meta.lastSeq = record.seq
+        try setMeta(meta, for: bot)
+        return record
+    }
+
+    /// A change of the bot, one more line of its `history.jsonl` (spec §5 of 0.7).
+    public func append(_ change: BotChange, bot: UUID) throws {
+        try appendLine(try encoder.encode(change), to: paths.bot(bot).history)
+    }
+
+    /// The bot's last `limit` changes, oldest first; a line that cannot be read is skipped, like the chat's (spec §10).
+    public func changes(bot: UUID, limit: Int = 200) -> [BotChange] {
+        guard let data = try? Data(contentsOf: paths.bot(bot).history) else { return [] }
+        let lines = data.split(separator: UInt8(ascii: "\n"))
+        return Array(lines.compactMap { try? decoder.decode(BotChange.self, from: Data($0)) }.suffix(limit))
+    }
+
+    /// One JSON line at the end of `url` (the chat, the history), the file made if missing.
+    private func appendLine(_ json: Data, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
         let handle = try FileHandle(forUpdating: url)
         defer { try? handle.close() }
         let size = try handle.seekToEnd()
-        var line = try encoder.encode(record) + Data("\n".utf8)
+        var line = json + Data("\n".utf8)
         // A crash can leave a last line without newline: start a fresh line so the new record stays readable.
         if size > 0 {
             try handle.seek(toOffset: size - 1)
@@ -78,9 +97,6 @@ public final class Store {
             try handle.seekToEnd()
         }
         try handle.write(contentsOf: line)
-        meta.lastSeq = record.seq
-        try setMeta(meta, for: bot)
-        return record
     }
 
     /// Ascending; the newest `limit` records with seq < `beforeSeq` (all when nil).

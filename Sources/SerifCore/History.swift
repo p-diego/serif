@@ -26,3 +26,50 @@ public struct BotChange: Codable, Equatable, Sendable {
         self.at = at; self.by = by; self.field = field; self.old = old; self.new = new
     }
 }
+
+/// A bot's value of `field`, as the history keeps it.
+public func fieldValue(_ bot: Bot, _ field: BotField) -> JSONValue {
+    switch field {
+    case .name: .string(bot.name)
+    case .face: (try? JSONValue.parse(JSONEncoder().encode(bot.face))) ?? .null
+    case .instructions: .string(bot.instructions)
+    case .model: bot.model.map(JSONValue.string) ?? .null
+    case .freedom: .string(bot.freedom.rawValue)
+    case .skills: .array(bot.skills.map(JSONValue.string))
+    case .plugins: .array(bot.plugins.map(JSONValue.string))
+    case .connectors: .bool(bot.connectors)
+    case .agent: .string(bot.agent.rawValue)
+    case .notifications: .bool(bot.notifications)
+    }
+}
+
+/// The changes from `old` to `new`, field by field (spec §5): none for a bot saved as it was.
+public func botChanges(from old: Bot, to new: Bot, by: ChangeAuthor, at: Date) -> [BotChange] {
+    BotField.allCases.compactMap { field in
+        let (before, after) = (fieldValue(old, field), fieldValue(new, field))
+        return before == after ? nil : BotChange(at: at, by: by, field: field, old: before, new: after)
+    }
+}
+
+/// `bot` with the change's old value back in its field ("Restore", spec §5); nil when the value does not fit the field.
+public func restoring(_ change: BotChange, into bot: Bot) -> Bot? {
+    var b = bot
+    let v = change.old
+    switch change.field {
+    case .name: guard let s = v.string else { return nil }; b.name = s
+    case .face:
+        guard let data = try? v.encoded(), let face = try? JSONDecoder().decode(BotFace.self, from: data) else {
+            return nil
+        }
+        b.face = face
+    case .instructions: guard let s = v.string else { return nil }; b.instructions = s
+    case .model: if v == .null { b.model = nil } else if let s = v.string { b.model = s } else { return nil }
+    case .freedom: guard let f = v.string.flatMap(Freedom.init(rawValue:)) else { return nil }; b.freedom = f
+    case .skills: guard let list = v.array?.compactMap(\.string) else { return nil }; b.skills = list
+    case .plugins: guard let list = v.array?.compactMap(\.string) else { return nil }; b.plugins = list
+    case .connectors: guard let on = v.bool else { return nil }; b.connectors = on
+    case .agent: guard let a = v.string.flatMap(Agent.init(rawValue:)) else { return nil }; b.agent = a
+    case .notifications: guard let on = v.bool else { return nil }; b.notifications = on
+    }
+    return b
+}

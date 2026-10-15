@@ -174,6 +174,26 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(store.routines(broken), [routine])
     }
 
+    func testTheHistoryIsAppendedAndBadLinesAreSkipped() throws {
+        // Spec §5, §10 of 0.7: one line per change in history.jsonl; a line that cannot be read is skipped; the last 200.
+        let store = try Store(paths: paths)
+        let bot = UUID()
+        let first = BotChange(at: t0, by: .user, field: .name, old: "a", new: "b")
+        try store.append(first, bot: bot)
+        let url = paths.bot(bot).history
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd(); try handle.write(contentsOf: Data("{broken\n".utf8)); try handle.close()
+        let second = BotChange(at: t0.addingTimeInterval(1), by: .bot(id: UUID(), name: "Ada"), field: .instructions, old: "x", new: "y")
+        try store.append(second, bot: bot)
+        XCTAssertEqual(store.changes(bot: bot), [first, second])
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8).split(separator: "\n").count, 3)
+        for n in 0..<205 { try store.append(BotChange(at: t0, by: .user, field: .model, old: .null, new: .string("m\(n)")), bot: bot) }
+        let shown = store.changes(bot: bot)
+        XCTAssertEqual(shown.count, 200)
+        XCTAssertEqual(shown.last?.new, "m204")
+        XCTAssertEqual(store.changes(bot: UUID()), [])
+    }
+
     func testAMailJSONWrittenBy05Loads() throws {
         // The decisions were added in 0.6: an older file must still be read, never set aside (spec §6 of 0.6).
         let project = UUID()

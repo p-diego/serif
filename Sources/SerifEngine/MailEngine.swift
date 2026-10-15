@@ -137,8 +137,8 @@ extension Engine {
         return "Created \(name)"
     }
 
-    /// `update_instructions` (spec §7): the caller's own, or those of a bot it created. They apply from that bot's next
-    /// start: at once when it is free, else when it next starts (a bot never ends its own turn).
+    /// `update_instructions` (spec §7 of 0.5): the caller's own, or those of a bot it created. No restart (spec §6 of
+    /// 0.7): the bot gets them at the head of its next message.
     private func updateInstructions(_ a: JSONValue, from rt: BotRuntime) throws -> String {
         guard let instructions = try fitting(a["instructions"]?.string) else {
             throw MailError("update_instructions needs instructions")
@@ -153,11 +153,8 @@ extension Engine {
         }
         var updated = target.bot
         updated.instructions = instructions
-        try store.save(bot: updated)                 // memory changes only once the disk has it
-        target.bot = updated
-        push(.botChanged(target.summary))
-        if isFree(target) { restart(target) }
-        return "Updated; applies from the next start"
+        try saveBot(updated, by: .bot(id: rt.bot.id, name: rt.bot.name), target)
+        return "Updated; they apply from the next message"
     }
 
     /// `archive_bot` (spec §7): only a bot the caller created, as the app's Archive does.

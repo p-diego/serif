@@ -1221,12 +1221,15 @@ final class EngineTests: XCTestCase {
         let milo = try XCTUnwrap(engine.queue.sync { engine.bots.values.first { $0.bot.name == "Milo" }?.bot })
         waitFor(client, "Milo introduced") { self.turnsEnded($0, milo) == 1 }
         XCTAssertEqual(try launches(3).count, 3)
-        // Its own bot, free: restarted at once with the new instructions.
+        // Its own bot: saved, with the line in Milo's chat and his history; no restart (spec §6 of 0.7), the next message
+        // carries the new instructions.
         XCTAssertEqual(callTool(engine, as: bob, "update_instructions", ["bot": "milo", "instructions": "Write the README."]),
-                       ToolResult("Updated; applies from the next start"))
-        _ = try launches(4)
-        waitFor(client, "Milo again") { $0.summaries(milo.id).last?.state == .ready }
-        XCTAssertTrue(try String(contentsOf: paths.bot(milo.id).systemPrompt, encoding: .utf8).contains("Write the README."))
+                       ToolResult("Updated; they apply from the next message"))
+        waitFor(client, "Milo told") { $0.chatEvents(milo.id).contains(.system(.instructionsChanged(by: "Bob"))) }
+        XCTAssertEqual(client.all.summaries(milo.id).last?.bot.instructions, "Write the README.")
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertEqual(try launches(3).count, 3)
+        XCTAssertTrue(try String(contentsOf: paths.bot(milo.id).systemPrompt, encoding: .utf8).contains("Writes the docs."))
         // Someone else's bot, or archiving one it did not create: refused.
         XCTAssertEqual(callTool(engine, as: ada, "update_instructions", ["bot": "Milo", "instructions": "x"]),
                        ToolResult("you can change only your own instructions and those of the bots you created", isError: true))
@@ -1234,11 +1237,11 @@ final class EngineTests: XCTestCase {
                        ToolResult("you can archive only the bots you created", isError: true))
         XCTAssertEqual(callTool(engine, as: bob, "archive_bot", ["name": "Ada"]),
                        ToolResult("you can archive only the bots you created", isError: true))
-        // Its own instructions, in its turn: saved, no restart until its next start.
+        // Its own instructions, in its turn: saved, no restart.
         XCTAssertEqual(request(client, .send(botId: bob.id, text: "Change your role")), .ok)
         waitFor(client, "Bob's turn") { self.turnsEnded($0, bob) == 2 }
         Thread.sleep(forTimeInterval: 1)
-        XCTAssertEqual(try launches(4).count, 4)
+        XCTAssertEqual(try launches(3).count, 3)
         XCTAssertEqual(client.all.summaries(bob.id).last?.bot.instructions, "Lead the release.")
         XCTAssertEqual(callTool(engine, as: bob, "archive_bot", ["name": "Milo"]), ToolResult("Archived Milo"))
         waitFor(client, "Milo archived") { $0.summaries(milo.id).last?.state == .stopped }
@@ -2612,5 +2615,130 @@ final class EngineTests: XCTestCase {
                        [["type": "text", "text": .string(text)],
                         ["type": "localImage", "path": .string(self.paths.shared(ada.projectId).appendingPathComponent(paths[0]).path)]])
         XCTAssertTrue(client.all.chatEvents(ada.id).contains(.userMessage(text: "Describe", promptId: "turn-2", origin: .chat, attachments: paths)))
+    }
+
+    func testTheSheetTheToolsAndRestoreWriteTheHistory() throws {
+        // Spec §5: one line per changed field, by you or by the bot that called update_instructions; a pin is not a change;
+        // Restore is a new change of yours with the old value.
+        try play([sessionStart] + prompt("p0") + stop("p0"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        var bob = try createBot(client)
+        let ada = try createBot(client, in: bob.projectId, name: "Ada")
+        for bot in [bob, ada] { waitFor(client, "introduced") { self.turnsEnded($0, bot) == 1 } }
+        XCTAssertEqual(changes(client, bob), [])                                   // creation is not a change (spec §5)
+        bob.name = "Robert"; bob.instructions = "Lead."; bob.pinned = true
+        guard case .bot = request(client, .updateBot(bob)) else { return XCTFail("update refused") }
+        let mine = changes(client, bob)
+        XCTAssertEqual(mine.map(\.field), [.name, .instructions])
+        XCTAssertEqual(mine.map(\.by), [.user, .user])
+        XCTAssertEqual([mine[0].old, mine[0].new, mine[1].old, mine[1].new], ["Bob", "Robert", "Help.", "Lead."])
+        XCTAssertEqual(callTool(engine, as: ada, "create_bot", ["name": "Milo", "instructions": "Docs."]), ToolResult("Created Milo"))
+        let milo = try XCTUnwrap(engine.queue.sync { engine.bots.values.first { $0.bot.name == "Milo" }?.bot })
+        XCTAssertEqual(callTool(engine, as: ada, "update_instructions", ["bot": "Milo", "instructions": "README."]),
+                       ToolResult("Updated; they apply from the next message"))
+        let his = changes(client, milo)
+        XCTAssertEqual(his.map(\.field), [.instructions])
+        XCTAssertEqual(his.first?.by, .bot(id: ada.id, name: "Ada"))
+        // Restore: the app saves the old value as a change of yours (the same request as the sheet).
+        let restored = try XCTUnwrap(restoring(mine[0], into: try XCTUnwrap(client.all.summaries(bob.id).last?.bot)))
+        guard case .bot = request(client, .updateBot(restored)) else { return XCTFail("restore refused") }
+        let after = changes(client, bob)
+        XCTAssertEqual(after.map(\.field), [.name, .instructions, .name])
+        XCTAssertEqual([after[2].old, after[2].new], ["Robert", "Bob"])
+        XCTAssertEqual(after[2].by, .user)
+        XCTAssertEqual(try Store(paths: paths).changes(bot: bob.id), after)
+        XCTAssertEqual(request(client, .changes(botId: UUID())), .error("Unknown bot"))
+    }
+
+    func testNewInstructionsReachTheBotWithItsNextMessageWithoutARestart() throws {
+        // Spec §6: no relaunch; the notice heads the next message, whatever brings it (yours, mail, a routine); once; a
+        // restart in between drops it (the prompt has them).
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "$PASTE") + prompt("p2") + stop("p2", "$PASTE")
+                 + prompt("p3") + stop("p3", "$PASTE") + prompt("p4") + stop("p4", "$PASTE"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        var bob = try createBot(client)
+        let ada = try createBot(client, in: bob.projectId, name: "Ada")
+        for bot in [bob, ada] { waitFor(client, "introduced") { self.turnsEnded($0, bot) == 1 } }
+        bob.instructions = "Be brief."
+        guard case .bot = request(client, .updateBot(bob)) else { return XCTFail("update refused") }
+        waitFor(client, "the line") { $0.chatEvents(bob.id).contains(.system(.instructionsChanged(by: nil))) }
+        Thread.sleep(forTimeInterval: 1.5)                                         // a relaunch would have logged by now
+        XCTAssertEqual(try launches(2).count, 2, "new instructions relaunched the bot")
+        XCTAssertTrue(try String(contentsOf: paths.bot(bob.id).systemPrompt, encoding: .utf8).contains("Help."))   // the old prompt, on disk until the next start
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "hello")), .ok)
+        waitFor(client, "the turn") { self.turnsEnded($0, bob) == 2 }
+        XCTAssertEqual(replies(client.all, bob).last, "Your instructions have changed. From now on follow these:\n\nBe brief.\n\n---\n\nhello")
+        XCTAssertTrue(client.all.chatEvents(bob.id).contains(.userMessage(text: "hello", promptId: "p1", origin: .chat)))   // your words
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "again")), .ok)
+        waitFor(client, "the second turn") { self.turnsEnded($0, bob) == 3 }
+        XCTAssertEqual(replies(client.all, bob).last, "again")                      // the notice went once
+        // The same through the mail (spec §6): Ada's note carries it.
+        XCTAssertEqual(callTool(engine, as: bob, "update_instructions", ["instructions": "Be kind."]),
+                       ToolResult("Updated; they apply from the next message"))
+        waitFor(client, "Bob's own line") { $0.chatEvents(bob.id).contains(.system(.instructionsChanged(by: "Bob"))) }
+        XCTAssertFalse(callTool(engine, as: ada, "send_message", ["to": "Bob", "body": "hi", "kind": "note"]).isError)
+        waitFor(client, "the note's turn") { self.turnsEnded($0, bob) == 4 }
+        XCTAssertEqual(replies(client.all, bob).last, "Your instructions have changed. From now on follow these:\n\nBe kind.\n\n---\n\nNote from Ada:\n\nhi")
+        XCTAssertEqual(mailText(client.all, bob), "Note from Ada:\n\nhi")           // the chat keeps the mail as it is
+        XCTAssertEqual(try launches(2).count, 2)
+        // A restart in between: the prompt has them, nothing is added.
+        bob = try XCTUnwrap(client.all.summaries(bob.id).last?.bot)
+        bob.instructions = "Be slow."
+        guard case .bot = request(client, .updateBot(bob)) else { return XCTFail("update refused") }
+        try play([sessionStart] + prompt("p5") + stop("p5", "$PASTE"))
+        XCTAssertEqual(request(client, .restartBot(id: bob.id)), .ok)
+        _ = try launches(3)
+        waitFor(client, "ready again") { $0.summaries(bob.id).last?.state == .ready }
+        XCTAssertTrue(try String(contentsOf: paths.bot(bob.id).systemPrompt, encoding: .utf8).contains("Be slow."))
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "after")), .ok)
+        waitFor(client, "after the restart") { self.turnsEnded($0, bob) == 5 }
+        XCTAssertEqual(replies(client.all, bob).last, "after")
+    }
+
+    func testNewInstructionsHeadARoutineRunAndADecisionAnswer() throws {
+        // Spec §6: the notice goes with whatever message comes first, a routine's run or your answer to a decision too.
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "$PASTE") + prompt("p2") + stop("p2", "$PASTE"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        var bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Tidy", .every(minutes: 5)))), .ok)
+        bob.instructions = "Be brief."
+        guard case .bot = request(client, .updateBot(bob)) else { return XCTFail("update refused") }
+        sweep(engine, at: 301)
+        waitFor(client, "the run") { self.runs($0, bob).last?.outcome == .done }
+        XCTAssertTrue(try XCTUnwrap(replies(client.all, bob).last).hasPrefix("Your instructions have changed. From now on follow these:\n\nBe brief.\n\n---\n\nRoutine «Tidy»"))
+        XCTAssertTrue(try XCTUnwrap(runText(client.all, bob)).hasPrefix("Routine «Tidy»"))      // the chat keeps the run's text
+        XCTAssertEqual(callTool(engine, as: bob, "raise_decision", ["question": "Ship?", "options": ["Yes", "No"]]),
+                       ToolResult("Decision #1 raised; you will get the answer as a message"))
+        waitFor(client, "the card") { !$0.openedRequests.isEmpty }
+        bob.instructions = "Be kind."
+        guard case .bot = request(client, .updateBot(bob)) else { return XCTFail("update refused") }
+        let card = try XCTUnwrap(client.all.openedRequests.first)
+        XCTAssertEqual(request(client, .answer(requestId: card.id, answer: .decision(option: 0, text: nil))), .ok)
+        waitFor(client, "the answer's turn") { self.turnsEnded($0, bob) == 3 }
+        XCTAssertEqual(replies(client.all, bob).last, "Your instructions have changed. From now on follow these:\n\nBe kind.\n\n---\n\nYour decision on #1 «Ship?»: Yes")
+        XCTAssertEqual(try launches(1).count, 1)
+    }
+
+    func testNewInstructionsReachACodexBotWithItsNextMessage() throws {
+        try makeEngine("basic", codex: "codex-two-turns").start()
+        let client = try connect()
+        var ada = try createBot(client, agent: .codex)
+        waitFor(client, "introduced") { self.turnsEnded($0, ada) == 1 }
+        ada.instructions = "Be brief."
+        guard case .bot = request(client, .updateBot(ada)) else { return XCTFail("update refused") }
+        waitFor(client, "the line") { $0.chatEvents(ada.id).contains(.system(.instructionsChanged(by: nil))) }
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "hello")), .ok)
+        waitFor(client, "the turn") { self.turnsEnded($0, ada) == 2 }
+        XCTAssertEqual(codexRequests("turn/start").last?["input"]?.array?.first?["text"]?.string,
+                       "Your instructions have changed. From now on follow these:\n\nBe brief.\n\n---\n\nhello")
+        XCTAssertTrue(client.all.chatEvents(ada.id).contains(.userMessage(text: "hello", promptId: "turn-2", origin: .chat)))
+        XCTAssertEqual(try codexServers(ada).count, 1, "new instructions relaunched the Codex bot")
     }
 }

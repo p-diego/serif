@@ -38,7 +38,7 @@ public let serifTools: [JSONValue] = [
          ["name": text("A name no other bot of the project has"), "instructions": text("Its role and how to work")],
          required: ["name", "instructions"]),
     tool("update_instructions", "Change your own instructions, or those of a bot you created. They apply from its next "
-         + "start.",
+         + "message.",
          ["bot": text("The name of a bot you created; leave out for yourself"),
           "instructions": text("The new instructions")],
          required: ["instructions"]),
