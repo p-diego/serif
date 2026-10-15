@@ -13,6 +13,13 @@ final class TranscriptTests: XCTestCase {
         t.items.map { switch $0 { case .timestamp: "ts"; case .user: "user"; case .assistant: "asst"; case .steps: "steps"; case .request: "req"; case .system: "sys" } }
     }
 
+    func testMailEchoIsNotShownAsYours() {
+        // The text a bot gets from the mail is not the user's: the mail's own item shows it (spec §6).
+        var t = Transcript()
+        t.apply([rec(1, .userMessage(text: "Note from Cody:\n\nhi", promptId: "p1", origin: .bot))])
+        XCTAssertEqual(kinds(t), [])
+    }
+
     func testToolsGroupIntoOneSteps() {
         var t = Transcript()
         t.apply([rec(1, tool("a")), rec(2, tool("b")), rec(3, done("a")), rec(4, done("b"))])

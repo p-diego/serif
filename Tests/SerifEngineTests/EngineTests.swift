@@ -101,6 +101,8 @@ private func label(_ e: ChatEvent) -> String {
     case .turnInterrupted: "turnInterrupted"
     case .subagent: "subagent"
     case .system(let note): "system(\(note))"
+    case .mail(let m): "mail(\(m.direction) \(m.kind))"
+    case .task(let t): "task(#\(t.number) \(t.status))"
     }
 }
 

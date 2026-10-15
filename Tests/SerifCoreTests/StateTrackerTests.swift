@@ -312,6 +312,13 @@ final class StateTrackerTests: XCTestCase {
         XCTAssertFalse(isUnread(lastReadSeq: 0, records: []))
     }
 
+    func testMailAndTasksLeaveTheStateAlone() {
+        var s = readyTracker()
+        s.apply(.task(TaskCard(number: 1, from: "A", to: "B", text: "x", deadline: Date(), status: .open)))
+        s.apply(.mail(MailNote(messageId: UUID(), kind: .note, from: "A", to: "B", direction: .sent, text: "x")))
+        XCTAssertEqual(s.state, .ready)
+    }
+
     func testAStepClosingAfterItsTurnLeavesTheBotReady() {
         // Codex: a command an interruption left running ends after its turn (spec §3.3).
         var s = workingTracker()

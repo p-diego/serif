@@ -109,6 +109,26 @@ final class ProtocolTests: XCTestCase {
         XCTAssertNil(try protocolDecoder().decode(PendingRequest.self, from: old).decisions)
     }
 
+    func testMailFieldsAndEventsRoundTrip() throws {
+        var created = bot
+        created.createdBy = UUID()
+        try assertRoundTrip(AppRequest.updateBot(created))
+        var led = project
+        led.leadBotId = botId
+        try assertRoundTrip(AppRequest.updateProject(led))
+        let events: [ChatEvent] = [
+            .userMessage(text: "Task #3 from Cody", promptId: "p2", origin: .bot),
+            .system(.createdBy(name: "Cody")),
+            .mail(MailNote(messageId: UUID(), kind: .task, from: "Cody", to: "Milo", direction: .received, text: "Check the logs",
+                           taskNumber: 3)),
+            .mail(MailNote(messageId: UUID(), kind: .system, from: "Cody", to: "Milo", direction: .received,
+                           text: "Task #3 from Cody was cancelled by the user", taskNumber: 3, notice: .cancelledByUser)),
+            .task(TaskCard(number: 3, from: "Cody", to: "Milo", text: "Check the logs", deadline: at, status: .open)),
+            .task(TaskCard(number: 3, from: "Cody", to: "Milo", text: "Check the logs", deadline: at, status: .done, result: "Clean")),
+        ]
+        for event in events { try assertRoundTrip(event) }
+    }
+
     func testRequestAnswersRoundTrip() throws {
         let answers: [RequestAnswer] = [
             .allow, .allowSession, .deny(message: nil), .denyAndStop, .answers(["Quale?": ["A", "B"]]),

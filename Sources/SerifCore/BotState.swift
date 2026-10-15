@@ -76,7 +76,7 @@ public struct StateTracker: Sendable {
         case .turnEnded, .turnFailed, .turnInterrupted:
             open = []
             state = .ready
-        case .assistantTextReplaced, .subagent, .system:
+        case .assistantTextReplaced, .subagent, .system, .mail, .task:
             break
         }
         if let oldest = open.first { state = .waiting(kind: oldest.kind, requestId: oldest.id) }

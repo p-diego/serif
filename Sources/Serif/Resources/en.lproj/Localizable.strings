@@ -36,6 +36,7 @@
 "Jump to the latest" = "Jump to the latest";
 "from the terminal" = "from the terminal";
 "Bot created" = "Bot created";
+"Created by %@" = "Created by %@";
 "Resumed after the restart" = "Resumed after the restart";
 "New conversation (resuming failed)" = "New conversation (resuming failed)";
 "Conversation compacted" = "Conversation compacted";

@@ -89,9 +89,12 @@ public struct Transcript: Equatable, Sendable {
     private mutating func fold(_ r: ChatEventRecord) {
         switch r.event {
         case .userMessage(let text, _, let origin):
-            // Serif's own first message to a new bot is not yours: a system line says what happened (spec §5).
-            if origin == .introduction { add(.system(id: "sys-\(r.seq)", note: .introductionRequested, at: r.at), r) }
-            else { add(.user(id: "u-\(r.seq)", text: text, origin: origin, at: r.at), r) }
+            switch origin {
+            // Serif's own first message to a new bot is not yours: a system line says what happened (spec §5 of 0.3).
+            case .introduction: add(.system(id: "sys-\(r.seq)", note: .introductionRequested, at: r.at), r)
+            case .bot: break        // the mail's own item shows it (spec §6)
+            case .chat, .terminal: add(.user(id: "u-\(r.seq)", text: text, origin: origin, at: r.at), r)
+            }
         case .assistantText(let id, _, let delta, let final, _):
             if let i = items.lastIndex(where: { if case .assistant(id, _, _, _) = $0 { true } else { false } }),
                case .assistant(_, var t, let at, _) = items[i] {
@@ -152,6 +155,8 @@ public struct Transcript: Equatable, Sendable {
             add(.system(id: "sys-\(r.seq)", note: note, at: r.at), r)
         case .subagent:
             break    // ignored in 0.1
+        case .mail, .task:
+            break    // no chat item yet
         }
     }
 

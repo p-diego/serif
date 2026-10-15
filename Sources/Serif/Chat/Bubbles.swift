@@ -84,6 +84,7 @@ struct SystemLine: View {
         case .linkedFolderMissing(let p): String(localized: "The linked folder is missing: \(p)")
         case .crashed(let r): String(localized: "Stopped: \(crashReasonText(r))")
         case .messageMayNotHaveArrived(let t): String(localized: "This message may not have reached Codex: \(t)")
+        case .createdBy(let name): String(localized: "Created by \(name)")
         }
     }
 }
