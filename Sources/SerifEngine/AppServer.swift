@@ -157,6 +157,9 @@ extension Engine {
         case let .runRoutine(id):
             try runRoutineNow(id)
             return .ok
+        case let .decisions(projectId):
+            guard store.projects.contains(where: { $0.id == projectId }) else { throw Refusal("Unknown project") }
+            return .decisions(store.mailbox(projectId).decisions)
         case let .markRead(botId, seq):
             let rt = try runtime(botId)
             updateMeta(rt) { $0.lastReadSeq = max($0.lastReadSeq, seq) }
@@ -199,6 +202,11 @@ extension Engine {
     private func answer(_ requestId: UUID, _ answer: RequestAnswer) throws -> ResponseBody {
         guard let open = requests[requestId], let rt = bots[open.request.botId] else { throw Refusal("The request is already closed") }
         switch open.asker {
+        case .engine:
+            // A decision (spec §6 of 0.6): the answer goes to the bot as mail from you, the card closes.
+            guard case let .decision(option, text) = answer else { throw Refusal("This answer does not fit the request") }
+            do { try answerDecision(open.request, option: option, text: text) }
+            catch let refusal as MailError { throw Refusal(refusal.text) }
         case let .codex(id):
             guard let result = codexReply(for: answer, request: open.request) else { throw Refusal("This answer does not fit the request") }
             guard let server = rt.codex else { throw Refusal("The bot is not running") }

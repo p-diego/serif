@@ -178,9 +178,14 @@ final class ProtocolTests: XCTestCase {
         try assertRoundTrip(AppRequest.saveRoutine(routine))
         try assertRoundTrip(AppRequest.deleteRoutine(id: routine.id))
         try assertRoundTrip(AppRequest.runRoutine(id: routine.id))
+        try assertRoundTrip(AppRequest.decisions(projectId: projectId))
         try assertRoundTrip(Push.routinesChanged(projectId: projectId, routines: [routine]))
         try assertRoundTrip(ResponseBody.snapshot(Snapshot(projects: [project], bots: [], requests: [], routines: [routine],
                                                            engineVersion: SerifVersion.current)))
+        let decision = Decision(number: 5, botId: botId, question: "Ship?", options: ["Yes", "No"], recommendation: 0, context: "why",
+                                status: .answered, answer: DecisionAnswer(option: 0, text: "go"), answeredAt: at, createdAt: at,
+                                requestId: requestId)
+        try assertRoundTrip(ResponseBody.decisions([decision]))
         let card = PendingRequest(id: requestId, botId: botId, kind: .decision, toolName: "decision",
                                   input: ["number": 5, "question": "Ship?", "options": ["Yes", "No"]], toolUseId: nil, promptId: nil,
                                   suggestions: nil, openedAt: at)

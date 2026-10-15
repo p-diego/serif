@@ -63,7 +63,7 @@ final class BotRuntime {
             preview? += delta
         case let .assistantTextReplaced(id, text) where id == previewMessage:
             preview = text
-        case let .requestOpened(request):
+        case let .requestOpened(request) where request.kind != .decision:   // a decision's card is not the row's news
             previewMessage = nil
             let detail = request.input["command"]?.string ?? request.input["questions"]?.array?.first?["question"]?.string
             preview = [request.toolName, detail].compactMap { $0 }.joined(separator: ": ")
@@ -119,7 +119,8 @@ public final class Engine {
     var now: () -> Date = { Date() }
     var bots: [UUID: BotRuntime] = [:]
     /// Who waits for a card's answer: Claude Code's serif-hook, or the Codex server's request id.
-    enum Asker { case hook(LineConnection), codex(JSONValue) }
+    /// A decision's card (spec §6 of 0.6) has no connection behind it: the engine itself answers it.
+    enum Asker { case hook(LineConnection), codex(JSONValue), engine }
     var requests: [UUID: (request: PendingRequest, asker: Asker)] = [:]
     /// When this engine started (spec §4 of 0.6): runs due before it are not made up.
     var routineFloor = Date()
@@ -154,6 +155,7 @@ public final class Engine {
                 stopLeftoverCodexServers()
                 for bot in store.bots { launch(addRuntime(bot)) }
                 routinesStarted()
+                reviveDecisions()
                 let sweep = DispatchSource.makeTimerSource(queue: queue)
                 sweep.schedule(deadline: .now() + 60, repeating: 60)
                 sweep.setEventHandler { [weak self] in self?.expireTasks(); self?.routineSweep() }

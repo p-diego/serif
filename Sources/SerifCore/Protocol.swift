@@ -92,6 +92,7 @@ public enum AppRequest: Codable, Equatable, Sendable {
     case saveRoutine(Routine)                       // the sheet's Save, new or changed (spec §4 of 0.6)
     case deleteRoutine(id: UUID)
     case runRoutine(id: UUID)                       // "Run now": a run as soon as the bot is free
+    case decisions(projectId: UUID)                 // the project's decisions, for its settings (spec §6 of 0.6)
     case shutdown
 }
 
@@ -117,6 +118,7 @@ public enum ResponseBody: Codable, Equatable, Sendable {
     case terminal(seq: Int, data: Data)
     case agentStatus(AgentStatus)
     case codexCatalog(CodexCatalog)
+    case decisions([Decision])
     case error(String)
 }
 

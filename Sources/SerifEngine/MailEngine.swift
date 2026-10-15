@@ -23,6 +23,9 @@ extension Engine {
             case "delete_routine": return ToolResult(try deleteRoutine(arguments, from: rt))
             case "run_routine": return ToolResult(try runRoutine(arguments, from: rt))
             case "emit_signal": return ToolResult(try emitSignal(arguments, from: rt))
+            case "raise_decision": return ToolResult(try raiseDecision(arguments, from: rt))
+            case "list_decisions": return ToolResult(listDecisions(for: rt))
+            case "withdraw_decision": return ToolResult(try withdrawDecision(arguments, from: rt))
             default: return ToolResult("Serif has no tool called \(name)", isError: true)
             }
         } catch let refusal as MailError {
@@ -216,16 +219,18 @@ extension Engine {
     }
 
     /// A bot archived (spec §5, §10): its open tasks are cancelled with a notice to the other bot, the mail waiting for
-    /// it is dropped and logged.
+    /// it is dropped and logged; its open decisions are withdrawn and their cards closed (spec §6 of 0.6).
     func mailArchived(_ bot: Bot) {
         var box = store.mailbox(bot.projectId)
         let (closed, dropped) = box.archive(bot.id, at: now())
-        guard !closed.isEmpty || !dropped.isEmpty else { return }
+        let withdrawn = box.withdrawDecisions(of: bot.id, at: now())
+        guard !closed.isEmpty || !dropped.isEmpty || !withdrawn.isEmpty else { return }
         save(box, bot.projectId)
         for m in dropped {
             log("bot \(bot.id) archived: a \(m.kind.rawValue) from \(m.from.map(botName) ?? "the user") dropped")
         }
         closed.forEach { taskChanged($0, in: box) }
+        withdrawn.forEach { closeRequest($0.requestId, .cancelled, replied: true) }
         deliverMail(in: bot.projectId)
     }
 

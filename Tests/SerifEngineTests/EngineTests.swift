@@ -879,6 +879,123 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(callTool(engine, as: ada, "emit_signal", ["name": "build-done"]), ToolResult("signal chain too long", isError: true))
     }
 
+    func testADecisionIsACardThatDoesNotHoldTheBotAndYourAnswerComesBackAsMail() throws {
+        let (client, bob, ada) = try twoBots(
+            bob: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1")
+                + [tool("raise_decision", ["question": "Ship 0.6 today?", "options": ["Yes", "No"], "recommendation": 1,
+                                           "context": "Tests are green."])]
+                + stop("p1", "Asked.") + prompt("p2") + stop("p2", "Thanks."),
+            ada: [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1"))
+        guard case let .snapshot(before) = request(client, .snapshot), var project = before.projects.first else { return XCTFail("no project") }
+        project.leadBotId = ada.id
+        guard case .project = request(client, .updateProject(project)) else { return XCTFail("lead refused") }
+        XCTAssertEqual(request(client, .markRead(botId: bob.id, seq: Int.max / 2)), .ok)
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Ask me")), .ok)
+        waitFor(client, "the card") { !$0.openedRequests.isEmpty }
+        let card = try XCTUnwrap(client.all.openedRequests.first)
+        XCTAssertEqual([card.kind.rawValue, card.toolName], ["decision", "decision"])
+        XCTAssertEqual(card.input["number"], 1)
+        XCTAssertEqual(card.input["options"], ["Yes", "No"])
+        XCTAssertEqual(card.input["recommendation"], 0)                             // the bot counts from 1, the card from 0
+        XCTAssertEqual(card.input["context"], "Tests are green.")
+        waitFor(client, "the turn went on") { self.turnsEnded($0, bob) == 2 }
+        XCTAssertEqual(request(client, .markRead(botId: bob.id, seq: Int.max / 2)), .ok)     // your turn was news; the answer's is not
+        guard case .terminal = request(client, .attachTerminal(botId: bob.id)) else { return XCTFail("no terminal") }
+        waitFor(client, "the tool's answer") { $0.terminalText.contains("TOOL-OUT:Decision #1 raised; you will get the answer as a message") }
+        // Never waiting on it, and the card is still open after the turn (spec §6).
+        XCTAssertFalse(client.all.summaries(bob.id).contains { if case .waiting = $0.state { true } else { false } })
+        XCTAssertNil(client.all.closed(card.id))
+        guard case let .snapshot(snapshot) = request(client, .snapshot) else { return XCTFail("no snapshot") }
+        XCTAssertEqual(snapshot.requests.map(\.id), [card.id])
+        XCTAssertEqual(request(client, .answer(requestId: card.id, answer: .allow)), .error("This answer does not fit the request"))
+        XCTAssertEqual(request(client, .answer(requestId: card.id, answer: .decision(option: nil, text: " "))),
+                       .error("choose an option or write an answer"))
+        XCTAssertEqual(request(client, .answer(requestId: card.id, answer: .decision(option: 0, text: "go"))), .ok)
+        waitFor(client, "closed") { $0.closed(card.id) == .answeredInApp }
+        waitFor(client, "the answer's turn and the lead's copy") { self.turnsEnded($0, bob) == 3 && self.turnsEnded($0, ada) == 2 }
+        XCTAssertEqual(mailText(client.all, bob), "Your decision on #1 «Ship 0.6 today?»: Yes — go")
+        XCTAssertEqual(mailText(client.all, ada), "Decision #1 of Bob «Ship 0.6 today?» was answered by the user: Yes — go")
+        let note = client.all.chatEvents(bob.id).lazy.compactMap { if case let .mail(m) = $0 { m } else { nil } }.first
+        XCTAssertNil(note?.from)                                                     // from you (spec §6)
+        XCTAssertEqual(note?.kind, .system)
+        XCTAssertEqual(client.all.summaries(bob.id).last?.unread, false)             // mail: nothing to read
+        XCTAssertEqual(request(client, .answer(requestId: card.id, answer: .decision(option: 1, text: nil))),
+                       .error("The request is already closed"))
+        let decision = try XCTUnwrap(try Store(paths: paths).mailbox(bob.projectId).decisions.first)
+        XCTAssertEqual([decision.status.rawValue, decision.answer?.text], ["answered", "go"])
+        XCTAssertEqual(decision.requestId, card.id)
+    }
+
+    func testAWithdrawnDecisionClosesItsCardAndArchivingWithdrawsTheRestAndDropsTheRoutines() throws {
+        let turns = [sessionStart] + prompt("p0") + stop("p0")
+        let (client, bob, ada) = try twoBots(bob: turns, ada: turns)
+        let engine = engines[0]
+        func raise(_ bot: Bot, _ q: String) -> ToolResult {
+            callTool(engine, as: bot, "raise_decision", ["question": .string(q), "options": ["A", "B"]])
+        }
+        XCTAssertEqual(raise(bob, "One?"), ToolResult("Decision #1 raised; you will get the answer as a message"))
+        waitFor(client, "the card") { $0.openedRequests.count == 1 }
+        let first = try XCTUnwrap(client.all.openedRequests.first)
+        XCTAssertEqual(callTool(engine, as: ada, "withdraw_decision", ["number": 1]), ToolResult("decision #1 is not yours", isError: true))
+        XCTAssertEqual(callTool(engine, as: bob, "withdraw_decision", ["number": "#1", "reason": "solved it"]), ToolResult("Decision #1 withdrawn"))
+        waitFor(client, "withdrawn") { $0.closed(first.id) == .cancelled }
+        XCTAssertTrue(callTool(engine, as: ada, "list_decisions").text.contains("- #1 by Bob") )
+        XCTAssertTrue(callTool(engine, as: ada, "list_decisions").text.hasSuffix("— withdrawn: solved it"))
+        for q in ["Two?", "Three?", "Four?"] { XCTAssertFalse(raise(bob, q).isError) }
+        XCTAssertEqual(raise(bob, "Five?"), ToolResult("you already have 3 open decisions: wait for an answer, or withdraw one", isError: true))
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Tidy", .every(minutes: 5)))), .ok)
+        XCTAssertEqual(request(client, .saveRoutine(routine(ada, "Hers", .every(minutes: 5)))), .ok)
+        waitFor(client, "three cards") { $0.openedRequests.count == 4 }
+        XCTAssertEqual(request(client, .archiveBot(id: bob.id)), .ok)
+        waitFor(client, "cards closed") { m in m.openedRequests.dropFirst().allSatisfy { m.closed($0.id) == .cancelled } }
+        XCTAssertEqual(try Store(paths: paths).mailbox(bob.projectId).decisions.map(\.status), Array(repeating: .withdrawn, count: 4))
+        XCTAssertEqual(routines(client.all, bob.projectId).map(\.name), ["Hers"])  // Bob's routine went with him (spec §4)
+        XCTAssertEqual(try Store(paths: paths).routines(bob.projectId).map(\.name), ["Hers"])
+    }
+
+    func testOpenDecisionsAndDueRunsSurviveARestartAndMissedRunsAreOnlyLogged() throws {
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "NEVER"]])
+        let first = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try first.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(callTool(first, as: bob, "raise_decision", ["question": "Ship?", "options": ["Yes", "No"]]),
+                       ToolResult("Decision #1 raised; you will get the answer as a message"))
+        waitFor(client, "the card") { $0.openedRequests.count == 1 }
+        let card = try XCTUnwrap(client.all.openedRequests.first)
+        XCTAssertEqual(request(client, .saveRoutine(routine(bob, "Tidy", .every(minutes: 5)))), .ok)
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Work long")), .ok)
+        waitFor(client, "Bob working") { $0.chatEvents(bob.id).filter { label($0) == "userMessage" }.count == 2 }
+        sweep(first, at: 301)                                                        // due: a run waits on disk
+        XCTAssertNotNil(routines(client.all, bob.projectId).first?.pending)
+        shutdown(first)
+        // A routine whose time passed while the engine was off, written by an earlier engine.
+        var missed = routine(bob, "Old", .every(minutes: 5))
+        missed.createdAt = Date().addingTimeInterval(-3600)
+        let store = try Store(paths: paths)
+        try store.save(store.routines(bob.projectId) + [missed], project: bob.projectId)
+        try play([sessionStart] + prompt("p9") + stop("p9", "Tidied."))
+        let second = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try second.start()
+        let again = try connect()
+        guard case let .snapshot(snapshot) = request(again, .snapshot) else { return XCTFail("no snapshot") }
+        XCTAssertEqual(snapshot.requests.map(\.id), [card.id])                      // the same card, back (spec §6)
+        XCTAssertEqual(snapshot.routines.map(\.name).sorted(), ["Old", "Tidy"])
+        guard case let .history(records) = request(again, .history(botId: bob.id, beforeSeq: nil, limit: 200)) else { return XCTFail("no history") }
+        XCTAssertEqual(records.filter { if case .requestOpened = $0.event { true } else { false } }.count, 1)   // never twice
+        waitFor(again, "the saved run starts") { self.runText($0, bob)?.hasPrefix("Routine «Tidy»") == true }
+        waitFor(again, "and ends") { self.runs($0, bob).last?.outcome == .done }
+        let log = try String(contentsOf: paths.log, encoding: .utf8)
+        XCTAssertTrue(log.contains("routine «Old» of Bob: missed at "), log)
+        XCTAssertFalse(log.contains("routine «Tidy» of Bob: missed"))
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertEqual(runs(again.all, bob).filter { $0.outcome == nil }.count, 1)  // "Old" was not made up
+        // The card still answers after the restart.
+        XCTAssertEqual(request(again, .answer(requestId: card.id, answer: .decision(option: 1, text: nil))), .ok)
+        waitFor(again, "closed") { $0.closed(card.id) == .answeredInApp }
+    }
+
     func testTheRoutineToolsFollowTheRules() throws {
         let turns = [sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "Deployed.")
         let (client, bob, ada) = try twoBots(bob: turns, ada: turns)

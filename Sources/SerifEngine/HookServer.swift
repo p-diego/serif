@@ -105,7 +105,10 @@ extension Engine {
         queued.forEach { type($0.text, origin: $0.origin, into: rt) }
     }
 
-    func hasOpenRequest(_ rt: BotRuntime) -> Bool { requests.values.contains { $0.request.botId == rt.bot.id } }
+    /// A card that holds the bot; a decision's never does (spec §6 of 0.6).
+    func hasOpenRequest(_ rt: BotRuntime) -> Bool {
+        requests.values.contains { $0.request.botId == rt.bot.id && $0.request.kind != .decision }
+    }
 
     /// Esc was pressed (seen on screen): open requests are cancelled, then the turn closes as interrupted.
     func interrupted(_ rt: BotRuntime) {
@@ -113,8 +116,13 @@ extension Engine {
         handle(rt.normalizer.interrupted(at: Date()), rt)
     }
 
+    /// Closes the bot's open cards at the end of a turn, on Esc, when its process goes. Never a decision's: that one
+    /// closes only with your answer, its withdrawal or the bot's archiving (spec §6 of 0.6).
     func closeRequests(of rt: BotRuntime, _ how: RequestResolution, where match: (PendingRequest) -> Bool = { _ in true }) {
-        for (id, open) in requests where open.request.botId == rt.bot.id && match(open.request) { closeRequest(id, how) }
+        for (id, open) in requests
+        where open.request.botId == rt.bot.id && open.request.kind != .decision && match(open.request) {
+            closeRequest(id, how)
+        }
     }
 
     /// Forgets an open request, releases its serif-hook (printing nothing, unless already `replied`) and tells everyone.
