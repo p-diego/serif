@@ -286,6 +286,10 @@ final class MailTests: XCTestCase {
         XCTAssertEqual(box.withdrawDecisions(of: cody, at: t0).map(\.number), [2])
         XCTAssertEqual(box.decisions.map(\.status), [.withdrawn, .withdrawn, .open])
         XCTAssertEqual(box.withdrawDecisions(of: cody, at: t0), [])
+        // A blank context or reason is nothing: "withdrawn: " would render with nothing after it.
+        let blank = try box.raiseDecision(by: cody, question: "Q4?", options: ["A", "B"], recommendation: nil, context: " \n", at: t0)
+        XCTAssertNil(blank.context)
+        XCTAssertNil(try box.withdrawDecision(blank.number, by: cody, reason: "  \n", at: t0).reason)
     }
 
     func testAMailJSONOfSerif05StillDecodes() throws {

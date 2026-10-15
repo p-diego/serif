@@ -289,6 +289,7 @@ public struct Mailbox: Codable, Equatable, Sendable {
         if let recommendation, !options.indices.contains(recommendation) {
             throw MailError("recommendation must be the number of one of the options, 1 for the first")
         }
+        let context = trimmedOrNil(context)
         if let context, context.utf8.count > Self.maxDecisionBytes { throw MailError("the context is longer than 4 KB") }
         guard decisions.filter({ $0.botId == bot && $0.status == .open }).count < Self.maxOpenDecisions else {
             throw MailError("you already have \(Self.maxOpenDecisions) open decisions: wait for an answer, or withdraw one")
@@ -323,7 +324,7 @@ public struct Mailbox: Codable, Equatable, Sendable {
     public mutating func withdrawDecision(_ number: Int, by bot: UUID, reason: String?, at now: Date) throws -> Decision {
         let i = try openDecision(number)
         guard decisions[i].botId == bot else { throw MailError("decision #\(number) is not yours") }
-        (decisions[i].status, decisions[i].reason) = (.withdrawn, reason)
+        (decisions[i].status, decisions[i].reason) = (.withdrawn, trimmedOrNil(reason))
         return decisions[i]
     }
 
@@ -411,4 +412,9 @@ public func mailBot(named name: String, in bots: [Bot]) throws -> Bot {
         throw MailError(same.isEmpty ? "no bot of this project is called \(wanted)" : "\(same[0].name) is archived")
     }
     return bot
+}
+
+/// Free text trimmed; blank becomes nil.
+private func trimmedOrNil(_ text: String?) -> String? {
+    text.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
 }
