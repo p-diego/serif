@@ -353,3 +353,14 @@
 "No decisions yet" = "Nessuna decisione";
 "Answer: %@" = "Risposta: %@";
 "Decision.open" = "Aperta";
+"Delete the routine «%@»?" = "Cancellare la routine «%@»?";
+"Give the routine a name" = "Dai un nome alla routine";
+"Another routine of this bot has this name" = "Un'altra routine di questo bot ha questo nome";
+"Say what the bot should do" = "Scrivi cosa deve fare il bot";
+"What to do: at most 16 KB" = "Cosa fare: al massimo 16 KB";
+"Time limit: from 1 to 480 minutes" = "Limite di tempo: da 1 a 480 minuti";
+"Every: at least 5 minutes" = "Ogni: almeno 5 minuti";
+"Weekdays: choose at least one day" = "Giorni: scegline almeno uno";
+"Signal: 1 to 64 characters, no spaces" = "Segnale: da 1 a 64 caratteri, senza spazi";
+"This cron expression never runs" = "Questa espressione cron non scatta mai";
+"The time must be from 00:00 to 23:59" = "L'ora deve essere tra 00:00 e 23:59";

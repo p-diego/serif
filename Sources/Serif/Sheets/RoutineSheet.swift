@@ -49,9 +49,40 @@ struct RoutineSheet: View {
         !name.trimmingCharacters(in: .whitespaces).isEmpty && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// The routine as the fields say it now.
+    private var draft: Routine {
+        var routine = editing ?? Routine(botId: bot.id, name: "", trigger: trigger, prompt: "", createdBy: .user)
+        routine.name = name.trimmingCharacters(in: .whitespaces)
+        (routine.trigger, routine.prompt) = (trigger, prompt)
+        (routine.maxMinutes, routine.notifies) = (maxMinutes, notifies)
+        return routine
+    }
+
+    /// The engine's own rules (`routineProblem`) in the sheet's words; nil when the routine can be saved.
+    private var problem: String? {
+        guard let p = routineProblem(draft, among: client.roster.routines(of: bot.id)) else { return nil }
+        switch p {
+        case "the routine needs a name": return String(localized: "Give the routine a name")
+        case "the routine needs a prompt": return String(localized: "Say what the bot should do")
+        case "the prompt is longer than 16 KB": return String(localized: "What to do: at most 16 KB")
+        case "max_minutes must be between 1 and 480": return String(localized: "Time limit: from 1 to 480 minutes")
+        case "every_minutes must be at least 5": return String(localized: "Every: at least 5 minutes")
+        case "days must be between 1 (Monday) and 7 (Sunday)":
+            return String(localized: "Weekdays: choose at least one day")
+        case "the signal name must be 1 to 64 characters with no spaces":
+            return String(localized: "Signal: 1 to 64 characters, no spaces")
+        case "this cron expression never runs": return String(localized: "This cron expression never runs")
+        case "the time must be HH:MM, from 00:00 to 23:59":
+            return String(localized: "The time must be from 00:00 to 23:59")
+        default: return p.hasPrefix("you already have a routine called")
+            ? String(localized: "Another routine of this bot has this name") : p
+        }
+    }
+
     var body: some View {
         SheetFrame(title: editing == nil ? String(localized: "New routine") : String(localized: "Routine"),
-                   primary: String(localized: "Save"), canSubmit: canSave, busy: busy, error: error, submit: save, cancel: close) {
+                   primary: String(localized: "Save"), canSubmit: canSave && problem == nil, busy: busy,
+                   error: error ?? (canSave ? problem : nil), submit: save, cancel: close) {
             FieldGroup(label: String(localized: "Name")) {
                 TextField(String(localized: "Routine name"), text: $name).textFieldStyle(.plain).font(.system(size: Theme.Size.body))
             }
@@ -136,9 +167,7 @@ struct RoutineSheet: View {
 
     /// The engine checks the rules (name, limits, trigger) and keeps the run state of a routine being changed.
     private func save() {
-        var routine = editing ?? Routine(botId: bot.id, name: "", trigger: trigger, prompt: "", createdBy: .user)
-        routine.name = name.trimmingCharacters(in: .whitespaces)
-        (routine.trigger, routine.prompt, routine.maxMinutes, routine.notifies) = (trigger, prompt, maxMinutes, notifies)
+        let routine = draft
         busy = true; error = nil
         Task {
             do { try await client.saveRoutine(routine); close() }

@@ -54,6 +54,7 @@ struct RoutineRow: View {
     let client: EngineClient
     let edit: () -> Void
     @State private var error: String?
+    @State private var confirmDelete = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -62,7 +63,7 @@ struct RoutineRow: View {
                 Spacer(minLength: 8)
                 Toggle("", isOn: Binding(get: { routine.enabled }, set: { on in
                     var changed = routine; changed.enabled = on
-                    Task { try? await client.saveRoutine(changed) }
+                    act { try await client.saveRoutine(changed) }
                 })).toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
             Text(triggerLabel(routine.trigger)).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary)
@@ -70,7 +71,13 @@ struct RoutineRow: View {
             HStack(spacing: 8) {
                 CardButton(title: String(localized: "Run now")) { act { try await client.runRoutine(routine.id) } }
                 CardButton(title: String(localized: "Edit"), style: .ghost, action: edit)
-                CardButton(title: String(localized: "Delete"), style: .ghost) { act { try await client.deleteRoutine(routine.id) } }
+                CardButton(title: String(localized: "Delete"), style: .ghost) { confirmDelete = true }
+                    .confirmationDialog(String(localized: "Delete the routine «\(routine.name)»?"),
+                                        isPresented: $confirmDelete) {
+                        Button(String(localized: "Delete"), role: .destructive) {
+                            act { try await client.deleteRoutine(routine.id) }
+                        }
+                    }
                 if let error { Text(error).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.red) }
             }
         }
