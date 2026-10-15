@@ -17,6 +17,12 @@ struct SerifApp: App {
         // Started as a login item: stay in the Dock without a window; a Dock click opens it.
         .defaultLaunchBehavior(AppDelegate.launchedAtLogin ? .suppressed : .presented)
         .commands { AppCommands(delegate: delegate) }
+        // Diagnostics (spec §8 of 0.7): its own window, from the Serif menu or ⌥⌘D.
+        Window(String(localized: "Diagnostics"), id: "diagnostics") {
+            DiagnosticsView(client: delegate.client).frame(minWidth: 640, minHeight: 480)
+        }
+        .defaultSize(width: 760, height: 640)
+        .defaultLaunchBehavior(.suppressed)
     }
 }
 
@@ -30,6 +36,8 @@ struct AppCommands: Commands {
         CommandGroup(after: .appInfo) {
             Button(String(localized: "Check for Updates…")) { Task { await delegate.updater.checkFromMenu() } }
                 .disabled(delegate.updater.isUpdating)
+            Button(String(localized: "Diagnostics…")) { openWindow(id: "diagnostics") }
+                .keyboardShortcut("d", modifiers: [.command, .option])
         }
         CommandGroup(replacing: .newItem) {
             Button(String(localized: "New bot…")) { delegate.client.showNewBot() }.keyboardShortcut("n")

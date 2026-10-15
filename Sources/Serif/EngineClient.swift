@@ -309,6 +309,14 @@ final class EngineClient {
     }
     /// Claude Code ↔ Codex (spec §7 of 0.7): refused with the agent's problem when it is missing or signed out.
     func changeAgent(bot: UUID, to agent: Agent) async throws { _ = try await send(.changeAgent(botId: bot, agent: agent)) }
+    /// The Diagnostics page (spec §8 of 0.7), with this app's version in it.
+    func diagnostics() async throws -> Diagnostics {
+        guard case .diagnostics(var d) = try await send(.diagnostics) else { throw EngineError(message: "Unexpected reply") }
+        d.appVersion = Self.appVersion
+        return d
+    }
+    /// The bundle's version; the engine's own when run unbundled (`swift run`).
+    static var appVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? SerifVersion.current }
     func interrupt(bot: UUID) async throws { _ = try await send(.interrupt(botId: bot)) }
     func answer(request: UUID, _ answer: RequestAnswer) async throws { _ = try await send(.answer(requestId: request, answer: answer)) }
     func cancelTask(project: UUID, number: Int) async throws {
