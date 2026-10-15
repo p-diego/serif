@@ -44,6 +44,14 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__list_bots", input: [:]), .colleagues)
         XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__create_bot", input: ["name": "Milo"]), .createBot("Milo"))
         XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__update_instructions", input: [:]), .updateInstructions(bot: nil))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__check_inbox", input: [:]), .inbox)
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__archive_bot", input: ["name": "Milo"]), .archiveBot("Milo"))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__update_instructions", input: ["bot": "Milo", "instructions": "x"]),
+                       .updateInstructions(bot: "Milo"))
+        // Missing arguments give the empty value, never a crash (task 0, empty name).
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__complete_task", input: ["result": "x"]), .completeTask(0))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__send_message", input: ["to": "", "body": "x"]), .message(to: ""))
+        XCTAssertEqual(SerifToolCall(toolName: "mcp__serif__send_message", input: [:]), .message(to: ""))
         XCTAssertNil(SerifToolCall(toolName: "mcp__other__send_message", input: [:]))
         XCTAssertNil(SerifToolCall(toolName: "mcp__serif__make_coffee", input: [:]))
         XCTAssertEqual(Activity.from(toolName: "mcp__figma__get", input: [:]), .tool("mcp__figma__get"))

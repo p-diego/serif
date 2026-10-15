@@ -56,6 +56,17 @@ final class PresentationTests: XCTestCase {
         let mailed = BotSummary(bot: bot, state: .ready, unread: false,
                                 lastEvent: ChatEventRecord(seq: 3, at: Date(), event: .mail(note)), preview: "older reply")
         XCTAssertEqual(rowPreview(mailed), .mail(note))
+        // A sent task and a system notice are mail too; a working bot still reads "typing", as for any other event.
+        let sent = MailNote(messageId: UUID(), kind: .task, from: "A", to: "Milo", direction: .sent, text: "Check", taskNumber: 4)
+        let notice = MailNote(messageId: UUID(), kind: .system, from: "Cody", to: "A", direction: .received, text: "gone")
+        func mail(_ note: MailNote, _ state: BotState) -> BotSummary {
+            BotSummary(bot: bot, state: state, unread: false,
+                       lastEvent: ChatEventRecord(seq: 4, at: Date(), event: .mail(note)), preview: "older reply")
+        }
+        XCTAssertEqual(rowPreview(mail(sent, .ready)), .mail(sent))
+        XCTAssertEqual(rowPreview(mail(notice, .ready)), .mail(notice))
+        XCTAssertEqual(rowPreview(mail(sent, .working(.thinking))), .typing)
+        XCTAssertEqual(rowPreview(mail(notice, .waiting(kind: .permission, requestId: UUID()))), .waiting("older reply"))
     }
 
     private func step(_ name: String, _ input: [String: JSONValue] = [:]) -> Step { Step(id: UUID().uuidString, name: name, input: .object(input)) }
