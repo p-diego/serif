@@ -65,6 +65,11 @@ extension Engine {
             return .project(project)
         case let .updateProject(project):
             guard let old = store.projects.first(where: { $0.id == project.id }) else { throw Refusal("Unknown project") }
+            // The lead is one of the project's active bots, or none (spec §8); choosing one restarts nobody.
+            if let lead = project.leadBotId, lead != old.leadBotId,
+               !store.bots.contains(where: { $0.id == lead && $0.projectId == project.id && $0.archivedAt == nil }) {
+                throw Refusal("The lead must be an active bot of this project")
+            }
             try store.save(project: project)
             push(.projectChanged(project))
             // --add-dir, the linked instructions, skills and plugins come from the project: relaunch its bots when those

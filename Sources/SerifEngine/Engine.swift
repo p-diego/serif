@@ -364,6 +364,12 @@ public final class Engine {
     func archive(_ rt: BotRuntime) throws {
         rt.bot.archivedAt = Date()
         try store.save(bot: rt.bot)
+        // An archived lead leaves the role (spec §8).
+        if var project = store.projects.first(where: { $0.id == rt.bot.projectId }), project.leadBotId == rt.bot.id {
+            project.leadBotId = nil
+            try store.save(project: project)
+            push(.projectChanged(project))
+        }
         mailArchived(rt.bot)
         stop(rt) { [weak self] in
             rt.tracker.stopped()

@@ -713,6 +713,28 @@ final class EngineTests: XCTestCase {
         waitFor(client, "Milo archived") { $0.summaries(milo.id).last?.state == .stopped }
     }
 
+    func testTheLeadIsAnActiveBotOfTheProjectAndLeavesWhenArchived() throws {
+        let engine = try makeEngine("basic")
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        let ada = try createBot(client, in: bob.projectId, name: "Ada")
+        let other = try createBot(client, name: "Zed")                            // another project
+        _ = try launches(3)
+        guard case let .snapshot(snapshot) = request(client, .snapshot),
+              var project = snapshot.projects.first(where: { $0.id == bob.projectId }) else { return XCTFail("no project") }
+        project.leadBotId = other.id
+        XCTAssertEqual(request(client, .updateProject(project)), .error("The lead must be an active bot of this project"))
+        project.leadBotId = ada.id
+        guard case .project = request(client, .updateProject(project)) else { return XCTFail("lead refused") }
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertEqual(try launches(3).count, 3, "a new lead restarted a bot")
+        XCTAssertTrue(callTool(engine, as: bob, "list_bots").text.contains("- Ada: Help. [ready, Claude Code, lead]"))
+        XCTAssertEqual(request(client, .archiveBot(id: ada.id)), .ok)
+        let changed = client.all.pushes.compactMap { if case let .projectChanged(p) = $0, p.id == project.id { p } else { nil } }
+        XCTAssertEqual(changed.last?.leadBotId, .none)
+    }
+
     func testTheSystemPromptNamesTheColleagues() throws {
         try makeEngine("basic").start()
         let client = try connect()

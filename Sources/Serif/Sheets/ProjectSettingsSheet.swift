@@ -1,8 +1,9 @@
 import SwiftUI
 import SerifCore
 
-/// Settings of an existing project (spec §6.4): name, linked folder and its instructions, and the skills and plugins every
-/// bot of the project gets. The engine restarts the project's bots when what reaches them changes.
+/// Settings of an existing project (spec §6.4): name, linked folder and its instructions, the skills and plugins every
+/// bot of the project gets, and its lead (spec §8 of 0.5). The engine restarts the project's bots when what reaches
+/// them changes; a new lead restarts nobody.
 struct ProjectSettingsSheet: View {
     let client: EngineClient
     let projectId: UUID
@@ -12,6 +13,7 @@ struct ProjectSettingsSheet: View {
     @State private var skills: [String]
     @State private var plugins: [String]
     @State private var codexPlugins: [String]
+    @State private var lead: UUID?
     @State private var catalog = ClaudeCatalog()
     @State private var codexCatalog: CodexCatalog?       // asked of the engine when the sheet opens
     @State private var busy = false
@@ -26,6 +28,13 @@ struct ProjectSettingsSheet: View {
         _skills = State(initialValue: project.skills)
         _plugins = State(initialValue: project.plugins)
         _codexPlugins = State(initialValue: project.codexPlugins)
+        _lead = State(initialValue: project.leadBotId)
+    }
+
+    /// The project's active bots, by name: the lead is one of them.
+    private var leads: [Bot] {
+        client.roster.bots.values.map(\.bot).filter { $0.projectId == projectId && $0.archivedAt == nil }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     var body: some View {
@@ -44,6 +53,12 @@ struct ProjectSettingsSheet: View {
             Text(String(localized: "Every bot of the project gets these skills and plugins. Changing them, the linked folder or its switch restarts the project's bots."))
                 .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            FieldGroup(label: String(localized: "Project lead")) {
+                Picker("", selection: $lead) {
+                    Text(String(localized: "Lead.none")).tag(UUID?.none)
+                    ForEach(leads) { Text($0.name).tag(Optional($0.id)) }
+                }.labelsHidden()
+            }
         }
         .frame(width: 520).frame(minHeight: 360, idealHeight: sheetHeight(640), maxHeight: sheetHeight(640))
         .onAppear { catalog = ClaudeCatalog(root: claudeConfigRoot(environment: ProcessInfo.processInfo.environment)) }    // before the first frame
@@ -62,6 +77,7 @@ struct ProjectSettingsSheet: View {
         project.skills = skills
         project.plugins = plugins
         project.codexPlugins = codexPlugins
+        project.leadBotId = lead
         busy = true; error = nil
         Task {
             do { try await client.updateProject(project); client.sheet = nil }

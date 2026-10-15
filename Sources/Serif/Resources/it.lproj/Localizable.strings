@@ -37,6 +37,8 @@
 "from the terminal" = "dal terminale";
 "Bot created" = "Bot creato";
 "Created by %@" = "Creato da %@";
+"Project lead" = "Capo del progetto";
+"Lead.none" = "Nessuno";
 "Resumed after the restart" = "Ripreso dopo il riavvio";
 "New conversation (resuming failed)" = "Conversazione nuova (la ripresa non è riuscita)";
 "Conversation compacted" = "Conversazione compattata";
