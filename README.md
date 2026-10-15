@@ -88,8 +88,8 @@ project, and can create bots for a job. They do it with Serif's own tools, the s
 
 | Tool | What it does |
 |---|---|
-| `send_message` | a task (it ends with `complete_task`; at most 3 open per bot, chains of at most 4, never back up the chain, a deadline of 1–168 hours, 24 by default), a reply about an open task, or a note; 64 KB at most |
-| `complete_task` | closes a task the bot was given; the result goes to the bot that asked and, as a copy, to the project's lead |
+| `send_message` | a task (it ends with `complete_task`; at most 3 open per requesting bot, chains of at most 4, never back up the chain, a deadline of 1–168 hours, 24 by default), a reply about an open task, or a note; 64 KB at most |
+| `complete_task` | closes a task the bot was given; the result goes to the bot that asked and, as a copy, to the project's lead (chosen in the project settings) when the lead is neither the requester nor the bot that finished it |
 | `cancel_task` | cancels a task the bot asked for |
 | `check_inbox` | the bot's open tasks, the tasks it asked for, and the messages that came while it was busy |
 | `list_bots` | the project's bots: name, first line of the instructions, state, agent, lead |
@@ -98,11 +98,11 @@ project, and can create bots for a job. They do it with Serif's own tools, the s
 | `archive_bot` | archives a bot it created |
 
 Mail waits in `projects/<id>/mail.json` until its bot is free: ready, with no turn running and no card open. Then the
-engine starts a turn with it, one message per turn; never inside a running turn. The chats show it: a received message as
-a bubble ("From Cody · task #17"), a sent one as a line, each task as a card in both chats that changes as the task does
-(open, done, cancelled, expired) and that you can cancel. A turn the mail started marks nothing unread and sends no
-notification; cards that wait for you still do. A task past its deadline expires (the engine looks every minute) and
-the bot that asked is told. The project's lead, chosen in the project settings, gets a copy of every finished task.
+engine starts a turn with it, one message per turn; never inside a running turn. The chats show it: a received message
+as a bubble ("From Cody · task #17"), a sent one as a line, each task as a card in both chats that changes as the task
+does (open, done, cancelled, expired) and that you can cancel. A turn the mail started marks nothing unread and sends
+no notification; cards that wait for you still do. A task past its deadline expires (the engine looks every minute) and
+the bot that asked is told.
 
 ## Requirements
 
@@ -150,7 +150,7 @@ serifd.sock, hook.sock     sockets between app, engine, serif-hook and serif-too
 serifd.log                 engine log (errors only)
 state.json                 projects and bots
 projects/<id>/shared/      folder shared by the bots of a project
-projects/<id>/mail.json    the project's mail and tasks between its bots (a file that cannot be read is kept as mail.json.bad)
+projects/<id>/mail.json    the project's mail and tasks between its bots (an unreadable file is kept as mail.json.bad)
 bots/<id>/workspace/       the bot's working folder (its memory is CLAUDE.md there, AGENTS.md for a Codex bot)
 bots/<id>/workspace/.claude/skills/        links to the bot's skills
 bots/<id>/workspace/.agents/skills/        links to a Codex bot's skills (its own and its project's)
