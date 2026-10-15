@@ -138,5 +138,12 @@ final class RequestSummaryTests: XCTestCase {
         let decision = PendingRequest(botId: bot.id, kind: .decision, toolName: "decision", input: ["question": "Ship?"], toolUseId: nil,
                                       promptId: nil, suggestions: nil)
         XCTAssertEqual(requestSummary(decision), .question("Ship?"))
+        // A routine's run notifies like a turn of yours, unless its routine says not to (spec §4 of 0.6); cards always.
+        let ended = ChatEvent.turnEnded(promptId: nil, lastMessage: "x")
+        XCTAssertEqual(shouldNotify(event: ended, bot: bot, viewingBot: nil, windowKey: false, turnOrigin: .routine), .finished)
+        XCTAssertNil(shouldNotify(event: ended, bot: bot, viewingBot: nil, windowKey: false, turnOrigin: .routine, routineNotifies: false))
+        XCTAssertEqual(shouldNotify(event: ended, bot: bot, viewingBot: nil, windowKey: false, turnOrigin: .chat, routineNotifies: false), .finished)
+        XCTAssertEqual(shouldNotify(event: .requestOpened(decision), bot: bot, viewingBot: nil, windowKey: false, turnOrigin: .routine,
+                                    routineNotifies: false), .waiting)
     }
 }

@@ -16,6 +16,7 @@ struct ProjectSettingsSheet: View {
     @State private var lead: UUID?
     @State private var catalog = ClaudeCatalog()
     @State private var codexCatalog: CodexCatalog?       // asked of the engine when the sheet opens
+    @State private var decisions: [Decision] = []        // the project's, open first (spec §6 of 0.6)
     @State private var busy = false
     @State private var error: String?
 
@@ -59,10 +60,53 @@ struct ProjectSettingsSheet: View {
                     ForEach(leads) { Text($0.name).tag(Optional($0.id)) }
                 }.labelsHidden()
             }
+            FieldGroup(label: String(localized: "Decisions")) {
+                if decisions.isEmpty {
+                    Text(String(localized: "No decisions yet")).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary)
+                }
+                ForEach(decisions.sorted { ($0.status != .open ? 1 : 0, -$0.number) < ($1.status != .open ? 1 : 0, -$1.number) },
+                        id: \.number) { d in
+                    DecisionLine(decision: d, botName: client.roster.bots[d.botId]?.bot.name ?? "?")
+                }
+            }
         }
-        .frame(width: 520).frame(minHeight: 360, idealHeight: sheetHeight(640), maxHeight: sheetHeight(640))
+        .frame(width: 520).frame(minHeight: 360, idealHeight: sheetHeight(840), maxHeight: sheetHeight(840))
         .onAppear { catalog = ClaudeCatalog(root: claudeConfigRoot(environment: ProcessInfo.processInfo.environment)) }    // before the first frame
         .task { codexCatalog = try? await client.codexCatalog() }
+        .task { decisions = (try? await client.decisions(project: projectId)) ?? [] }
+    }
+
+    /// One decision, read only (spec §6 of 0.6): number, bot, question, state, answer, date.
+    private struct DecisionLine: View {
+        let decision: Decision
+        let botName: String
+        var body: some View {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("#\(decision.number) · \(botName)").font(.system(size: Theme.Size.body, weight: .medium))
+                    Spacer(minLength: 8)
+                    StatusPill(kind: pill.kind, text: pill.text)
+                }
+                Text(decision.question).font(.system(size: Theme.Size.body)).textSelection(.enabled)
+                if decision.status == .answered {
+                    Text(String(localized: "Answer: \(decisionAnswerText(decision))")).font(.system(size: Theme.Size.small))
+                        .foregroundStyle(Theme.textSecondary).textSelection(.enabled)
+                }
+                if let reason = decision.reason, !reason.isEmpty {
+                    Text(reason).font(.system(size: Theme.Size.small)).foregroundStyle(Theme.textSecondary)
+                }
+                Text((decision.answeredAt ?? decision.createdAt).formatted(date: .abbreviated, time: .shortened))
+                    .font(.system(size: Theme.Size.label)).foregroundStyle(Theme.textTertiary)
+            }
+            .padding(.vertical, 4)
+        }
+        private var pill: (kind: StatusPill.Kind, text: String) {
+            switch decision.status {
+            case .open: (.waiting, String(localized: "Decision.open"))
+            case .answered: (.done, String(localized: "Answered"))
+            case .withdrawn: (.neutral, String(localized: "Withdrawn"))
+            }
+        }
     }
 
     private func save() {

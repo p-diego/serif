@@ -142,13 +142,14 @@ public func requestSummary(_ r: PendingRequest) -> RequestSummary {
 public enum NotificationKind: Equatable, Sendable { case waiting, finished, failed, rateLimited }
 
 /// Whether a chat event deserves a notification: never for muted bots, never while the user looks at that bot's chat,
-/// never "finished" for a turn the mail started (`turnOrigin`, spec §6 of 0.5); cards and errors always.
+/// never "finished" for a turn the mail started (`turnOrigin`, spec §6 of 0.5) or for a routine's run whose routine
+/// does not notify (`routineNotifies`, spec §4 of 0.6); cards and errors always.
 public func shouldNotify(event: ChatEvent, bot: Bot, viewingBot: UUID?, windowKey: Bool,
-                         turnOrigin: MessageOrigin? = nil) -> NotificationKind? {
+                         turnOrigin: MessageOrigin? = nil, routineNotifies: Bool = true) -> NotificationKind? {
     guard bot.notifications, !(viewingBot == bot.id && windowKey) else { return nil }
     switch event {
     case .requestOpened: return .waiting
-    case .turnEnded: return turnOrigin == .bot ? nil : .finished
+    case .turnEnded: return turnOrigin == .bot || (turnOrigin == .routine && !routineNotifies) ? nil : .finished
     case .turnFailed(let reason):
         let r = reason.lowercased()
         return r.contains("rate_limit") || r.contains("rate limit") ? .rateLimited : .failed

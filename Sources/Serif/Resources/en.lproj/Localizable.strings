@@ -350,3 +350,6 @@
 "Waiting.title" = "Waiting for you";
 "Nothing is waiting for you" = "Nothing is waiting for you";
 "Open the chat" = "Open the chat";
+"No decisions yet" = "No decisions yet";
+"Answer: %@" = "Answer: %@";
+"Decision.open" = "Open";

@@ -350,3 +350,6 @@
 "Waiting.title" = "Ti aspettano";
 "Nothing is waiting for you" = "Niente che aspetti te";
 "Open the chat" = "Apri la chat";
+"No decisions yet" = "Nessuna decisione";
+"Answer: %@" = "Risposta: %@";
+"Decision.open" = "Aperta";

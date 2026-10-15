@@ -303,6 +303,11 @@ final class EngineClient {
     func saveRoutine(_ routine: Routine) async throws { _ = try await send(.saveRoutine(routine)) }
     func deleteRoutine(_ id: UUID) async throws { _ = try await send(.deleteRoutine(id: id)) }
     func runRoutine(_ id: UUID) async throws { _ = try await send(.runRoutine(id: id)) }
+    /// The project's decisions, open and closed, for its settings (spec §6 of 0.6).
+    func decisions(project: UUID) async throws -> [Decision] {
+        guard case .decisions(let list) = try await send(.decisions(projectId: project)) else { throw EngineError(message: "Unexpected reply") }
+        return list
+    }
     func markRead(bot: UUID, seq: Int) async throws { _ = try await send(.markRead(botId: bot, seq: seq)) }
     func attachTerminal(bot: UUID) async throws -> ResponseBody { try await send(.attachTerminal(botId: bot)) }
     func detachTerminal(bot: UUID) async throws { _ = try await send(.detachTerminal(botId: bot)) }
