@@ -139,7 +139,7 @@ extension Engine {
             (routine.lastRunAt, routine.lastOutcome) = (nil, nil)
         }
         if !routine.enabled { routine.pending = nil }
-        if let problem = routineProblem(routine, among: routines) { throw Refusal(problem) }
+        if let problem = routineProblem(routine, among: routines, now: now()) { throw Refusal(problem) }
         if let i = routines.firstIndex(where: { $0.id == routine.id }) { routines[i] = routine } else { routines.append(routine) }
         try store.save(routines, project: rt.bot.projectId)
         push(.routinesChanged(projectId: rt.bot.projectId, routines: routines))
@@ -178,7 +178,7 @@ extension Engine {
                               trigger: try trigger(in: a), prompt: prompt,
                               maxMinutes: try number(a["max_minutes"], "max_minutes") ?? 30,
                               notifies: a["notify"]?.bool ?? true, createdBy: .bot, createdAt: now())
-        if let problem = routineProblem(routine, among: routines) { throw MailError(problem) }
+        if let problem = routineProblem(routine, among: routines, now: now()) { throw MailError(problem) }
         routines.append(routine)
         try store.save(routines, project: rt.bot.projectId)
         push(.routinesChanged(projectId: rt.bot.projectId, routines: routines))

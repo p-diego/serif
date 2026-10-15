@@ -120,6 +120,10 @@ final class RoutineTests: XCTestCase {
         XCTAssertEqual(triggerProblem(.cron(expression: "* * *")), "cron must have five fields: minute hour day month weekday")
         XCTAssertEqual(triggerProblem(.cron(expression: "0 0 31 2 *")), "this cron expression never runs")
         XCTAssertNil(triggerProblem(.cron(expression: "0 9 * * 1")))
+        // "Never runs" is judged on the caller's clock: 29 February is a year away in December 2027, not in October 2026.
+        let leap = RoutineTrigger.cron(expression: "0 0 29 2 *")
+        XCTAssertEqual(triggerProblem(leap, now: Date(timeIntervalSince1970: 1_792_054_800)), "this cron expression never runs")
+        XCTAssertNil(triggerProblem(leap, now: Date(timeIntervalSince1970: 1_827_000_000)))
         XCTAssertNil(routineLimitError(count: 19))
         XCTAssertEqual(routineLimitError(count: 20), "you already have 20 routines: delete one first")
         XCTAssertEqual(clockTime("09:05").map { [$0.hour, $0.minute] }, [9, 5])

@@ -132,7 +132,7 @@ public func routineLimitError(count: Int) -> String? {
 }
 
 /// Why `routine` cannot be saved among `others` (its project's routines), or nil: a sentence for the bot and the sheet.
-public func routineProblem(_ r: Routine, among others: [Routine]) -> String? {
+public func routineProblem(_ r: Routine, among others: [Routine], now: Date = Date()) -> String? {
     let name = r.name.trimmingCharacters(in: .whitespacesAndNewlines)
     if name.isEmpty { return "the routine needs a name" }
     let taken = others.contains {
@@ -142,24 +142,24 @@ public func routineProblem(_ r: Routine, among others: [Routine]) -> String? {
     if r.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "the routine needs a prompt" }
     if r.prompt.utf8.count > RoutineRules.maxPromptBytes { return "the prompt is longer than 16 KB" }
     if !RoutineRules.minutes.contains(r.maxMinutes) { return "max_minutes must be between 1 and 480" }
-    return triggerProblem(r.trigger)
+    return triggerProblem(r.trigger, now: now)
 }
 
-public func triggerProblem(_ t: RoutineTrigger) -> String? {
+public func triggerProblem(_ t: RoutineTrigger, now: Date = Date()) -> String? {
     switch t {
     case .every(let m): m >= RoutineRules.minEveryMinutes ? nil : "every_minutes must be at least 5"
     case .dailyAt(let h, let m): timeProblem(h, m)
     case .weekdaysAt(let days, let h, let m):
         days.isEmpty || !days.isSubset(of: 1...7) ? "days must be between 1 (Monday) and 7 (Sunday)" : timeProblem(h, m)
     case .signal(let name): signalNameProblem(name)
-    case .cron(let e): cronProblem(e)
+    case .cron(let e): cronProblem(e, now: now)
     }
 }
 
 /// A cron that does not parse, or never fires within a year (say, 31 February), is refused at creation.
-private func cronProblem(_ e: String) -> String? {
+private func cronProblem(_ e: String, now: Date) -> String? {
     guard let cron = CronSchedule(e) else { return "cron must have five fields: minute hour day month weekday" }
-    return cron.next(after: Date(), calendar: .current) == nil ? "this cron expression never runs" : nil
+    return cron.next(after: now, calendar: .current) == nil ? "this cron expression never runs" : nil
 }
 
 private func timeProblem(_ hour: Int, _ minute: Int) -> String? {
