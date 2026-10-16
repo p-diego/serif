@@ -2900,6 +2900,104 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .error("The bot is archived"))
     }
 
+    func testTheSheetsSaveDuringAnImmediateSwitchRestartsNothingTwice() throws {
+        // Final review 1: the sheet's Save follows `changeAgent` with `updateBot` while the old agent's process is still
+        // going; the form's reset model and plugins must not restart the bot mid-switch (two stops queued on one process
+        // ended the Codex server the first one started). Both land on the queue before the process can exit.
+        try play([sessionStart] + prompt("p0") + stop("p0"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client, model: "sonnet", plugins: ["tool@shop"])
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        guard case .codexCatalog = request(client, .codexCatalog) else { return XCTFail("no catalog") }   // fresh: the switch starts its server at once
+        try engine.queue.sync {
+            let rt = try XCTUnwrap(engine.bots[bob.id])
+            try engine.changeAgent(rt, to: .codex)
+            var edited = rt.bot
+            (edited.instructions, edited.model, edited.plugins) = ("Be brief.", nil, [])
+            try engine.saveBot(edited, by: .user, rt)                              // what `.updateBot` does
+        }
+        waitFor(client, "ready on Codex") { $0.summaries(bob.id).last?.state == .ready && $0.summaries(bob.id).last?.bot.agent == .codex }
+        Thread.sleep(forTimeInterval: 0.5)                                           // a second server would have started by now
+        XCTAssertEqual(try codexServers(bob).count, 1)
+        XCTAssertEqual(try launches(1).filter { $0.args.first != "app-server" }.count, 1)    // Claude Code never came back
+        let switched = try XCTUnwrap(client.all.summaries(bob.id).last?.bot)
+        XCTAssertEqual([switched.instructions, switched.model], ["Be brief.", nil])
+        XCTAssertEqual(switched.plugins, [])
+        XCTAssertTrue(codexRequests("thread/start").last?["developerInstructions"]?.string?.contains("Be brief.") ?? false)
+        XCTAssertEqual(changes(client, bob).map(\.field), [.instructions, .model, .plugins, .agent])
+        XCTAssertFalse(client.all.chatEvents(bob.id).contains { if case .system(.crashed) = $0 { true } else { false } })
+    }
+
+    func testTheSheetsSaveDuringADeferredSwitchDoesNotInterruptTheTurn() throws {
+        // Final review 1: a switch waits for the end of the turn (spec §7); the `updateBot` the sheet sends right after
+        // it, with the form's reset model and plugins, must not restart the bot before then.
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + [["waitInput": "GO"]] + stop("p1"))
+        try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        var bob = try createBot(client, model: "sonnet", plugins: ["tool@shop"])
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Work long")), .ok)
+        waitFor(client, "working") { $0.chatEvents(bob.id).filter { label($0) == "userMessage" }.count == 2 }
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .ok)
+        (bob.name, bob.model, bob.plugins) = ("Bobby", nil, [])
+        guard case .bot = request(client, .updateBot(bob)) else { return XCTFail("update refused") }
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertFalse(client.all.chatEvents(bob.id).contains(.turnInterrupted))
+        XCTAssertEqual(client.all.summaries(bob.id).last?.bot.agent, .claude)        // still working, still Claude Code
+        XCTAssertEqual(request(client, .terminalInput(botId: bob.id, data: Data("GO".utf8))), .ok)
+        waitFor(client, "the turn ended") { self.turnsEnded($0, bob) == 2 }
+        waitUntil("a thread on Codex") { [unowned self] in codexRequests("thread/start").count == 1 }
+        waitFor(client, "ready on Codex") { $0.summaries(bob.id).last?.state == .ready && $0.summaries(bob.id).last?.bot.agent == .codex }
+        XCTAssertFalse(client.all.chatEvents(bob.id).contains(.turnInterrupted))
+        XCTAssertEqual(client.all.summaries(bob.id).last?.bot.name, "Bobby")
+        XCTAssertEqual(try codexServers(bob).count, 1)
+        XCTAssertEqual(changes(client, bob).map(\.field), [.name, .model, .plugins, .agent])
+    }
+
+    func testALaunchAlreadyQueuedAppliesTheSwitchAndNeverBringsTheOldAgentBack() throws {
+        // Final review 1: a Restart followed by a switch queues two stops on one process; whichever launch runs first
+        // must switch, not start Claude Code again under a bot saved as Codex.
+        try play([sessionStart] + prompt("p0") + stop("p0"))
+        let engine = try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile])
+        try engine.start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        guard case .codexCatalog = request(client, .codexCatalog) else { return XCTFail("no catalog") }
+        try engine.queue.sync {
+            let rt = try XCTUnwrap(engine.bots[bob.id])
+            engine.restart(rt)
+            try engine.changeAgent(rt, to: .codex)
+        }
+        waitUntil("a thread on Codex") { [unowned self] in codexRequests("thread/start").count == 1 }
+        waitFor(client, "ready on Codex") { $0.summaries(bob.id).last?.state == .ready && $0.summaries(bob.id).last?.bot.agent == .codex }
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertEqual(try launches(1).filter { $0.args.first != "app-server" }.count, 1)
+        XCTAssertEqual(try codexServers(bob).count, 1)
+        XCTAssertTrue(client.all.chatEvents(bob.id).contains(.system(.agentChanged(.codex))))
+    }
+
+    func testAnUpdateBuiltForTheOtherAgentKeepsTheBotsModelAndPlugins() throws {
+        // Final review 1: a bot that is down switches at once, before the sheet's `updateBot` (built from its copy of the
+        // bot: the old agent, its model and plugins) arrives; those two are not for the new agent and stay reset.
+        try play([sessionStart] + prompt("p0") + stop("p0") + [["exit": 3]])
+        try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        var bob = try createBot(client, model: "sonnet", plugins: ["tool@shop"])
+        waitFor(client, "crashed after the introduction") { $0.chatEvents(bob.id).contains(.system(.crashed(reason: "Exit code 3"))) }
+        XCTAssertEqual(request(client, .changeAgent(botId: bob.id, agent: .codex)), .ok)
+        XCTAssertEqual(client.all.summaries(bob.id).last?.bot.agent, .codex)         // switched already: it was not running
+        bob.name = "Bobby"                                                           // the sheet's copy: Claude Code, sonnet, the plugin
+        guard case let .bot(saved) = request(client, .updateBot(bob)) else { return XCTFail("update refused") }
+        XCTAssertEqual([saved.name, saved.model], ["Bobby", nil])
+        XCTAssertEqual(saved.plugins, [])
+        waitFor(client, "ready on Codex") { $0.summaries(bob.id).last?.state == .ready && $0.summaries(bob.id).last?.bot.agent == .codex }
+        XCTAssertEqual(changes(client, bob).map(\.field), [.model, .plugins, .agent, .name])
+        XCTAssertEqual(try codexServers(bob).count, 1)
+    }
+
     func testDiagnosticsListTheAgentsTheBotsAndTheLogWithoutSecrets() throws {
         // Spec §8: both agents checked anew, every live bot with its crash, mail, routines and cards, the log's tail; no
         // launch token or Codex secret anywhere in it.

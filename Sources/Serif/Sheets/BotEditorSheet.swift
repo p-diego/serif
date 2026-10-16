@@ -369,11 +369,16 @@ struct BotEditorSheet: View {
                     guard let live = client.roster.bots[id]?.bot, live.archivedAt == nil else {
                         throw EngineError(message: String(localized: "This bot no longer exists"))
                     }
-                    // The switch first (spec §7 of 0.7): refused, the sheet stays open with the reason.
-                    if agent != live.agent { try await client.changeAgent(bot: id, to: agent) }
-                    try await client.updateBot(live.applying(BotEdits(name: trimmed, face: face, model: chosenModel,
-                        instructions: instructions, freedom: freedom, notifications: notifications,
-                        skills: skills, plugins: plugins, connectors: connectors)))
+                    // The switch first (spec §7 of 0.7): refused, the sheet stays open with the reason. The engine
+                    // resets model and plugins with it: the live ones go with the other edits, never the form's reset
+                    // values, so no change of yours and no restart ride along; nothing else changed, nothing is sent.
+                    let switching = agent != live.agent
+                    if switching { try await client.changeAgent(bot: id, to: agent) }
+                    let edited = live.applying(BotEdits(name: trimmed, face: face,
+                        model: switching ? live.model : chosenModel, instructions: instructions, freedom: freedom,
+                        notifications: notifications, skills: skills, plugins: switching ? live.plugins : plugins,
+                        connectors: connectors))
+                    if edited != live { try await client.updateBot(edited) }
                 } else {
                     try await client.createBot(NewBot(projectId: projectId, name: trimmed, face: face, agent: agent,
                                                       model: chosenModel, instructions: instructions, freedom: freedom,

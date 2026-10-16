@@ -258,7 +258,8 @@ public final class Engine {
         rt.restart = nil
         guard !stopping, rt.bot.archivedAt == nil, !rt.isRunning, !rt.waitingForCatalog,
               let project = store.projects.first(where: { $0.id == rt.bot.projectId }) else { return }
-        if let agent = rt.pendingAgent { return switchAgent(rt, to: agent) }   // waited for the turn's end (spec §7 of 0.7)
+        // The switch that waited for this launch (spec §7 of 0.7): the bot starts on its new agent, or not at all.
+        if let agent = rt.pendingAgent, !switchAgent(rt, to: agent) { return }
         guard let status = statuses[rt.bot.agent], checked || status.problem == nil else {
             return checkAgent(rt.bot.agent) { [weak self] _ in self?.launch(rt, checked: true) }
         }
@@ -373,17 +374,17 @@ public final class Engine {
         rt.restart?.cancel()
         rt.restart = nil
         rt.stopping = true
-        let done = { [weak self] in
-            if rt.bot.agent == .codex { self?.codexEnded(rt) }
-            rt.stopping = false
-            then()
-        }
+        let done = { rt.stopping = false; then() }
         guard let server = rt.codex else { return rt.host.stop(then: done) }
         let both = DispatchGroup()
         both.enter(); both.enter()
         rt.host.stop { both.leave() }
         server.stop { both.leave() }
-        both.notify(queue: queue, execute: done)
+        // Only this stop's server: a stop queued behind another must not end the server that one's launch started.
+        both.notify(queue: queue) { [weak self] in
+            if rt.codex === server { self?.codexEnded(rt) }
+            done()
+        }
     }
 
     func restart(_ rt: BotRuntime) {
@@ -496,10 +497,10 @@ public final class Engine {
         }
     }
 
-    /// After a turn: the agent switch that waited for it (spec §7 of 0.7), else the next message waiting (spec §6 of
-    /// 0.5). A process already gone (a crash) switches at its relaunch instead.
+    /// After a turn: the agent switch that waited for it (spec §7 of 0.7), done by the restart's launch; else the next
+    /// message waiting (spec §6 of 0.5). A process already gone (a crash) switches at its relaunch instead.
     private func turnOver(_ rt: BotRuntime) {
-        if let agent = rt.pendingAgent, rt.isRunning { switchAgent(rt, to: agent) } else { deliverMail(rt) }
+        if rt.pendingAgent != nil, rt.isRunning { restart(rt) } else { deliverMail(rt) }
     }
 
     func push(_ push: Push) { send(.push(push), to: apps.values.map(\.connection)) }

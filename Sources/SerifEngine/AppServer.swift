@@ -127,6 +127,9 @@ extension Engine {
             // as is, a bot created in this engine run always looked changed) and the creator (spec §7 of 0.5).
             (bot.sessionId, bot.threadId, bot.agent, bot.archivedAt, bot.createdAt, bot.createdBy) =
                 (rt.bot.sessionId, rt.bot.threadId, rt.bot.agent, rt.bot.archivedAt, rt.bot.createdAt, rt.bot.createdBy)
+            // Built for the other agent (the app's copy predates a switch done since): its model and plugins are not
+            // this agent's and stay as the switch left them (spec §7 of 0.7).
+            if update.agent != rt.bot.agent { (bot.model, bot.plugins) = (rt.bot.model, rt.bot.plugins) }
             try saveBot(bot, by: .user, rt)          // the history, the restart or the instructions notice (spec §5–6 of 0.7)
             return .bot(bot)
         case let .archiveBot(id):
