@@ -27,8 +27,9 @@ struct DiagnosticsView: View {
                 }
                 CardButton(title: String(localized: "Copy"), style: .primary, enabled: diagnostics != nil) {
                     guard let diagnostics else { return }
-                    var text = diagnosticsText(diagnostics)
-                    if unreachable { text += "\nEngine not reachable" }
+                    // Without the engine only what the app knows: no false "Bots - none" (spec §8).
+                    let text = unreachable ? "Serif \(diagnostics.appVersion)\nData folder: \(diagnostics.dataFolder)\nEngine not reachable"
+                        : diagnosticsText(diagnostics)
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
