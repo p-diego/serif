@@ -44,10 +44,12 @@ struct StepsCard: View {
         case .web: return String(localized: "Web")
         case .mixed(let name):
             // Serif's own tools read as what they did (spec §9 of 0.5), never as their raw name (spec §9 of 0.7): one
-            // step says its outcome, several say the first call and how many more; "mcp__server__tool" as "tool".
+            // step says its outcome, several of one tool say it and how many more, different tools the generic title;
+            // "mcp__server__tool" as "tool".
             if let first = steps.first(where: { $0.name == name }), let call = SerifToolCall(toolName: name, input: first.input) {
-                let same = steps.filter { $0.name == name }.count
-                return same == 1 ? title(first) : String(localized: "\(serifToolTitle(call)) +\(same - 1)")
+                if steps.count == 1 { return title(first) }
+                return steps.allSatisfy({ $0.name == name }) ? String(localized: "\(serifToolTitle(call)) +\(steps.count - 1)")
+                    : String(localized: "Steps")
             } else {
                 return name.isEmpty ? String(localized: "Steps") : plainName(name)
             }
