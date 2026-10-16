@@ -62,6 +62,25 @@ case "freedom" where args.count >= 3:
     guard var bot = snapshot().bots.first(where: { $0.bot.id == uuid(args[1]) })?.bot,
           let freedom = Freedom(rawValue: args[2]) else { fail("unknown bot or freedom") }
     bot.freedom = freedom; _ = call(.updateBot(bot)); print("freedom=\(freedom)")
+case "send-file" where args.count >= 3:
+    let url = URL(fileURLWithPath: args[2])
+    guard let data = try? Data(contentsOf: url) else { fail("cannot read \(args[2])") }
+    guard case .attached(let paths) = call(.attach(botId: uuid(args[1]), files: [AttachedFile(name: url.lastPathComponent, data: data)]))
+    else { fail("unexpected reply") }
+    let text = args.count > 3 ? args[3...].joined(separator: " ") : ""
+    _ = call(.send(botId: uuid(args[1]), text: text, attachments: paths)); print("sent \(paths)")
+case "set-instructions" where args.count >= 3:
+    guard var bot = snapshot().bots.first(where: { $0.bot.id == uuid(args[1]) })?.bot else { fail("unknown bot") }
+    bot.instructions = args[2...].joined(separator: " "); _ = call(.updateBot(bot)); print("ok")
+case "switch-agent" where args.count >= 3:
+    guard let agent = Agent(rawValue: args[2]) else { fail("claude or codex") }
+    _ = call(.changeAgent(botId: uuid(args[1]), agent: agent)); print("ok")
+case "diagnostics":
+    guard case .diagnostics(let d) = call(.diagnostics) else { fail("unexpected reply") }
+    print(diagnosticsText(d))
+case "changes" where args.count >= 2:
+    guard case .changes(let list) = call(.changes(botId: uuid(args[1]))) else { fail("unexpected reply") }
+    for c in list { print("\(c.at) \(c.by) \(c.field)") }
 case "routines":
     for r in snapshot().routines {
         print("routine \(r.id) bot=\(r.botId) «\(r.name)» \(triggerText(r.trigger)) enabled=\(r.enabled) runs=\(r.runs) "
@@ -107,5 +126,5 @@ case "terminal" where args.count >= 2:
     Thread.sleep(forTimeInterval: 0.5)
     queue.sync { connection.close() }
 default:
-    fail("usage: serifctl snapshot | create-project <name> | create-bot <projectId> <name> [model] | send <botId> <text> | answer-allow <requestId> | mark-read <botId> | pin <botId> | stop <botId> | freedom <botId> ask|edits|auto | cancel-task <projectId> <number> | lead <projectId> <botId>|none | routines | routine-enabled <id> true|false | run-routine <id> | answer-decision <requestId> <index|-> [text] | terminal <botId> [seconds | text | ENTER | ESC]...")
+    fail("usage: serifctl snapshot | create-project <name> | create-bot <projectId> <name> [model] | send <botId> <text> | answer-allow <requestId> | mark-read <botId> | pin <botId> | stop <botId> | freedom <botId> ask|edits|auto | cancel-task <projectId> <number> | lead <projectId> <botId>|none | send-file <botId> <path> [text] | set-instructions <botId> <text> | switch-agent <botId> claude|codex | diagnostics | changes <botId> | routines | routine-enabled <id> true|false | run-routine <id> | answer-decision <requestId> <index|-> [text] | terminal <botId> [seconds | text | ENTER | ESC]...")
 }
