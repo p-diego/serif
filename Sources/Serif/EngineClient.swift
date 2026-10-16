@@ -289,12 +289,15 @@ final class EngineClient {
     func archive(bot: UUID) async throws { _ = try await send(.archiveBot(id: bot)) }
 
     /// Your message, with its files first copied into the shared folder by the engine (spec §4 of 0.7): a file that
-    /// cannot be copied fails the whole send, and nothing reaches the bot.
+    /// cannot be copied fails the whole send, and nothing reaches the bot. One request per file: a 16 MB file is ~22 MB
+    /// as base64 JSON, and a line of the socket holds 64 MB, less than ten of them.
     func sendMessage(bot: UUID, text: String, files: [AttachedFile] = []) async throws {
         var attachments: [String]?
-        if !files.isEmpty {
-            guard case .attached(let paths) = try await send(.attach(botId: bot, files: files)) else { throw EngineError(message: "Unexpected reply") }
-            attachments = paths
+        for file in files {
+            guard case .attached(let paths) = try await send(.attach(botId: bot, files: [file])) else {
+                throw EngineError(message: "Unexpected reply")
+            }
+            attachments = (attachments ?? []) + paths
         }
         state.pendingSends[bot, default: []].append(text)
         do { _ = try await send(.send(botId: bot, text: text, attachments: attachments)) } catch {

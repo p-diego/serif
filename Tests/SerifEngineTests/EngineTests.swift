@@ -2610,6 +2610,31 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: shared.appendingPathComponent(twins[0])), Data([3]))
     }
 
+    func testFourFullSizeFilesGoThroughTheSocketOneRequestEach() throws {
+        // Final review 2: a 16 MB file is ~22 MB as base64 JSON and a socket line holds 64 MB, so the app attaches one
+        // file per request (EngineClient.sendMessage); four of them, each in its own request, all land, intact, and
+        // one `send` names them all.
+        try play([sessionStart] + prompt("p0") + stop("p0") + prompt("p1") + stop("p1", "$PASTE"))
+        try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        let bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        var attached: [String] = []
+        for i in 1...4 {
+            let file = AttachedFile(name: "big\(i).bin", data: Data(repeating: UInt8(i), count: 16 << 20))
+            guard case let .attached(saved)? = request(client, .attach(botId: bob.id, files: [file])) else { return XCTFail("attach \(i) refused") }
+            attached += saved
+        }
+        let day = attachmentFolder(day: Date())
+        XCTAssertEqual(attached, (1...4).map { "\(day)/big\($0).bin" })
+        for (i, path) in attached.enumerated() {
+            XCTAssertEqual(try Data(contentsOf: paths.shared(bob.projectId).appendingPathComponent(path)), Data(repeating: UInt8(i + 1), count: 16 << 20))
+        }
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Four photos", attachments: attached)), .ok)
+        waitFor(client, "the turn") { self.turnsEnded($0, bob) == 2 }
+        XCTAssertEqual(replies(client.all, bob).last, messageText("Four photos", attachments: attached))
+    }
+
     func testALostMessageShowsOnlyTheUsersWords() throws {
         // The "may not have arrived" note quotes the user's text, not the attachment list added for the bot.
         try makeEngine("basic", codex: "codex-lost-turn").start()
