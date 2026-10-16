@@ -11,6 +11,8 @@ struct BotEditorSheet: View {
     @State private var face: BotFace
     @State private var agent: Agent
     @State private var baseAgent: Agent                   // the bot's agent as the form knows it: a restore moves it
+    /// A switch is chosen but not saved: the model and plugins it resets are picked after it, in the next Save.
+    private var switchingAgent: Bool { editing != nil && agent != baseAgent }
     @State private var stashed: (model: BotModel, codexModel: String?, plugins: [String])?   // the values before a switch
     @State private var model: BotModel                    // a Claude Code bot's
     @State private var codexModel: String?                // a Codex bot's (nil: Codex's default)
@@ -126,6 +128,7 @@ struct BotEditorSheet: View {
                     Picker(String(localized: "Model"), selection: $model) {
                         ForEach(BotModel.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
+                    .disabled(switchingAgent)       // the switch resets it: chosen after, never dropped silently
                 } else {
                     Picker(String(localized: "Model"), selection: $codexModel) {
                         Text(String(localized: "Default")).tag(String?.none)
@@ -133,6 +136,7 @@ struct BotEditorSheet: View {
                         // The saved model before the catalog arrives (or when it no longer lists it): never a blank picker.
                         if let m = codexModel, codexCatalog?.models.contains(where: { $0.id == m }) != true { Text(m).tag(Optional(m)) }
                     }
+                    .disabled(switchingAgent)
                 }
             }
             FieldGroup(label: String(localized: "Instructions")) {
@@ -169,6 +173,7 @@ struct BotEditorSheet: View {
                 CatalogPicker(kind: .plugins, items: agent == .claude ? catalog.plugins : codexCatalog?.plugins ?? [], chosen: $plugins,
                               inherited: (agent == .claude ? project?.plugins : project?.codexPlugins) ?? [],
                               known: agent == .claude || codexCatalog != nil)
+                    .disabled(switchingAgent)       // reset by the switch (spec §7 of 0.7)
             }
             FieldGroup(label: agent == .claude ? String(localized: "claude.ai connectors") : String(localized: "ChatGPT connectors")) {
                 Toggle(agent == .claude ? String(localized: "Use my claude.ai connectors") : String(localized: "Use my ChatGPT connectors"),

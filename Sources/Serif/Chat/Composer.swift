@@ -75,7 +75,8 @@ struct Composer: View {
             add(urls)
             return !urls.isEmpty
         }
-        .background(WindowAccessor { composerWindow = $0 })     // known before the field has focus, so a cold start's ⌘V works too
+        // Known before the field has focus, so a cold start's ⌘V works too.
+        .background(WindowAccessor { composerWindow = $0 })
         .onAppear { focused = true; watchPaste() }
         .onDisappear { if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }; pasteMonitor = nil }
     }

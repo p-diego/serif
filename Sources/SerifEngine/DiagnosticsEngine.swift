@@ -26,7 +26,9 @@ extension Engine {
         // The live secrets by value too: a Claude Code bot's launch token is a UUID, not token-shaped.
         let secrets = self.bots.values.flatMap { [$0.token, $0.codexToken] }.filter { !$0.isEmpty }
         let tail = log.split(separator: "\n", omittingEmptySubsequences: true).suffix(100)
-            .map { line in secrets.reduce(redacted(String(line))) { $0.replacingOccurrences(of: $1, with: "[redacted]") } }
+            .map { line in
+                secrets.reduce(redacted(String(line))) { $0.replacingOccurrences(of: $1, with: "[redacted]") }
+            }
         return Diagnostics(appVersion: "", engineVersion: SerifEngineVersion.current, dataFolder: paths.root.path,
                            agents: agents, bots: bots, logTail: tail)
     }
