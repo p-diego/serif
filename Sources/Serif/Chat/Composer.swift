@@ -13,7 +13,7 @@ struct Composer: View {
     @State private var text = ""
     @State private var files: [AttachedFile] = []
     @State private var pasteMonitor: Any?
-    @State private var composerWindow: NSWindow?          // the window the field had focus in: ⌘V is ours only there
+    @State private var composerWindow: NSWindow?          // the window the field is in: ⌘V is ours only there
     @State private var tooBig: String?                    // a file over 16 MB, not read (spec §4)
     @FocusState private var focused: Bool
 
@@ -75,7 +75,7 @@ struct Composer: View {
             add(urls)
             return !urls.isEmpty
         }
-        .onChange(of: focused) { if focused { composerWindow = NSApp.keyWindow } }
+        .background(WindowAccessor { composerWindow = $0 })     // known before the field has focus, so a cold start's ⌘V works too
         .onAppear { focused = true; watchPaste() }
         .onDisappear { if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }; pasteMonitor = nil }
     }
@@ -127,6 +127,24 @@ struct Composer: View {
             }
         }
     }
+}
+
+/// Hands over the window a view lands in, as soon as it does (`viewDidMoveToWindow`): the composer needs its own
+/// before the field ever has focus, and at a cold start the field is focused before the window is key.
+private struct WindowAccessor: NSViewRepresentable {
+    let onWindow: (NSWindow?) -> Void
+
+    final class Probe: NSView {
+        var onWindow: ((NSWindow?) -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let window = window
+            DispatchQueue.main.async { [weak self] in self?.onWindow?(window) }   // never inside SwiftUI's own update
+        }
+    }
+
+    func makeNSView(context: Context) -> Probe { let probe = Probe(); probe.onWindow = onWindow; return probe }
+    func updateNSView(_ probe: Probe, context: Context) { probe.onWindow = onWindow }
 }
 
 /// The limits in the app's language (spec §10).

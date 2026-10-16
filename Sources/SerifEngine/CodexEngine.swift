@@ -286,6 +286,7 @@ extension Engine {
                 if rt.turnId == turn { rt.turnId = nil }
                 back()
             case let .failure(f) where f.fromCodex:
+                if noticed { rt.instructionsPending = true }      // the message is lost, the new instructions are not
                 record(.turnFailed(reason: "Codex: \(f.message)"), rt)
             case let .failure(f) where f.neverSent:
                 return back()

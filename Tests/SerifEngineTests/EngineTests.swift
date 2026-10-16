@@ -2822,6 +2822,22 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(try codexServers(ada).count, 1, "new instructions relaunched the Codex bot")
     }
 
+    func testANoticeWhoseTurnCodexRefusedGoesWithTheNextMessage() throws {
+        // Final review: a turn/start Codex refuses loses its message, never the instructions notice (spec §6 of 0.7).
+        try makeEngine("basic", codex: "codex-turn-refused").start()
+        let client = try connect()
+        var ada = try createBot(client, agent: .codex)
+        waitFor(client, "introduced") { self.turnsEnded($0, ada) == 1 }
+        ada.instructions = "Be brief."
+        guard case .bot = request(client, .updateBot(ada)) else { return XCTFail("update refused") }
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "hello")), .ok)
+        waitFor(client, "refused") { $0.chatEvents(ada.id).contains { if case .turnFailed = $0 { true } else { false } } }
+        XCTAssertEqual(request(client, .send(botId: ada.id, text: "again")), .ok)
+        waitFor(client, "the turn") { self.turnsEnded($0, ada) == 2 }
+        XCTAssertEqual(codexRequests("turn/start").last?["input"]?.array?.first?["text"]?.string,
+                       "Your instructions have changed. From now on follow these:\n\nBe brief.\n\n---\n\nagain")
+    }
+
     func testAnAgentSwitchMovesTheMemoryAndStartsANewConversationKeepingTheRest() throws {
         // Spec §7: Claude Code → Codex and back; CLAUDE.md ↔ AGENTS.md (the new agent's kept when both exist); a new
         // conversation; plugins and model reset; instructions, skills, freedom, routines, mail and decisions kept.
@@ -3111,6 +3127,14 @@ final class EngineTests: XCTestCase {
         try handle.close()
         guard case let .diagnostics(again)? = request(client, .diagnostics) else { return XCTFail("no diagnostics") }
         XCTAssertEqual(again.logTail.last, "probe [redacted] [redacted] [redacted] end")
+        // A Claude Code bot's launch token is a UUID, not token-shaped: it is cut by its value (final review).
+        let launchToken = engine.queue.sync { engine.bots[ada.id]!.token }
+        let handle2 = try FileHandle(forWritingTo: paths.log)
+        try handle2.seekToEnd()
+        try handle2.write(contentsOf: Data("leak \(launchToken) end\n".utf8))
+        try handle2.close()
+        guard case let .diagnostics(third)? = request(client, .diagnostics) else { return XCTFail("no diagnostics") }
+        XCTAssertEqual(third.logTail.last, "leak [redacted] end")
         // No secret: neither the bots' launch tokens nor the Codex server's secret, in the page or its text.
         let json = String(decoding: try protocolEncoder().encode(d), as: UTF8.self)
         let secrets = engine.queue.sync { engine.bots.values.map(\.token) + engine.bots.values.map(\.codexToken) }.filter { !$0.isEmpty }
