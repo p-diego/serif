@@ -1652,6 +1652,39 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(client.all.chatEvents(bot.id).map(label).suffix(2), ["turnEnded", "assistantTextReplaced"])
     }
 
+    func testTranscriptRepairMatchesTheWholeTextTheBotGot() throws {
+        // Final review 3: the chat keeps your words, Claude Code's transcript the whole paste (the files' list, the
+        // instructions notice); the repair must match the latter, or it skips exactly the turns 0.7 added.
+        let turn = { (id: String) -> [JSONValue] in
+            [["waitPaste": true],
+             ["hook": ["hook_event_name": "UserPromptSubmit", "prompt": "$PASTE", "prompt_id": .string(id), "transcript_path": "$TRANSCRIPT"]],
+             ["hook": ["hook_event_name": "MessageDisplay", "message_id": .string("m-\(id)"), "index": 0, "delta": "1\n3", "final": true, "prompt_id": .string(id)]],
+             ["hook": ["hook_event_name": "Stop", "prompt_id": .string(id), "transcript_path": "$TRANSCRIPT"]]]
+        }
+        try play([sessionStart] + prompt("p0") + stop("p0") + turn("p1") + turn("p2"))
+        try makeEngine("basic", env: ["SERIF_FAKE_SCENARIO": scenarioFile]).start()
+        let client = try connect()
+        var bob = try createBot(client)
+        waitFor(client, "introduced") { self.turnsEnded($0, bob) == 1 }
+        let writeTranscript = { [transcript] (user: String, assistant: String) throws in
+            let lines: [JSONValue] = [["type": "user", "message": ["content": .string(user)]],
+                                      ["type": "assistant", "message": ["content": [["type": "text", "text": .string(assistant)]]]]]
+            try lines.map(\.compactText).joined(separator: "\n").write(toFile: transcript, atomically: true, encoding: .utf8)
+        }
+        // A message with a file: the transcript holds the text with the files' list under it.
+        guard case let .attached(files)? = request(client, .attach(botId: bob.id, files: [AttachedFile(name: "foto.png", data: Data([1]))]))
+        else { return XCTFail("attach refused") }
+        try writeTranscript(messageText("Look", attachments: files), "1\n2\n3")
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Look", attachments: files)), .ok)
+        waitFor(client, "repaired") { $0.chatEvents(bob.id).contains(.assistantTextReplaced(messageId: "m-p1", text: "1\n2\n3")) }
+        // The first message after an instructions change: the transcript holds the notice, then the message.
+        bob.instructions = "Be kind."
+        guard case .bot = request(client, .updateBot(bob)) else { return XCTFail("update refused") }
+        try writeTranscript(instructionsNotice("Be kind.", before: "Again"), "4\n5\n6")
+        XCTAssertEqual(request(client, .send(botId: bob.id, text: "Again")), .ok)
+        waitFor(client, "repaired again") { $0.chatEvents(bob.id).contains(.assistantTextReplaced(messageId: "m-p2", text: "4\n5\n6")) }
+    }
+
     func testSecondEngineOnSameHomeIsRefused() throws {
         try makeEngine("basic").start()
         let other = try makeEngine("basic")

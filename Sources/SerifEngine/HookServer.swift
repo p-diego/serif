@@ -179,7 +179,9 @@ extension Engine {
     func repairTranscript(_ rt: BotRuntime) {
         let turn = rt.turn
         rt.turn = []
-        guard let path = rt.transcriptPath, case let .userMessage(prompt, _, _, _)? = turn.first else { return }
+        // Against the whole text the bot got (files' list, notice), not the chat's words (spec §4, §6 of 0.7).
+        guard let path = rt.transcriptPath, case .userMessage? = turn.first,
+              let prompt = rt.normalizer.lastPrompt else { return }
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let jsonl = try? String(contentsOfFile: path, encoding: .utf8),
                   let texts = transcriptTexts(transcriptJSONL: jsonl, prompt: prompt) else { return }

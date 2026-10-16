@@ -64,6 +64,9 @@ public struct ClaudeNormalizer {
     private var sent = SentMessages()
     private var transcript: String?
     private var currentPrompt: String?
+    /// The last user message as Claude Code reported it: the whole paste (files' list, instructions notice), which the
+    /// transcript repair matches, while the chat keeps your words (spec §4, §6 of 0.7).
+    public private(set) var lastPrompt: String?
 
     public init() {}
 
@@ -213,6 +216,7 @@ public struct ClaudeNormalizer {
         case "UserPromptSubmit":
             // Blank lines left at either end by an unwrapped paste are not the message.
             let text = unwrappingPastes(p["prompt"]?.string ?? "").trimmingCharacters(in: .newlines)
+            lastPrompt = text
             let m = sent.match(text)
             return [.event(.userMessage(text: m.text, promptId: promptId, origin: m.origin, attachments: m.attachments))]
         case "PermissionRequest":
